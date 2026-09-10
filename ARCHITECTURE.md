@@ -4,7 +4,8 @@
 on, the one dependency rule, and the place your change belongs. It is short on
 purpose and it does not repeat itself.
 
-- Invariants, gotchas and hard-won details → [`CLAUDE.md`](CLAUDE.md) (dense, exhaustive, the reference).
+- Invariants and gotchas → [`CLAUDE.md`](CLAUDE.md) (the index: every rule, short, each pointing at its full story).
+- The hard-won details behind them → [`doc/BUILD.md`](doc/BUILD.md), [`doc/UI_ARCHITECTURE.md`](doc/UI_ARCHITECTURE.md), [`doc/PRESETS.md`](doc/PRESETS.md), [`doc/LOADERS_AND_HOST.md`](doc/LOADERS_AND_HOST.md), [`doc/TESTING.md`](doc/TESTING.md).
 - Every other document → [`doc/README.md`](doc/README.md).
 - Open work → [`TODO.md`](TODO.md). Shipped work → [`CHANGELOG.md`](CHANGELOG.md).
 

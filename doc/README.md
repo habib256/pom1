@@ -17,7 +17,7 @@ to the repo root.
 | [`ARCHITECTURE.md`](../ARCHITECTURE.md) | contributors | **Start here as a human.** The five concepts, the dependency rule and what enforces it, threads and locks, where a change belongs — and what is deliberately not clean. |
 | [`README.md`](../README.md) | users | Feature tour, the 13 presets (3 DevBench + 10 machines), software library, per-card hardware reference. |
 | [`QUICKSTART.md`](../QUICKSTART.md) | new users | Your first Apple-1 program in 5 minutes (BASIC → Wozmon → the Bench). |
-| [`CLAUDE.md`](../CLAUDE.md) | AI / contributors | **Emulator-side architecture, invariants, gotchas.** The auto-loaded entry point: memory map, MMIO, peripheral bus, mutex order, presets, testing. |
+| [`CLAUDE.md`](../CLAUDE.md) | AI / contributors | **The index of emulator-side invariants** — the rules a change must not break, each one short, with a pointer into the five reference docs below (`BUILD` · `UI_ARCHITECTURE` · `PRESETS` · `LOADERS_AND_HOST` · `TESTING`). Auto-loaded every session, so kept small on purpose. Holds the memory map and the MMIO rules in full. |
 | [`CHANGELOG.md`](../CHANGELOG.md) | everyone | Shipped work — emulator (from `TODO.md`) + 6502 software (from [`dev/TODO6502.md`](../dev/TODO6502.md)). |
 | [`TODO.md`](../TODO.md) | contributors | Open **emulator** work as a HANDOVER list, grouped by what can actually be finished: finishable now · the big interesting work · maintenance that only matters if development continues · out of reach without hardware or someone else · deliberately dropped, with reasons. |
 | [`dev/TODO6502.md`](../dev/TODO6502.md) | contributors | Open **6502 software** work — afternoon-sized programs with a visible result, on libraries that already ship. The friendlier entry point of the two. |
@@ -53,6 +53,11 @@ Guides live in [`sketchs/doc/`](../sketchs/doc/). Source, libraries and build co
 | Doc | What |
 |---|---|
 | [`CLI.md`](CLI.md) | **Full CLI flag table** (headless / scripted runs). Implementation: `CliDispatcher.cpp`. |
+| [`BUILD.md`](BUILD.md) | **Build reference** — configure options, `-DPOM1_DEVTOOLS=OFF`, warnings & sanitizers, the two graphics backends, the GLES tier, WASM, the `.sketch.json` contract. Split out of [`CLAUDE.md`](../CLAUDE.md). |
+| [`UI_ARCHITECTURE.md`](UI_ARCHITECTURE.md) | **UI reference** — docking, `PomRenderer`, interface zoom, the CRT stack, `Screen_ImGui`, the Bench and the four editors, `NativeFileDialog`, and the nine pure decision seams extracted out of `MainWindow`. Split out of [`CLAUDE.md`](../CLAUDE.md). |
+| [`PRESETS.md`](PRESETS.md) | **Presets & layout** — the 13 shipped machines and the external preset files registered beside them, `applyMachineConfig`, per-preset ini, window geometry, the fullscreen rules. Split out of [`CLAUDE.md`](../CLAUDE.md). |
+| [`LOADERS_AND_HOST.md`](LOADERS_AND_HOST.md) | **Loaders, containers & host services** — the three hex dialects, WAV/AIFF, card shadowing, the audio seam, the log sink, tape rules. Split out of [`CLAUDE.md`](../CLAUDE.md). |
+| [`TESTING.md`](TESTING.md) | **Testing reference** — the two lanes, per-module coverage, the CMake test model, the three ratchets, and the catalogue of load-bearing pins with the defect each one exists to prevent. Split out of [`CLAUDE.md`](../CLAUDE.md). |
 | [`DEVBENCH.md`](DEVBENCH.md) | POM1 Bench (in-app cc65/Wozmon IDE) — the language×machine target matrix; how release packages bundle cc65. |
 | [`BASIC_COMPILER.md`](BASIC_COMPILER.md) | **Applesoft Lite → 6502 image compiler** (`src/BasicTokeniserApplesoft.*`, `basicc` tool) — tokenize-and-launch an `.apf` ahead of time so it loads + runs with no keyboard injection (GEN2 / TMS9918). |
 | [`SKETCHS.md`](SKETCHS.md) | `sketchs/` folder layout, `.sketch.json` sidecars, copy-me `_template*` starters. |

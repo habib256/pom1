@@ -8,7 +8,58 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 [Keep a Changelog](https://keepachangelog.com/). Versions track the string in
 `src/main_imgui.cpp` / `README.md`.
 
-## [Unreleased]
+## [1.9.6] — 2026-09-10 — « Priorité tenue »
+
+### Fixed — `std::this_thread::yield()` ne cédait rien, et affamait l'UI pendant des dizaines de secondes
+
+`measured_cpu_rate_smoke` a dépassé son budget de 30 s pendant une passe `ctest`
+complète, puis a repassé seul en 17,8 s. Chronométré cinq fois de suite sur une
+machine au repos : **17,8 s, 33,7 s, 135 s, puis deux dépassements de plus de
+90 s**. Une variance pareille n'est pas un budget trop serré, c'est une attente
+qui n'a pas de borne.
+
+Échantillonné via `/proc/<pid>/task/*/wchan` : le thread principal est bloqué en
+`futex_wait` **dès la 6ᵉ seconde et n'en sort plus**, pendant que le thread
+d'émulation brûle 100 % d'un cœur. Personne ne tenait le verrou trop longtemps —
+le `maxStateHoldNs` du test voisin reste en microsecondes. L'attendeur n'était
+simplement jamais laissé entrer.
+
+`PriorityMutex` compte ses attendeurs précisément pour ce cas, et la boucle
+d'émulation appelait `std::this_thread::yield()` quand `hasWaiters()` répondait
+vrai. **Ce yield ne peut rien faire ici**, et pour deux raisons qui se cumulent :
+l'attendeur n'est pas *exécutable-et-en-concurrence* pour notre cœur, il est
+**bloqué** dans `futex_wait` — céder un cœur déjà libre sur une machine à 12
+cœurs ne change aucune décision d'ordonnancement ; et le `std::mutex` de la glibc
+n'est pas FIFO, donc le thread qui relâche le reprend par le chemin rapide
+atomique non contendu avant même que le noyau ait réveillé qui que ce soit.
+
+`PriorityMutex::yieldToWaiters()` remplace le yield : il **dort** par tranches de
+50 µs tant que la file n'est pas drainée (bornée à 64 tours). Dormir est tout
+l'intérêt — cela met le thread d'émulation *hors* du mutex assez longtemps pour
+qu'un attendeur réveillé gagne la course.
+
+Mesuré des deux côtés, sur les échanges de topologie de `concurrent_frontends_smoke`,
+qui comptent la **progression** du thread contendant :
+
+| | échanges de topologie | `measured_cpu_rate_smoke` |
+|---|---|---|
+| `yield()` nu | **1, 27, 5** | 17,8 / 33,7 / 135 / >90 s |
+| `yieldToWaiters()` | **22, 60, 46, 23, 35** | 4,4 s, cinq fois, sans dispersion |
+
+Ces 4,4 s sont exactement les 4,2 s de sommeils délibérés que le test contient :
+les 32 transactions de topologie ne coûtent plus rien. Le cas pathologique à
+**un seul** échange a disparu.
+
+Ce que cela change pour l'utilisateur : à vitesse MAX sous Linux, l'UI ne gèle
+plus en attendant le verrou d'état. Le CHANGELOG de mai notait déjà, à propos du
+plafond `maxStateWaitNs`, que « personne ne tenait le verrou trop longtemps, un
+attendeur a perdu l'ordonnanceur » — c'était la même famine, observée sans être
+diagnostiquée.
+
+`controller_lines` 3111 → 3135 : le correctif et la cicatrice qui l'explique.
+`controller_public_methods` ne bouge pas (203) — `yieldToWaiters()` est une
+méthode de `PriorityMutex`, pas de la façade gelée.
+
 
 ### Fixed — le job TSan mourait avant d'atteindre le code de POM1
 
