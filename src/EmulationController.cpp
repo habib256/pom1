@@ -927,12 +927,14 @@ void EmulationController::emulationLoop()
         // of stateMutex: once runEmulationSlice() releases it, the loop head
         // (audio-lead check) reacquires within nanoseconds. Most schedulers
         // favour re-granting the mutex to the releasing thread, starving any
-        // UI-thread lock() that has been waiting. The yield hint lets the
-        // scheduler run a waiter — it's only issued when PriorityMutex tells
-        // us someone is actually queued, so low-contention workloads (normal
-        // 1×/2× speeds or MAX with idle UI) pay nothing for this.
+        // UI-thread lock() that has been waiting. yieldToWaiters() steps aside
+        // for one — it's only entered when PriorityMutex tells us someone is
+        // actually queued, so low-contention workloads (normal 1×/2× speeds or
+        // MAX with idle UI) pay nothing for this. It replaced a bare
+        // std::this_thread::yield(), which does not work on Linux for the
+        // reason spelled out on the method: see EmulationController.h.
         if (stateMutex.hasWaiters()) {
-            std::this_thread::yield();
+            stateMutex.yieldToWaiters();
         }
     }
 }

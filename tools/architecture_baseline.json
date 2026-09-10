@@ -19,7 +19,7 @@
     "MainWindow_Presets.cpp -> Pom1BenchHost.h"
   ],
   "metric_ceilings": {
-    "controller_lines": 3111,
+    "controller_lines": 3135,
     "controller_public_methods": 203,
     "mainwindow_lines": 17098,
     "memory_lines": 4041,
