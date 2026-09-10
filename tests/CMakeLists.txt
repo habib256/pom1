@@ -1790,6 +1790,39 @@ add_test(NAME measured_cpu_rate_smoke
          WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(measured_cpu_rate_smoke PROPERTIES TIMEOUT 30)
 
+# rom_swap_reset_smoke -- a card transaction that rewrites $E000-$FFFF must
+# re-vector through RESET before the CPU resumes. Without it the program counter
+# is an offset into the ROM that was just replaced, and the new image decodes
+# from the wrong instruction boundary: preset 6 (Krusader) fell into its own BRK
+# handler and printed a register dump instead of its prompt, ~2 nightly TSan runs
+# in 3, because how far the provisional monitor had run is WALL-CLOCK dependent.
+# The control half matters as much: a transaction that rewrites no ROM must leave
+# the program counter exactly where it was.
+add_executable(test_rom_swap_reset
+    rom_swap_reset_smoke_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/EmulationController.cpp
+    ${CMAKE_SOURCE_DIR}/src/EmulationController_State.cpp
+    ${CMAKE_SOURCE_DIR}/src/EmulationController_Machine.cpp
+    ${CMAKE_SOURCE_DIR}/src/EmulationController_Cards.cpp
+    ${CMAKE_SOURCE_DIR}/src/RewindBuffer.cpp
+    ${CMAKE_SOURCE_DIR}/src/SnapshotPublisher.cpp
+    ${CMAKE_SOURCE_DIR}/src/KeyboardController.cpp
+    ${POM1_TEST_CORE_SOURCES}
+)
+target_include_directories(test_rom_swap_reset PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/imgui
+)
+target_link_libraries(test_rom_swap_reset PRIVATE libresidfp_static)
+if(WIN32)
+    target_link_libraries(test_rom_swap_reset PRIVATE ws2_32)
+endif()
+
+add_test(NAME rom_swap_reset_smoke
+         COMMAND test_rom_swap_reset
+         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(rom_swap_reset_smoke PROPERTIES TIMEOUT 60)
+
 # Production concurrency triangle: the controller's real emulation producer,
 # a snapshot/render consumer and the lock-free audio mixer callback. Hardware
 # audio stays disabled, so the synthetic callback is the sole ring consumer.

@@ -220,6 +220,37 @@ pom1::CardConfigurationResult EmulationController::applyCardConfiguration(
             pom1::MachineCoordinator::markCardActive(
                 *memory, pom1::CardId::ExtendedAci);
     }
+    // A ROM swap under a running CPU leaves the program counter pointing into an
+    // image that is no longer there — and resuming it lands MID-INSTRUCTION,
+    // because the old and new ROMs do not agree on where instructions begin.
+    // You cannot change the ROMs of a running Apple-1 either; you press RESET.
+    //
+    // This is not theoretical. `--headless --preset 6` sets no coldReset, so the
+    // sequence was: the constructor loads the provisional ROM set, hard-resets
+    // and starts the thread, so the CPU runs the STOCK Woz Monitor and reaches
+    // its GETLINE; this transaction then stops it, loads Krusader over
+    // $E000-$FFFF without a reset, and resumes the PC it had. Krusader's bytes
+    // at a stock-Monitor offset decoded as `LDX $99FE,Y` followed by $FF27 =
+    // $00 = BRK, so the machine dropped into Krusader's BRK handler and printed
+    // a register dump instead of its prompt. How far the old monitor had got
+    // depends on WALL-CLOCK startup time, which is why the nightly
+    // ThreadSanitizer job saw it (~2 runs in 3) and a normal build did not in 15
+    // — and why a slow or loaded box could hit it for real.
+    //
+    // Only a transaction that actually rewrites the ROM map re-enters: the three
+    // fields below default to Preserve/false, so a preset apply does it and a
+    // plain card toggle cannot (`setCardEnabled` does not come through here at
+    // all). A coldReset path already hard-reset above, before the ROMs loaded.
+    const bool romMapRewritten =
+        request.systemRomProfile !=
+            pom1::CardConfigurationRequest::SystemRomProfile::Preserve ||
+        request.loadKrusader || request.loadCffa1Firmware;
+    if (result && romMapRewritten && !request.coldReset) {
+        // softReset, not hardReset: RESET on a 6502 re-vectors and clears no
+        // RAM, so a program already injected into memory survives.
+        cpu->softReset();
+    }
+
     if (resumeCpu) cpu->start();
     if (request.coldReset && screen) {
         if (request.animateBoot)
