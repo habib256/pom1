@@ -1078,6 +1078,15 @@ private:
     };
     LoadDialogState loadDlg;
 
+    /// Where the built-in browser was last used successfully. It survives
+    /// loadDlg.reset() on purpose: that browser can now leave POM1's packaged
+    /// data directory (it could not, which is why a file of one's own was
+    /// unreachable on any box without a usable native picker), and returning to
+    /// the read-only /tmp AppImage mount on every open would make the escape
+    /// route a chore rather than a fix. Not persisted across sessions -- the
+    /// per-preset ini is about window layout, not about someone's last folder.
+    std::string lastBrowseDir_;
+
     // Snapshot save/load dialog state. Populated on each open: the load
     // path scans `snapshots/` for `.snap` files; the save path pre-fills a
     // timestamped filename. See SnapshotIO.h for the file format and

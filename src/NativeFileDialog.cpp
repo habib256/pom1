@@ -297,9 +297,21 @@ Backend probeBackend()
     return backend();
 }
 
+// Set once the forked helper proves it cannot RUN — as opposed to the user
+// pressing Cancel, which is also a non-zero exit. The two were indistinguishable
+// and both ended as an empty string, so a zenity that died on launch made
+// File ▸ Load Memory do *nothing at all*: no dialog, no fallback, no log line.
+// That is not hypothetical — an AppImage exports its own LD_LIBRARY_PATH, the
+// forked system zenity inherits it, loads POM1's bundled GTK/glib instead of the
+// distribution's and exits before drawing. Uncle Bernie's Mint 17 box is exactly
+// that shape. Once this is true, isAvailable() goes false for the rest of the
+// session and every caller falls back to POM1's own browser.
+bool g_backendUnusable = false;
+
 // Run argv[], capture stdout up to 64 KB. Returns "" when the child exited
 // non-zero (which both zenity and kdialog do on Cancel) or could not be
-// spawned. Newlines are stripped — these tools terminate the path with \n.
+// spawned; the latter also raises g_backendUnusable. Newlines are stripped —
+// these tools terminate the path with \n.
 std::string runChildCapture(const std::vector<std::string>& argv)
 {
     int fds[2];
@@ -368,7 +380,18 @@ std::string runChildCapture(const std::vector<std::string>& argv)
         pump();                          // r == 0: still running (WNOHANG)
         std::this_thread::sleep_for(std::chrono::milliseconds(4));
     }
-    if (!exited || !WIFEXITED(status) || WEXITSTATUS(status) != 0) return {};
+    // 127 is the _exit() above when execvp failed; a signal death (no WIFEXITED)
+    // means it started and crashed. Either way the backend cannot be used, and
+    // saying so is the difference between a fallback and a dead menu item.
+    // Note what happened but do NOT log it from here: this module stays free of
+    // POM1 services (no Logger, no Memory — same standalone rule that keeps it
+    // reusable by the portable editor hosts), and its test links it alone. The
+    // caller notices via isAvailable() going false and says so.
+    if (!exited || !WIFEXITED(status) || WEXITSTATUS(status) == 127) {
+        g_backendUnusable = true;
+        return {};
+    }
+    if (WEXITSTATUS(status) != 0) return {};   // a plain Cancel
     while (!out.empty() && (out.back() == '\n' || out.back() == '\r'))
         out.pop_back();
     return out;
@@ -638,6 +661,10 @@ bool& nativeEnabledFlag()
     return v;
 }
 
+#if !POM1_IS_WASM && defined(__linux__)
+bool backendUnusable() { return g_backendUnusable; }
+#endif
+
 } // namespace
 
 void NativeFileDialog::setEnabled(bool enabled) { nativeEnabledFlag() = enabled; }
@@ -646,6 +673,10 @@ bool NativeFileDialog::defaultEnabled() { return defaultNativeEnabled(); }
 
 bool NativeFileDialog::isAvailable()
 {
+#if !POM1_IS_WASM && defined(__linux__)
+    // A backend that proved it cannot run is not available, whatever $PATH says.
+    if (backendUnusable()) return false;
+#endif
     return nativeEnabledFlag() && platformAvailable();
 }
 

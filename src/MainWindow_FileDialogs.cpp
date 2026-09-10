@@ -7,6 +7,8 @@
 // loaded file's directory hints at a card (Graphic HGR/, Graphic TMS9918/,
 // Apple-1_TMS_CC65/, Graphic gt-6144/, NET/, a1io_rtc/, sdcard/).
 
+#include "FileBrowserDecisions.h"
+#include "Logger.h"
 #include "HexDumpFile.h"
 #include "MainWindow_ImGui.h"
 #include "SoftwareDirRules.h"
@@ -24,6 +26,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <filesystem>
@@ -64,6 +67,29 @@ std::string resolveMemoryDefaultDir(const std::string& base, const std::string& 
     fs::path candidate = fs::path(base) / sub;
     if (fs::is_directory(candidate, ec)) return candidate.string();
     return base;
+}
+
+// The user's home directory, or "" when the environment does not say.
+//
+// The built-in browser needs it for the "Home" shortcut and for `~` expansion,
+// and those exist because that browser is the ONLY picker on WASM and on a box
+// whose zenity/kdialog POM1 cannot use -- where, before this, no file outside
+// POM1's own packaged `software/` tree could be reached at all.
+//
+// Environment only, deliberately: no getpwuid, no SHGetKnownFolderPath. A
+// caller that gets "" degrades to a browser with no Home button and a literal
+// `~`, which is exactly what it had before, rather than to a wrong directory.
+std::string homeDirectory()
+{
+#if defined(_WIN32)
+    if (const char* p = std::getenv("USERPROFILE")) if (*p) return p;
+    const char* drive = std::getenv("HOMEDRIVE");
+    const char* path  = std::getenv("HOMEPATH");
+    if (drive && path && *drive && *path) return std::string(drive) + path;
+#else
+    if (const char* p = std::getenv("HOME")) if (*p) return p;
+#endif
+    return std::string();
 }
 
 // "name.bin" → "bin" (lowercase). Empty when there's no extension.
@@ -126,8 +152,22 @@ void MainWindow_ImGui::loadMemory()
             memoryContextSubdir());
         std::string picked;
         if (!pom1::NativeFileDialog::openFile(window, "Load Memory",
-                                              defDir, filters, picked))
+                                              defDir, filters, picked)) {
+            // A Cancel is a Cancel. But a picker that could not RUN marks itself
+            // unavailable (NativeFileDialog.cpp), and that must not read as "the
+            // user changed their mind" — it used to, and File ▸ Load Memory then
+            // did nothing whatsoever, with nothing in the log. Fall through to
+            // POM1's own browser, which is always there.
+            if (!pom1::NativeFileDialog::isAvailable()) {
+                pom1::log().warn("DIALOG",
+                                 "the native file picker could not run — using POM1's "
+                                 "built-in browser for the rest of this session (a forked "
+                                 "zenity/kdialog inheriting an AppImage's LD_LIBRARY_PATH "
+                                 "is the usual cause)");
+                showLoadDialog = true;
+            }
             return;
+        }
 
         // Stash the chosen path so the same Load-button code path in
         // renderLoadDialog (auto-card-enable, symbol load, status message,
@@ -478,11 +518,17 @@ void MainWindow_ImGui::renderLoadDialog()
             if (!loadDlg.filesScanned) {
                 if (loadDlg.softAsmRoot.empty()) {
                     loadDlg.softAsmRoot = resolveDataDir("software");
-                    // Start inside the active card's sub-folder when it is the
-                    // sole content card (loadDlg.reset() clears these on every
-                    // open, so this re-seeds the context each time).
-                    // softAsmRoot stays the root so ".." nav is still confined.
-                    if (!loadDlg.softAsmRoot.empty())
+                    // Where to START. `softAsmRoot` is now only the anchor the
+                    // header shortens against and the "Programs" button returns
+                    // to -- it no longer BOUNDS anything (see the `..` row).
+                    // A directory the user browsed to in an earlier open wins,
+                    // because the alternative is walking out of the data
+                    // directory again on every single load; otherwise it is the
+                    // active card's sub-folder, as before.
+                    if (!lastBrowseDir_.empty()
+                        && std::filesystem::is_directory(lastBrowseDir_))
+                        loadDlg.currentDir = lastBrowseDir_;
+                    else if (!loadDlg.softAsmRoot.empty())
                         loadDlg.currentDir = resolveMemoryDefaultDir(
                             loadDlg.softAsmRoot, memoryContextSubdir());
                 }
@@ -512,18 +558,41 @@ void MainWindow_ImGui::renderLoadDialog()
                 loadDlg.filesScanned = true;
             }
 
-            {
-                std::string displayPath = "software/";
-                if (loadDlg.currentDir.size() > loadDlg.softAsmRoot.size())
-                    displayPath += loadDlg.currentDir.substr(loadDlg.softAsmRoot.size() + 1) + "/";
-                ImGui::Text("%s", displayPath.c_str());
+            // Where we are. Relative + short inside the data root, ABSOLUTE
+            // once we have left it -- the old form printed "software/" plus a
+            // substring offset taken from the root's length, which outside the
+            // root read as "software/" over a listing of /home/somebody.
+            ImGui::TextWrapped("%s", pom1::filebrowser::displayDirectory(
+                                         loadDlg.currentDir, loadDlg.softAsmRoot).c_str());
+
+            // Two shortcuts, because a browser that can go anywhere still has to
+            // make the two places anyone wants cheap to reach.
+            if (ImGui::SmallButton("Programs")) {
+                loadDlg.currentDir = resolveMemoryDefaultDir(loadDlg.softAsmRoot,
+                                                             memoryContextSubdir());
+                loadDlg.filesScanned = false;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The programs shipped with POM1 (software/)");
+            const std::string home = homeDirectory();
+            if (!home.empty()) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Home")) {
+                    loadDlg.currentDir = home;
+                    loadDlg.filesScanned = false;
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", home.c_str());
             }
 
             ImGui::BeginChild("FileList", ImVec2(-1, 360), true);
 
-            if (loadDlg.currentDir != loadDlg.softAsmRoot) {
+            // `..` all the way to the filesystem root. It used to stop at
+            // softAsmRoot, on purpose -- which made every file the user owns
+            // unreachable, since that root is wherever ResourceLocator found
+            // `software/`: inside an AppImage, the read-only /tmp self-mount.
+            if (auto up = pom1::filebrowser::parentDirectory(loadDlg.currentDir)) {
                 if (ImGui::Selectable(".. /", false)) {
-                    loadDlg.currentDir = std::filesystem::path(loadDlg.currentDir).parent_path().string();
+                    loadDlg.currentDir = *up;
                     loadDlg.filesScanned = false;
                 }
             }
@@ -552,13 +621,44 @@ void MainWindow_ImGui::renderLoadDialog()
             // Show just the chosen filename (read-only) so the user knows what
             // they're loading. Path field stays editable in case they want to
             // tweak it; full browser is gone — they can Cancel and re-pick.
+            // The comment here used to say "Path field stays editable in case
+            // they want to tweak it" over a TextWrapped, which is read-only.
+            // It is an InputText now, so the claim is true: this window is the
+            // one a .bin lands in, and being unable to correct the path in it
+            // is half of "I tried to enter a full path ... it does not work".
             ImGui::TextDisabled("File:");
-            ImGui::SameLine();
-            ImGui::TextWrapped("%s", loadDlg.filePath);
-        } else {
-            ImGui::Text("Selected file:");
             ImGui::SetNextItemWidth(-1);
-            ImGui::InputText("##filepath", loadDlg.filePath, sizeof(loadDlg.filePath));
+            if (ImGui::InputText("##filepathro", loadDlg.filePath, sizeof(loadDlg.filePath))) {
+                if (auto t = pom1::filebrowser::impliedType(loadDlg.filePath))
+                    loadDlg.fileType = static_cast<int>(*t);
+            }
+        } else {
+            ImGui::Text("Selected file (or type a full path, ~ accepted):");
+            ImGui::SetNextItemWidth(-1);
+            // A TYPED path now decides the loader exactly as a CLICKED one
+            // does. It did not, and the field defaults to hex dump, so typing
+            // the full path of a raw .bin handed a binary image to the WOZMON
+            // text parser -- which refused it, correctly, on a good file.
+            // Only an extension that IMPLIES something moves the radio, so an
+            // unknown one leaves the user's explicit choice alone.
+            if (ImGui::InputText("##filepath", loadDlg.filePath, sizeof(loadDlg.filePath))) {
+                if (auto t = pom1::filebrowser::impliedType(loadDlg.filePath))
+                    loadDlg.fileType = static_cast<int>(*t);
+            }
+            // Enter on a directory navigates there instead of failing the load.
+            {
+                const std::string typed = pom1::filebrowser::expandHome(
+                    loadDlg.filePath, homeDirectory());
+                std::error_code ec;
+                if (!typed.empty() && std::filesystem::is_directory(typed, ec)) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Go")) {
+                        loadDlg.currentDir = typed;
+                        loadDlg.filesScanned = false;
+                        loadDlg.filePath[0] = '\0';
+                    }
+                }
+            }
 
             ImGui::RadioButton("Binary (.bin)", &loadDlg.fileType, 0);
             ImGui::SameLine();
@@ -578,7 +678,19 @@ void MainWindow_ImGui::renderLoadDialog()
             uint16_t addr = 0;
             if (loadDlg.fileType == 0)
                 addr = (uint16_t)strtol(loadDlg.addressStr, nullptr, 16);
-            performMemoryLoad(loadDlg.filePath, loadDlg.fileType, addr);
+            // `~/demo.bin` is how a typed escape route is written; without this
+            // it resolves to a literal "~" directory and fails as "no such file".
+            const std::string chosen = pom1::filebrowser::expandHome(
+                loadDlg.filePath, homeDirectory());
+            if (performMemoryLoad(chosen, loadDlg.fileType, addr)) {
+                // Come back here next time rather than to the packaged data
+                // directory: one walk out of it per session is enough.
+                std::error_code ec;
+                std::filesystem::path parent =
+                    std::filesystem::path(chosen).parent_path();
+                if (!parent.empty() && std::filesystem::is_directory(parent, ec))
+                    lastBrowseDir_ = parent.string();
+            }
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel", uiPx(ImVec2(120, 0)))) {
