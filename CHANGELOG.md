@@ -10,6 +10,56 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Fixed — Krusader tombait dans son propre gestionnaire de BRK : on ne change pas les ROMs d'un Apple-1 en marche
+
+Le rouge du nocturne ThreadSanitizer sur `headless_preset_matrix` depuis le
+8 septembre — *« FAIL preset 6 prompt F000R missing 'KRUSADER 1.3 BY KEN
+WESSEN' »*, sans un seul avertissement TSan. La piste `--paste-at-cycle` avait
+été écartée par la mesure ; l'entrée précédente le disait. Voici la vraie cause.
+
+`--headless --preset 6` ne demande pas de `coldReset`. La séquence était donc :
+le constructeur charge le jeu de ROMs provisoire, fait un reset matériel et
+démarre le thread — le CPU exécute le **moniteur Woz d'origine** et atteint son
+`GETLINE` ; la transaction de preset l'arrête ensuite, écrit Krusader par-dessus
+`$E000-$FFFF` **sans reset**, et reprend le compteur de programme là où il
+était. Or l'ancienne et la nouvelle image ne s'accordent pas sur l'endroit où
+commencent les instructions : à l'offset atteint par le moniteur, les octets de
+Krusader se décodent en `LDX $99FE,Y` puis `$FF27` = `$00` = **BRK**. La machine
+entrait dans le gestionnaire de BRK de Krusader et imprimait un dump de
+registres au lieu de son invite, comme si elle avait reçu une frappe que
+personne n'a envoyée.
+
+Jusqu'où le moniteur provisoire avait couru dépend du **temps de démarrage en
+horloge murale**. C'est pour cela que le nocturne instrumenté le voyait environ
+2 runs sur 3 et qu'un build normal ne l'a jamais montré en quinze — et c'est
+aussi pour cela qu'une machine lente ou chargée pouvait le rencontrer pour de
+bon, ce qui en fait un défaut d'utilisateur et pas une curiosité de CI.
+
+La correction est celle du matériel : on ne change pas les ROMs d'un Apple-1 en
+marche, **on appuie sur RESET**. Une transaction qui réécrit la carte des ROMs
+re-vectorise par `$FFFC` avant de relancer le CPU — `softReset`, pas
+`hardReset`, parce qu'un RESET 6502 n'efface aucune RAM et qu'un programme déjà
+injecté doit survivre. Seule une transaction qui réécrit réellement les ROMs y
+entre : les trois champs concernés valent `Preserve`/`false` par défaut, donc un
+simple branchement de carte ne réinitialise rien (et `setCardEnabled` ne passe
+pas par ce chemin du tout).
+
+Épinglé par **`rom_swap_reset_smoke`**, qui tient les deux moitiés de la règle :
+après un échange de ROM sans `coldReset` le compteur de programme est le vecteur
+`$FFFC` **relu dans la nouvelle image**, la RAM utilisateur `$0200-$1FFF` en
+ressort intacte, et une transaction qui ne réécrit aucune ROM laisse le compteur
+exactement où il était. Sans le correctif, le test échoue sur les deux premiers
+points. Le symptôme, lui, n'est pas épinglable : c'est une course.
+
+Deux plafonds montent d'un cran, et ce qui les achète est nommé ici comme la
+règle l'exige. `controller_lines` passe de 3135 à 3166 : trente et une lignes
+dont la quasi-totalité est le commentaire qui raconte ce décodage — la seule
+chose qui empêchera quelqu'un de retirer ce reset en le prenant pour une
+précaution. Le fan-out d'`EmulationController.h` passe de 18 à 19, et
+l'entrant est `tests/rom_swap_reset_smoke_test.cpp` : le compteur balaie
+`tests/*.cpp` autant que `src/`, donc **tout** nouveau test de ce façade le fait
+monter. C'est un consommateur de test, pas un couplage de production.
+
 ### Fixed — le diagnostic du nocturne TSan était faux, et c'est corrigé dans `TODO.md`
 
 Pas un correctif de code : un correctif de **diagnostic**, ce qui compte autant
