@@ -1,9 +1,12 @@
 [Desktop Entry]
 Type=Application
-# Desktop Entry SPEC version, not POM1's — a validator rejects a value it does
-# not know, and bookworm's (the Pi release container) stops at 1.4. 1.1 is what
-# this file actually needs: Keywords= arrived in 1.1, nothing here is newer.
-Version=1.1
+# NO Version= key, deliberately. It names the Desktop Entry SPEC version (never
+# POM1's), it is OPTIONAL, and a validator treats a value it does not recognise
+# as a hard ERROR — which is how the Pi release job died twice: linuxdeploy's
+# aarch64 build refused 1.5, then refused 1.1, while the x86_64 build of the
+# same tag accepted both. Absent, there is no value left to reject; a key
+# introduced after the declared version would only ever have been a warning, so
+# the key was buying nothing and costing a release job. Do not re-add it.
 Name=POM1
 GenericName=Apple 1 Emulator
 Comment=Dear ImGui emulator of the 1976 Apple 1 with 6502, ACI cassette, and a full stack of expansion cards.
