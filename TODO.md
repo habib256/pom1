@@ -62,6 +62,17 @@ bas de ce fichier, avec la raison et la condition de réactivation.
 
 Le travail qu'on peut réellement terminer, par ordre de rendement.
 
+- [ ] **`--paste-at-cycle` n'est pas déterministe : le thread d'émulation vole des cycles non comptés** `[M · solid]` — le commentaire de `runCyclesWithTimedPastes` (`main_imgui.cpp`) promet que deux runs headless tombent « sur la MÊME image quelle que soit la vitesse de l'hôte ». C'est faux. `runCyclesSync` appelle `stopCpu()`, qui pose `running=0` sans verrou pour que la tranche en vol sorte « en une instruction » — mais *une instruction* est un nombre de cycles **variable**, décidé par l'endroit où le thread d'émulation se trouvait. Ces cycles-là ne sont comptés par personne, et la machine avance d'une quantité inconnue avant chaque injection.
+
+  Reproduit : `headless_preset_matrix` échoue en nocturne sous TSan depuis le 8 septembre (`FAIL preset 6 prompt F000R missing 'KRUSADER 1.3 BY KEN WESSEN'`), **sans un seul avertissement ThreadSanitizer** — la course de libresidfp corrigée le 2 septembre était une autre cause. La même commande, mêmes cycles :
+
+      build/POM1       →  PC=$FEEA, PC=$FEEA, PC=$FEEA         (stable)
+      build-san/POM1   →  PC=$FEEA, PC=$FF46, PC=$FF46         (instable)
+
+  Sur le build instrumenté la capture montre `-F\r-0\r-0\r-0\r-R` : les six touches de `F000R\r` arrivent alors que le moniteur n'est plus où on le croit, et Krusader les lit une par une au lieu d'assembler la ligne. TSan ne fait qu'élargir la fenêtre — un hôte chargé suffit, ce qui met aussi les goldens graphiques (`gfx_regress_*`, qui utilisent le même chemin) à la merci de la charge de la machine.
+
+  Le correctif n'est pas une rustine : il faut que le thread asynchrone ne tourne **jamais** sur ce chemin, donc parquer le CPU avant la phase C et laisser `runCyclesSync` compter le boot du moniteur lui-même. Cela déplace le point de départ de chaque run déterministe, donc les images goldens doivent être re-vérifiées dans la foulée — c'est ce qui en fait une session à part entière plutôt qu'un `fix()` de fin de journée.
+
 - [ ] **Donner un second observable aux micro-tests** `[M · solid]` — `tools/test_lib_micro.py` ne lit qu'une boîte aux lettres en RAM, donc il ne peut rien dire des bibliothèques dont l'effet est un affichage ou une écriture sans relecture : `text40/`, `apple1/print*`, `gt6144/`. POM1 capture déjà le texte de l'écran en headless (`headless display capture:` dans le journal, et le verbe `screen` du canal de contrôle). Exposer cette capture au harnais — un en-tête `EXPECT-SCREEN:` — rendrait ces trois-là testables ; c'est ce qui manque pour finir l'item « dix micro-tests ».
 - [ ] **Trancher le sort de `dev/lib/gt6144/`** `[S · nice]` — son propre en-tête dit *« STATUS: not yet adopted — both demos still carry inline copies; migrate them onto this module or retire it »*. Deux ans que le module attend son premier consommateur. Migrer `gt6144_demo_hello` et `gt6144_demo_life` dessus, ou le retirer — mais pas le laisser en dette.
 - [ ] **Corriger la dérive de `sdcard/TMS/DIAPO#060300`** `[S · solid]` — l'artefact livré fait 580 octets, une reconstruction depuis `sketchs/tms9918/tool_diapo/` en produit 600. Le binaire embarqué n'a pas été bâti depuis la source présente. Rebâtir et recommiter, ou retrouver pourquoi la source a divergé — mais les deux ne peuvent pas rester en désaccord.
