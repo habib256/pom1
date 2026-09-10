@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🍎 POM1 v1.9.5 — Apple 1 Emulator
+# 🍎 POM1 v1.9.6 — Apple 1 Emulator
 
 ### *The 1976 personal computer revolution, faithfully reborn — with 50 years of expansion cards bolted on.*
 
@@ -416,9 +416,10 @@ cd build && make -j && ctest    # ~2 min, 126 tests
 point: five concepts, the dependency rule and what enforces it, threads and
 locks, a table saying where your change goes, and an honest section on what is
 deliberately *not* clean. Then [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
-house rules and the automated gates. [`CLAUDE.md`](CLAUDE.md) is the exhaustive
-reference underneath both — every invariant and every scar, worth grepping when
-something surprises you.
+house rules and the automated gates. [`CLAUDE.md`](CLAUDE.md) is the invariant
+index underneath both, and the five reference docs it points at under
+[`doc/`](doc/README.md) hold every scar in full — worth grepping when something
+surprises you.
 
 Open work lives in [`TODO.md`](TODO.md) (emulator, in French) and
 [`dev/TODO6502.md`](dev/TODO6502.md) (6502 software). The full documentation

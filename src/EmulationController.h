@@ -18,6 +18,7 @@
 #include "LockOrder.h"
 #include "POM1Build.h"
 #if !POM1_IS_WASM
+#include <chrono>
 #include <thread>
 #endif
 
@@ -99,6 +100,25 @@ public:
     bool hasWaiters() const {
         return waiters_.load(std::memory_order_relaxed) > 0;
     }
+    /// Step aside for a queued waiter — the emulation thread calls this right
+    /// after releasing the mutex in MAX speed. A bare `std::this_thread::yield()`
+    /// stood here and does NOTHING on an idle multi-core host: the waiter is not
+    /// runnable-and-competing for our CPU, it is BLOCKED in `futex_wait`, so
+    /// yielding a core that is already free changes no scheduling decision, and
+    /// glibc's `std::mutex` is not FIFO — we re-take it through the uncontended
+    /// atomic fast path before the kernel has woken anyone. That starved the
+    /// waiter for tens of SECONDS on Linux (`measured_cpu_rate_smoke` blew a 30 s
+    /// budget while max HOLD stayed in the microseconds: nobody held the lock too
+    /// long, the waiter was never let in). Sleeping is the point — it puts this
+    /// thread OFF the mutex long enough for a woken waiter to win. Measured over
+    /// `concurrent_frontends_smoke`'s topology swaps: 1/27/5 before, 22/60/46/23/35
+    /// after. Only entered when someone is queued, so uncontended MAX pays nothing.
+#if !POM1_IS_WASM
+    void yieldToWaiters() {
+        for (int round = 0; round < kBackoffRounds && hasWaiters(); ++round)
+            std::this_thread::sleep_for(std::chrono::microseconds(kBackoffMicros));
+    }
+#endif
     void copyRealtimeDiagnostics(pom1::RealtimeDiagnostics& out) const {
 #if POM1_REALTIME_DIAGNOSTICS
         out.stateLockAcquisitions = acquisitions_.load(std::memory_order_relaxed);
@@ -109,6 +129,8 @@ public:
 #endif
     }
 private:
+    static constexpr int kBackoffRounds = 64;
+    static constexpr int kBackoffMicros = 50;
     std::mutex mtx_;
     std::atomic<int> waiters_{0};
 #if POM1_REALTIME_DIAGNOSTICS

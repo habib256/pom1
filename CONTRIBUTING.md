@@ -76,7 +76,8 @@ and public-method counts that may only go *down*.
 ## House rules
 
 These are the ones a newcomer trips over. The reasoning behind each is in
-[`CLAUDE.md`](CLAUDE.md), which is the exhaustive reference — grep it whenever
+[`CLAUDE.md`](CLAUDE.md), which indexes every invariant and points at the five
+reference docs under [`doc/`](doc/README.md) — grep it whenever
 something surprises you.
 
 - **Decisions leave the UI.** `MainWindow_*` is ~17 000 lines with almost no
