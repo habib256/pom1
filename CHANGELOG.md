@@ -10,6 +10,34 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Fixed — le diagnostic du nocturne TSan était faux, et c'est corrigé dans `TODO.md`
+
+Pas un correctif de code : un correctif de **diagnostic**, ce qui compte autant
+dans un dépôt dont les notes servent de mémoire.
+
+En instruisant le rouge de `headless_preset_matrix` sous ThreadSanitizer j'avais
+accusé `--paste-at-cycle` : `stopCpu()` laisse la tranche en vol sortir « en une
+instruction », soit un nombre de cycles variable que personne ne compte, donc la
+machine avance d'une quantité inconnue avant chaque injection. C'est une vraie
+fuite d'étanchéité, et ce **n'est pas** ce défaut-ci. Deux mesures l'écartent :
+espacer les touches de 500 000 cycles au lieu de 100 000 rend le résultat
+*déterministe et toujours faux*, et le même écart apparaît **sans aucune touche
+injectée**.
+
+Ce que l'écart est réellement : sur le preset 6, Krusader affiche un dump de
+registres et une ligne de désassemblage puis son invite `-`, comme s'il avait reçu
+une frappe que personne n'a envoyée — **2 runs sur 3** sous TSan, jamais sur le
+build normal. Le preset 3 (nu) est stable 3/3, et le preset 6 **sans l'ACI**
+montre le défaut 3/3 : ce n'est donc ni le chemin clavier générique, ni la
+cassette, et le retirer rend même le défaut systématique. C'est spécifique à la
+charge ROM Krusader.
+
+L'entrée de `TODO.md` porte les mesures, ce qui est déjà innocenté, et la piste
+(qui peut poser le strobe `$D010`/`$D011` sans frappe) — avec un avertissement
+explicite de ne pas repartir de l'hypothèse réfutée. Laisser un diagnostic faux
+dans une liste de reprise coûte plus cher que de n'en laisser aucun.
+
+
 ### Fixed — on ne pouvait charger aucun fichier à soi : le navigateur de POM1 était enfermé dans son propre répertoire de données
 
 Signalé par Uncle Bernie le 8 septembre, en développant des démos pour sa propre
