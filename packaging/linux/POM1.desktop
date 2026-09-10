@@ -1,6 +1,9 @@
 [Desktop Entry]
 Type=Application
-Version=1.5
+# Desktop Entry SPEC version, not POM1's — a validator rejects a value it does
+# not know, and bookworm's (the Pi release container) stops at 1.4. 1.1 is what
+# this file actually needs: Keywords= arrived in 1.1, nothing here is newer.
+Version=1.1
 Name=POM1
 GenericName=Apple 1 Emulator
 Comment=Dear ImGui emulator of the 1976 Apple 1 with 6502, ACI cassette, and a full stack of expansion cards.
