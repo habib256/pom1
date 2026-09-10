@@ -1,6 +1,9 @@
 #ifndef GEN2VIDEOSCANNER_H
 #define GEN2VIDEOSCANNER_H
 
+#include <cstddef>   // size_t — not guaranteed by <cstdint>/<vector>; bookworm's
+                     // arm64 libstdc++ is the one that does not leak it (the Pi
+                     // release job died here while every other tier compiled).
 #include <cstdint>
 #include <utility>
 #include <vector>
