@@ -563,7 +563,8 @@ void MainWindow_ImGui::renderLoadDialog()
             // substring offset taken from the root's length, which outside the
             // root read as "software/" over a listing of /home/somebody.
             ImGui::TextWrapped("%s", pom1::filebrowser::displayDirectory(
-                                         loadDlg.currentDir, loadDlg.softAsmRoot).c_str());
+                                         loadDlg.currentDir, loadDlg.softAsmRoot,
+                                         "software/").c_str());
 
             // Two shortcuts, because a browser that can go anywhere still has to
             // make the two places anyone wants cheap to reach.
@@ -780,19 +781,35 @@ void MainWindow_ImGui::renderLoadTapeDialog()
             ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
                                "cassettes/ directory not found next to the executable.");
         } else {
-            std::string displayPath = "cassettes/";
-            if (loadTapeDlg.currentDir.size() > loadTapeDlg.cassettesRoot.size())
-                displayPath += loadTapeDlg.currentDir.substr(loadTapeDlg.cassettesRoot.size() + 1) + "/";
-            ImGui::Text("%s", displayPath.c_str());
+            // Same two fixes as the memory browser above, for the same reason:
+            // this dialog was confined to `cassettes/` and printed a fixed
+            // prefix plus a substring offset taken from the root's LENGTH. A
+            // tape of one's own -- an ACIace .aiff, a recording made elsewhere
+            // -- was unreachable on any box without a usable native picker.
+            ImGui::TextWrapped("%s", pom1::filebrowser::displayDirectory(
+                                         loadTapeDlg.currentDir,
+                                         loadTapeDlg.cassettesRoot,
+                                         "cassettes/").c_str());
+            if (ImGui::SmallButton("Cassettes")) {
+                loadTapeDlg.currentDir = loadTapeDlg.cassettesRoot;
+                loadTapeDlg.rescan();
+            }
+            const std::string tapeHome = homeDirectory();
+            if (!tapeHome.empty()) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Home")) {
+                    loadTapeDlg.currentDir = tapeHome;
+                    loadTapeDlg.rescan();
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tapeHome.c_str());
+            }
         }
 
         ImGui::BeginChild("TapeFileList", ImVec2(-1, 200), true);
 
-        if (!loadTapeDlg.cassettesRoot.empty() &&
-            loadTapeDlg.currentDir != loadTapeDlg.cassettesRoot) {
+        if (auto tapeUp = pom1::filebrowser::parentDirectory(loadTapeDlg.currentDir)) {
             if (ImGui::Selectable(".. /", false)) {
-                loadTapeDlg.currentDir =
-                    std::filesystem::path(loadTapeDlg.currentDir).parent_path().string();
+                loadTapeDlg.currentDir = *tapeUp;
                 loadTapeDlg.rescan();
             }
         }

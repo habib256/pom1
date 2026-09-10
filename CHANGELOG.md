@@ -70,8 +70,17 @@ fonctionné, et le canal `--cmd-port` aussi. Le chargeur acceptait les chemins
 absolus depuis toujours ; seul le sélecteur ne pouvait pas y arriver. C'est le
 contournement immédiat.
 
-`mainwindow_lines` 17098 → 17219 : la boîte de dialogue réécrite et les
-cicatrices qui l'expliquent. Aucun plafond de façade ne bouge.
+**Le même défaut existait à l'identique dans la boîte des cassettes** — `..`
+supprimée à `cassettesRoot`, même en-tête calculé sur la LONGUEUR de la racine.
+Une bande à soi (un `.aiff` d'ACIace, un enregistrement fait ailleurs) était donc
+tout aussi inatteignable. Elle passe par les deux mêmes fonctions plutôt que de
+recevoir une seconde copie de la règle ; c'est pourquoi le nom de la racine
+(`software/`, `cassettes/`) est un PARAMÈTRE de `displayDirectory` et non un
+littéral. La boîte des snapshots, elle, ne navigue pas du tout — elle liste
+`snapshots/` à plat — et reste en l'état : ce sont les fichiers de POM1.
+
+`mainwindow_lines` 17098 → 17236 : les deux boîtes réécrites et les cicatrices
+qui les expliquent. Aucun plafond de façade ne bouge.
 
 ## [1.9.6] — 2026-09-10 — « Priorité tenue »
 

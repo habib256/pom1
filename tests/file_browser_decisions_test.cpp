@@ -74,18 +74,25 @@ int main()
 
     // ---- 4. The header says where you actually are -------------------------
     const std::string root = "/tmp/.mount_POM1abc/usr/share/POM1/software";
-    assert(displayDirectory(root, root) == "software/");
-    assert(displayDirectory(root + "/Graphic HGR", root) == "software/Graphic HGR/");
-    assert(displayDirectory(root + "/a/b", root) == "software/a/b/");
+    assert(displayDirectory(root, root, "software/") == "software/");
+    assert(displayDirectory(root + "/Graphic HGR", root, "software/") == "software/Graphic HGR/");
+    assert(displayDirectory(root + "/a/b", root, "software/") == "software/a/b/");
     // Outside the root the old code printed "software/" plus a substring offset
     // taken from the root's LENGTH -- meaningless once you have left, and it
     // read as "software/" while the listing showed /home/bernie.
-    assert(displayDirectory("/home/bernie", root) == "/home/bernie");
-    assert(displayDirectory("/home/bernie/", root) == "/home/bernie");
-    assert(displayDirectory("/", root) == "/");
+    assert(displayDirectory("/home/bernie", root, "software/") == "/home/bernie");
+    assert(displayDirectory("/home/bernie/", root, "software/") == "/home/bernie");
+    assert(displayDirectory("/", root, "software/") == "/");
     // A sibling that merely SHARES the prefix is not inside it.
-    assert(displayDirectory(root + "_old", root) == root + "_old");
-    assert(displayDirectory("", root).empty());
+    assert(displayDirectory(root + "_old", root, "software/") == root + "_old");
+    assert(displayDirectory("", root, "software/").empty());
+    // The label is a PARAMETER: the cassette browser had the same confinement
+    // and the same header bug, and a baked-in "software/" would have left it a
+    // second copy of this rule rather than a second caller of it.
+    assert(displayDirectory("/x/cassettes", "/x/cassettes", "cassettes/") == "cassettes/");
+    assert(displayDirectory("/x/cassettes/demo", "/x/cassettes", "cassettes/")
+           == "cassettes/demo/");
+    assert(displayDirectory("/home/bernie", "/x/cassettes", "cassettes/") == "/home/bernie");
 
     // ---- 5. `..` goes all the way up, and stops where the filesystem does --
     // The confinement being gone is the primary fix: `..` used to vanish at the
