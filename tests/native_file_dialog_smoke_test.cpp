@@ -139,6 +139,40 @@ int main()
         std::cout << "[4] no pump: blocking wait still returns " << out << "\n";
     }
 
+    // ---- 5: a picker that cannot RUN is not a Cancel -----------------------
+    //
+    // Exit 127 is what the forked child's _exit() reports when execvp failed,
+    // and a signal death means it started and crashed. Both used to be
+    // indistinguishable from a Cancel — every path ended as an empty string —
+    // so File ▸ Load Memory did NOTHING: no dialog, no fallback, no log line.
+    // Uncle Bernie reported exactly that shape on a Mint 17 box (an AppImage
+    // exports its own LD_LIBRARY_PATH, the forked system zenity inherits it,
+    // loads POM1's bundled GTK instead of the distribution's, and dies).
+    //
+    // The contract is that the backend disarms ITSELF, so every caller can ask
+    // one question — isAvailable() — and fall back to POM1's own browser. This
+    // section must run LAST: the flag is deliberately sticky for the session.
+    {
+        assert(pom1::NativeFileDialog::isAvailable() &&
+               "precondition: the fake zenity above is still on $PATH");
+
+        installFakeZenity(sandbox / "bin5", 0, "", 127);   // exec-failure shape
+        std::string out;
+        const bool ok = pom1::NativeFileDialog::openFile(
+            nullptr, "probe", "", {}, out);
+        assert(!ok && out.empty() && "a picker that cannot run reports no path");
+        assert(!pom1::NativeFileDialog::isAvailable() &&
+               "a picker that cannot run must disarm itself so callers fall back");
+
+        // And it STAYS disarmed even though $PATH now holds a perfectly good
+        // one: re-probing per call would put the dead picker back in front of
+        // the user on their next Load, which is the loop this replaces.
+        installFakeZenity(sandbox / "bin6", 0, "/tmp/works.txt", 0);
+        assert(!pom1::NativeFileDialog::isAvailable() &&
+               "the disarm is sticky for the session");
+        std::cout << "[5] unusable backend disarms itself, stays disarmed\n";
+    }
+
     fs::remove_all(sandbox);
     std::cout << "native_file_dialog_smoke: OK\n";
     return 0;

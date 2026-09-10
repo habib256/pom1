@@ -8,6 +8,71 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 [Keep a Changelog](https://keepachangelog.com/). Versions track the string in
 `src/main_imgui.cpp` / `README.md`.
 
+## [Unreleased]
+
+### Fixed — on ne pouvait charger aucun fichier à soi : le navigateur de POM1 était enfermé dans son propre répertoire de données
+
+Signalé par Uncle Bernie le 8 septembre, en développant des démos pour sa propre
+carte graphique : *« with the LOAD menu option it seems to be impossible to
+access a file which is not in the weird .tmp path made by POM1 »*, et entrer un
+chemin complet *« does not work »*. Les deux étaient vrais, et ce n'était pas un
+seul défaut mais **trois**, tous sur les machines dont POM1 ne peut pas utiliser
+le sélecteur natif — donc WASM, un bureau Linux sans zenity/kdialog, et le
+défaut du Raspberry Pi.
+
+**1. Le navigateur ne pouvait pas sortir du répertoire de données.** La ligne
+`..` n'était proposée que `if (currentDir != softAsmRoot)` — délibérément, le
+commentaire le disait — et rien d'autre ne pouvait déplacer le répertoire
+courant. Or cette racine est là où `ResourceLocator` a trouvé `software/` : dans
+une AppImage, c'est l'auto-montage `/tmp/.mount_POM1xxxxxx/usr/share/POM1/software`.
+Le *« weird .tmp path »* de Bernie est exactement cela — un répertoire en lecture
+seule dans lequel personne ne peut rien déposer. **Aucun fichier à soi n'était
+donc atteignable.** `..` monte maintenant jusqu'à la racine du système de
+fichiers, deux raccourcis (*Programs*, *Home*) rendent les deux destinations
+utiles immédiates, et le répertoire visité survit à la fermeture de la boîte :
+sortir une fois du montage par session suffit.
+
+**2. Un chemin TAPÉ ne décidait pas du chargeur, alors qu'un chemin CLIQUÉ le
+faisait** (`fileType = ext == "bin" ? 0 : 1`). Le champ vaut 1 = dump hexa par
+défaut, donc taper le chemin complet d'un `.bin` brut confiait une image binaire
+à l'analyseur de texte WOZMON, qui la refusait — correctement, sur un fichier
+parfaitement valide. C'est tout le *« it does not work »*. L'extension tapée
+déplace désormais le bouton radio, et `~/demo.bin` est développé ; une extension
+inconnue ne déplace **rien**, pour ne jamais écraser un choix explicite.
+
+**3. La fenêtre « Load Binary — Address » affichait le chemin en lecture seule**,
+sous un commentaire affirmant *« Path field stays editable in case they want to
+tweak it »*. C'est un `InputText` maintenant, donc l'affirmation est vraie.
+
+**Et un quatrième, qui aurait pu empêcher le correctif d'arriver jusqu'à lui.**
+`runChildCapture` renvoyait une chaîne vide aussi bien pour une annulation que
+pour un sélecteur **incapable de démarrer** — deux sorties non nulles
+indistinguables. Résultat : File ▸ Load Memory ne faisait **rien du tout**, ni
+boîte, ni repli, ni ligne de journal. Ce n'est pas théorique : une AppImage
+exporte son propre `LD_LIBRARY_PATH`, le zenity du système hérite, charge la GTK
+embarquée de POM1 au lieu de celle de la distribution et meurt avant de
+dessiner — la forme exacte d'une Mint 17. La sortie 127 (échec d'`execvp`) et la
+mort par signal désarment désormais le backend pour la session, `isAvailable()`
+passe à faux et l'appelant bascule sur le navigateur interne. `NativeFileDialog`
+reste sans dépendance aux services POM1 (ni `Logger`, ni `Memory` — son test le
+lie seul) : c'est l'appelant qui journalise.
+
+Les décisions sont pures dans `src/FileBrowserDecisions.h`, épinglées par
+`file_browser_decisions_smoke` (cinq sections, qui ne lie rien) — la dixième
+couture de cette famille, et la règle que `CLAUDE.md` énonce déjà : ce qui est
+une décision plutôt qu'un appel de dessin sort de l'UI, sinon rien ne peut
+l'épingler. Vérifié dans les deux sens : remettre la supposition « hexa par
+défaut » fait tomber le test (SIGABRT), pas seulement passer. `native_file_dialog_smoke`
+gagne une §5 pour le backend qui se désarme.
+
+À noter pour le diagnostic : `--load 0300:/chemin/absolu/demo.bin` a **toujours**
+fonctionné, et le canal `--cmd-port` aussi. Le chargeur acceptait les chemins
+absolus depuis toujours ; seul le sélecteur ne pouvait pas y arriver. C'est le
+contournement immédiat.
+
+`mainwindow_lines` 17098 → 17219 : la boîte de dialogue réécrite et les
+cicatrices qui l'expliquent. Aucun plafond de façade ne bouge.
+
 ## [1.9.6] — 2026-09-10 — « Priorité tenue »
 
 ### Fixed — `std::this_thread::yield()` ne cédait rien, et affamait l'UI pendant des dizaines de secondes

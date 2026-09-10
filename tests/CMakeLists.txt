@@ -2472,6 +2472,22 @@ add_test(NAME software_dir_rules_smoke
          WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(software_dir_rules_smoke PROPERTIES TIMEOUT 10)
 
+# file_browser_decisions_smoke -- POM1's OWN file browser, as decisions.
+# Links nothing: FileBrowserDecisions.h is pure string logic, and the dialog it
+# serves is in MainWindow_FileDialogs.cpp, which no test binary links. Every
+# section is a defect Uncle Bernie hit on a Mint 17 box whose native picker POM1
+# could not use: the browser could not leave the packaged data directory (inside
+# an AppImage, a read-only /tmp self-mount -- his "weird .tmp path"), and a TYPED
+# path did not set the loader the way a CLICKED one did, so a raw .bin went to
+# the WOZMON text parser and was refused.
+add_executable(test_file_browser_decisions file_browser_decisions_test.cpp)
+target_include_directories(test_file_browser_decisions PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+add_test(NAME file_browser_decisions_smoke
+         COMMAND test_file_browser_decisions
+         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(file_browser_decisions_smoke PROPERTIES TIMEOUT 10)
+
 # logo_sketches_smoke -- the ten shipped APPLE-1 LOGO listings. Two things rot
 # independently and neither breaks the build: a sketch the loader cannot compile
 # (the user clicks the example and nothing draws), and the Bench's OFFER drifting
