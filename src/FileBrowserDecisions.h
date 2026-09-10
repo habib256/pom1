@@ -82,20 +82,28 @@ inline std::string expandHome(const std::string& text, const std::string& home)
 /// Inside the data root it stays relative and short -- `software/Graphic HGR/`,
 /// which is how the shipped programs are named everywhere else in POM1 and in
 /// its docs. Once the user has left that root it becomes the ABSOLUTE path,
-/// because the old code printed "software/" plus a substring offset computed
+/// because the old code printed a fixed prefix plus a substring offset computed
 /// from the root's length: outside the root that arithmetic is meaningless, and
 /// a header reading `software/` while the listing shows `/home/bernie` is worse
 /// than no header at all.
-inline std::string displayDirectory(const std::string& dir, const std::string& root)
+///
+/// `rootLabel` is what that root is CALLED ("software/", "cassettes/"). It is a
+/// parameter rather than a literal because the memory browser and the cassette
+/// browser had the same confinement and the same header bug, independently --
+/// baking one of the two names in here would have left the other as a second
+/// copy of the rule, which is the shape this whole family of seams exists to
+/// prevent.
+inline std::string displayDirectory(const std::string& dir, const std::string& root,
+                                    const std::string& rootLabel)
 {
     if (dir.empty()) return std::string();
     if (!root.empty() && dir.size() >= root.size()
         && dir.compare(0, root.size(), root) == 0) {
         // Inside the root -- or the root itself.
-        if (dir.size() == root.size()) return "software/";
+        if (dir.size() == root.size()) return rootLabel;
         const char sep = dir[root.size()];
         if (sep == '/' || sep == '\\')
-            return "software/" + dir.substr(root.size() + 1) + "/";
+            return rootLabel + dir.substr(root.size() + 1) + "/";
         // Same prefix but a different directory ("software_old") -- not inside.
     }
     std::string out = dir;
