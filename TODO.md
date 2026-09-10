@@ -62,16 +62,21 @@ bas de ce fichier, avec la raison et la condition de réactivation.
 
 Le travail qu'on peut réellement terminer, par ordre de rendement.
 
-- [ ] **`--paste-at-cycle` n'est pas déterministe : le thread d'émulation vole des cycles non comptés** `[M · solid]` — le commentaire de `runCyclesWithTimedPastes` (`main_imgui.cpp`) promet que deux runs headless tombent « sur la MÊME image quelle que soit la vitesse de l'hôte ». C'est faux. `runCyclesSync` appelle `stopCpu()`, qui pose `running=0` sans verrou pour que la tranche en vol sorte « en une instruction » — mais *une instruction* est un nombre de cycles **variable**, décidé par l'endroit où le thread d'émulation se trouvait. Ces cycles-là ne sont comptés par personne, et la machine avance d'une quantité inconnue avant chaque injection.
+- [ ] **Le nocturne TSan est rouge sur le preset 6 (Krusader), et la cause n'est PAS celle que j'ai écrite d'abord** `[M · solid]` — `headless_preset_matrix` échoue depuis le 8 septembre sous ThreadSanitizer : *« FAIL preset 6 prompt F000R missing 'KRUSADER 1.3 BY KEN WESSEN' »*, **sans un seul avertissement TSan** (la course libresidfp corrigée le 2 septembre est bien morte).
 
-  Reproduit : `headless_preset_matrix` échoue en nocturne sous TSan depuis le 8 septembre (`FAIL preset 6 prompt F000R missing 'KRUSADER 1.3 BY KEN WESSEN'`), **sans un seul avertissement ThreadSanitizer** — la course de libresidfp corrigée le 2 septembre était une autre cause. La même commande, mêmes cycles :
+  **Première hypothèse, réfutée** : j'avais accusé `--paste-at-cycle` / `stopCpu()`, qui laisse la tranche en vol sortir « en une instruction » — un nombre de cycles variable que personne ne compte. C'est un vrai défaut d'étanchéité, mais ce n'est pas celui-ci : espacer les touches de 500 000 cycles au lieu de 100 000 rend le résultat **déterministe et toujours faux**, et surtout le même écart apparaît **sans aucune touche injectée**. Ne pas repartir de cette piste.
 
-      build/POM1       →  PC=$FEEA, PC=$FEEA, PC=$FEEA         (stable)
-      build-san/POM1   →  PC=$FEEA, PC=$FF46, PC=$FF46         (instable)
+  **Ce qui est mesuré.** Mêmes binaires, même commande, `--exit-after-cycles 4000000`, aucune touche :
 
-  Sur le build instrumenté la capture montre `-F\r-0\r-0\r-0\r-R` : les six touches de `F000R\r` arrivent alors que le moniteur n'est plus où on le croit, et Krusader les lit une par une au lieu d'assembler la ligne. TSan ne fait qu'élargir la fenêtre — un hôte chargé suffit, ce qui met aussi les goldens graphiques (`gfx_regress_*`, qui utilisent le même chemin) à la merci de la charge de la machine.
+      build/POM1       capture = `\\r`                                   (3/3, propre)
+      build-san/POM1   capture = `\\r\r A-8D X-60 Y-80 S-FF P-71 VBC
+                                  FF29 C9 0D CMP #$0D  -`                (2/3, puis 1/3 propre)
 
-  Le correctif n'est pas une rustine : il faut que le thread asynchrone ne tourne **jamais** sur ce chemin, donc parquer le CPU avant la phase C et laisser `runCyclesSync` compter le boot du moniteur lui-même. Cela déplace le point de départ de chaque run déterministe, donc les images goldens doivent être re-vérifiées dans la foulée — c'est ce qui en fait une session à part entière plutôt qu'un `fix()` de fin de journée.
+  Krusader affiche un **dump de registres et une ligne de désassemblage**, puis son invite `-`, comme s'il avait reçu une frappe que personne n'a envoyée. Et c'est **non déterministe sous TSan** (2 runs sur 3), ce qui exclut un simple écart de contenu mémoire figé.
+
+  **Ce qui innocente ou accuse, déjà trié** : le preset 3 (nu, Woz Monitor) est stable 3/3 — donc ce n'est pas le chemin clavier générique. Le preset 6 **sans l'ACI** (`--disable aci`) montre le dump **3/3** — donc ni l'ACI ni la cassette n'y sont pour rien, et la retirer rend même le défaut *systématique*. C'est donc spécifique à la charge ROM Krusader (`$E000-$FFFF`, qui couvre les vecteurs).
+
+  **Piste à suivre** : qui peut poser le strobe de `$D010`/`$D011` sans frappe, ou quel état non dérivé des cycles Krusader lit à froid (les quatre registres fantômes du PIA — `CRA/CRB/DDRA/DDRB` — sont seedés après reset, et `$D011` ne modélise que le bit 7). Reproduire avec un build TSan local (`cmake -DPOM1_SANITIZE=thread -DCMAKE_CXX_COMPILER=clang++`) puis comparer les premiers milliers d'accès `$D01x` entre les deux builds.
 
 - [ ] **Donner un second observable aux micro-tests** `[M · solid]` — `tools/test_lib_micro.py` ne lit qu'une boîte aux lettres en RAM, donc il ne peut rien dire des bibliothèques dont l'effet est un affichage ou une écriture sans relecture : `text40/`, `apple1/print*`, `gt6144/`. POM1 capture déjà le texte de l'écran en headless (`headless display capture:` dans le journal, et le verbe `screen` du canal de contrôle). Exposer cette capture au harnais — un en-tête `EXPECT-SCREEN:` — rendrait ces trois-là testables ; c'est ce qui manque pour finir l'item « dix micro-tests ».
 - [ ] **Trancher le sort de `dev/lib/gt6144/`** `[S · nice]` — son propre en-tête dit *« STATUS: not yet adopted — both demos still carry inline copies; migrate them onto this module or retire it »*. Deux ans que le module attend son premier consommateur. Migrer `gt6144_demo_hello` et `gt6144_demo_life` dessus, ou le retirer — mais pas le laisser en dette.
