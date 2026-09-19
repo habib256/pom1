@@ -263,6 +263,7 @@ void EmulationController::stepCpu()
     std::lock_guard<PriorityMutex> lock(stateMutex);
     memory->clearWatchTrip();   // fresh slate so this step shows its own access
     cpu->step();
+    emulatedCycles_ += static_cast<uint64_t>(cpu->getLastInstructionCycles());
     publisher.publish(*memory, *cpu, runRequested.load());
 }
 
@@ -280,6 +281,7 @@ void EmulationController::stepOverCpu()
 
     if (opcode != 0x20) {           // not JSR → ordinary single step
         cpu->step();
+        emulatedCycles_ += static_cast<uint64_t>(cpu->getLastInstructionCycles());
         publisher.publish(*memory, *cpu, runRequested.load());
         return;
     }
@@ -291,7 +293,7 @@ void EmulationController::stepOverCpu()
     // consumes an already-typed key can complete (a routine blocking on input
     // typed LATER still can't progress here — the keyboard isn't drained inside
     // the loop — so it gives up at the cap; use plain Step for those).
-    keyboard.drainTo(*memory);
+    drainKeyboard();
     const uint16_t ret = static_cast<uint16_t>(cpu->getProgramCounter() + 3);
     const bool     hadUserBp = cpu->hasBreakpoint();
     const uint16_t userBp    = cpu->getBreakpoint();
@@ -301,7 +303,7 @@ void EmulationController::stepOverCpu()
     constexpr uint64_t kStepOverMaxCycles = 5'000'000;    // bound the UI-thread hold
     uint64_t done = 0;
     while (done < kStepOverMaxCycles) {
-        const int actual = cpu->run(kMaxSliceCycles);
+        const int actual = runCpuCounted(kMaxSliceCycles);
         done += static_cast<uint64_t>(actual > 0 ? actual : 0);
         if (cpu->isBreakpointTripped()) break;     // returned to `ret`
         if (memory->isWatchpointTripped()) break;  // watch fired inside the sub
@@ -329,10 +331,10 @@ void EmulationController::runCyclesSync(uint64_t cycles)
         // async slice. On a deterministic machine nothing else would ever
         // deliver a --paste, and here the point is fixed: the head of a slice
         // counted from the start of this call, not whenever a thread woke.
-        keyboard.drainTo(*memory);
+        drainKeyboard();
         const int slice = static_cast<int>(
             std::min<uint64_t>(cycles - done, static_cast<uint64_t>(kMaxSliceCycles)));
-        const int actual = cpu->run(slice);  // run() returns the actual cycle count
+        const int actual = runCpuCounted(slice);  // the actual cycle count
         if (actual <= 0) break;              // CPU jammed — avoid an infinite loop
         done += static_cast<uint64_t>(actual);
     }
@@ -351,7 +353,7 @@ void EmulationController::runFromSync(uint16_t entry, uint64_t maxCycles)
     while (done < maxCycles) {
         const int slice = static_cast<int>(
             std::min<uint64_t>(maxCycles - done, static_cast<uint64_t>(kMaxSliceCycles)));
-        const int actual = cpu->run(slice);
+        const int actual = runCpuCounted(slice);
         if (actual <= 0) break;              // CPU jammed — avoid an infinite loop
         done += static_cast<uint64_t>(actual);
     }
@@ -491,8 +493,130 @@ void EmulationController::deliverQueuedKeys()
     // CPU reads. runCyclesSync pauses the async thread, so nothing else drains the
     // queue on the headless path — this is the one place it reaches Memory there.
     std::lock_guard<PriorityMutex> lock(stateMutex);
-    keyboard.drainTo(*memory);
+    drainKeyboard();
     publisher.publish(*memory, *cpu, runRequested.load());
+}
+
+// ── Input movies ──────────────────────────────────────────────────────────
+
+int EmulationController::runCpuCounted(int budget)
+{
+    const auto type = [this](uint8_t key) { memory->setKeyPressed(static_cast<char>(key)); };
+    if (movie_.state() == pom1::movie::Session::State::Playing) {
+        movie_.deliverDue(emulatedCycles_, type);
+        if (movie_.reachedEnd(emulatedCycles_))
+            finishMoviePlayback();
+        else
+            budget = static_cast<int>(std::min<uint64_t>(
+                static_cast<uint64_t>(budget), movie_.cyclesToNextStop(emulatedCycles_)));
+    }
+    const int actual = cpu->run(budget);
+    if (actual > 0) emulatedCycles_ += static_cast<uint64_t>(actual);
+    if (movie_.state() == pom1::movie::Session::State::Playing) {
+        movie_.deliverDue(emulatedCycles_, type);
+        if (movie_.reachedEnd(emulatedCycles_)) finishMoviePlayback();
+    }
+    return actual;
+}
+
+void EmulationController::drainKeyboard()
+{
+    switch (movie_.state()) {
+    case pom1::movie::Session::State::Playing:
+        keyboard.clear();                       // the movie is the keyboard now
+        break;
+    case pom1::movie::Session::State::Recording:
+        keyboard.drainTo(*memory, [this](char key) {
+            movie_.recordKey(emulatedCycles_, static_cast<uint8_t>(key));
+        });
+        break;
+    default:
+        keyboard.drainTo(*memory);
+    }
+}
+
+void EmulationController::finishMoviePlayback()
+{
+    const uint64_t hash = pom1::movie::stateHash(
+        memory->getMemoryPointer(), cpu->getProgramCounter(), cpu->getAccumulator(),
+        cpu->getXRegister(), cpu->getYRegister(), cpu->getStackPointer(),
+        cpu->getStatusRegister());
+    const std::size_t keys = movie_.keys();
+    movie_.finishPlaying(hash);
+    if (movie_.verdict() == pom1::movie::Session::Verdict::Verified)
+        pom1::log().info("Movie", "replay verified: " + std::to_string(keys) +
+                                  " keys, same machine state at the end");
+    else
+        pom1::log().warn("Movie", "replay DIVERGED: the machine state at the end differs "
+                                  "from the recording's (a reset, a load or a card change "
+                                  "during recording is not in the movie)");
+    publishMovieStatus();
+}
+
+void EmulationController::publishMovieStatus()
+{
+    publisher.setMovieStatus(static_cast<uint8_t>(movie_.state()),
+                             static_cast<uint8_t>(movie_.verdict()),
+                             movie_.elapsed(emulatedCycles_), movie_.length(),
+                             static_cast<uint32_t>(movie_.keys()),
+                             static_cast<uint32_t>(movie_.keysPlayed()));
+}
+
+bool EmulationController::startInputMovieRecording(std::string& error)
+{
+    std::lock_guard<PriorityMutex> lock(stateMutex);
+    if (movie_.state() != pom1::movie::Session::State::Idle) {
+        error = "an input movie is already running";
+        return false;
+    }
+    movie_.startRecording(memory->saveSnapshotToBuffer(cpu.get()), emulatedCycles_);
+    publishMovieStatus();
+    return true;
+}
+
+bool EmulationController::stopInputMovie(std::vector<uint8_t>* recorded)
+{
+    std::lock_guard<PriorityMutex> lock(stateMutex);
+    switch (movie_.state()) {
+    case pom1::movie::Session::State::Recording: {
+        const uint64_t hash = pom1::movie::stateHash(
+            memory->getMemoryPointer(), cpu->getProgramCounter(), cpu->getAccumulator(),
+            cpu->getXRegister(), cpu->getYRegister(), cpu->getStackPointer(),
+            cpu->getStatusRegister());
+        pom1::movie::Movie m = movie_.finishRecording(emulatedCycles_, hash);
+        if (recorded) *recorded = pom1::movie::serialize(m);
+        break;
+    }
+    case pom1::movie::Session::State::Playing:
+        movie_.abort();
+        break;
+    default:
+        return false;
+    }
+    publishMovieStatus();
+    return true;
+}
+
+bool EmulationController::playInputMovie(const std::vector<uint8_t>& bytes, std::string& error)
+{
+    pom1::movie::Movie m;
+    if (!pom1::movie::parse(bytes.data(), bytes.size(), m, error)) return false;
+    {
+        std::lock_guard<PriorityMutex> lock(stateMutex);
+        if (movie_.state() == pom1::movie::Session::State::Recording) {
+            error = "stop recording before playing a movie";
+            return false;
+        }
+        if (!memory->loadSnapshotFromBuffer(m.snapshot, error, cpu.get())) return false;
+        keyboard.clear();
+        movie_.startPlaying(std::move(m), emulatedCycles_);
+        cpu->start();
+        runRequested.store(true);
+        publisher.publish(*memory, *cpu, runRequested.load());
+        publishMovieStatus();
+    }
+    wakeCv.notify_all();
+    return true;
 }
 
 bool EmulationController::hasPendingInjectedInput()
@@ -697,7 +821,7 @@ void EmulationController::runEmulationSlice(double elapsedSeconds)
     {
         std::lock_guard<PriorityMutex> lock(stateMutex);
         memory->getCassetteDevice().setLiveAudioTimebaseHz(static_cast<uint32_t>(std::max(1.0, cyclesPerSecond)));
-        keyboard.drainTo(*memory);
+        drainKeyboard();
 
         // Lock-step: the CPU is parked at an end-frame marker until the harness
         // ACKs. Don't advance it — pump the telemetry socket so the ACK can
@@ -730,7 +854,7 @@ void EmulationController::runEmulationSlice(double elapsedSeconds)
                 // set while parked (or by a UI memory edit) won't re-park us.
                 memory->clearWatchTrip();
                 cpu->start();
-                const int actualCycles = cpu->run(cyclesToRun);
+                const int actualCycles = runCpuCounted(cyclesToRun);
                 emulationCycleBudget -= static_cast<double>(actualCycles);
                 // Only real 6502 cycles count towards the measured rate: the
                 // SID-preview branch below advances the chip, not the CPU.
@@ -776,6 +900,7 @@ void EmulationController::runEmulationSlice(double elapsedSeconds)
         }
 
         publisher.publish(*memory, *cpu, runRequested.load());
+        if (movie_.state() != pom1::movie::Session::State::Idle) publishMovieStatus();
 
         // State-rewind capture: a few snapshots per second while the CPU is
         // actually running and we're not parked on a rewound preview frame.

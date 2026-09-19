@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "CpuClock.h"
+#include "InputMovie.h"
 #include "MachineCoordinator.h"
 #include "Gen2VideoScanner.h"
 #include "LockOrder.h"
@@ -274,6 +275,16 @@ public:
     /// it. Delivers each queued key in turn (the last one wins on $D010, so call
     /// once per key that must be observed by a distinct read).
     void deliverQueuedKeys();
+
+    // ── Input movies (issue #40; format and state machine in InputMovie.h) ──
+    /// Start recording from the machine as it is now: a snapshot, then every
+    /// key the machine receives, dated to the cycle.
+    bool startInputMovieRecording(std::string& error);
+    /// Stop recording (the movie lands in `recorded`) or stop a replay.
+    bool stopInputMovie(std::vector<uint8_t>* recorded);
+    /// Restore the movie's snapshot and replay its keys on their cycles; at the
+    /// end cycle the machine's state is checked against the recording's.
+    bool playInputMovie(const std::vector<uint8_t>& movie, std::string& error);
     void writeMemory(uint16_t address, uint8_t value);
     /// Apply many (address,value) writes as ONE locked, single-publish
     /// transaction. Lets the HGR Paint editor commit bulk edits (fill, clear,
@@ -705,6 +716,18 @@ private:
     // ExecutionMode::Deterministic: the emulation thread stays parked for the
     // controller's whole life, even while runRequested says "running".
     const bool deterministic_ = false;
+    // Every cycle the CPU has run, on every path (under stateMutex): the clock
+    // input movies date keys with.
+    uint64_t emulatedCycles_ = 0;
+    pom1::movie::Session movie_;
+    // The CPU runs through here (stateMutex held): counts the cycles, and while
+    // a movie plays, delivers its keys and stops exactly at the next one.
+    int runCpuCounted(int budget);
+    // Hands queued keys to the machine, noting them while a movie records and
+    // dropping them while one plays (the movie is the keyboard then).
+    void drainKeyboard();
+    void finishMoviePlayback();
+    void publishMovieStatus();
     std::atomic<int> executionSpeedCyclesPerFrame { POM1_CPU_CYCLES_PER_FRAME_1X_60HZ };
     /// Dernière vitesse utilisée pour le budget temps réel (réinitialise le budget si elle change).
     int cycleBudgetAnchorCpf = -1;

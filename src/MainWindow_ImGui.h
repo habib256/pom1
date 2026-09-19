@@ -843,6 +843,10 @@ private:
     void saveTape();
     void loadSnapshot();
     void saveSnapshot();
+    // Input movies (InputMovie.h): record to movies/, replay from a file.
+    void toggleInputMovieRecording();
+    void playInputMovie();
+    bool startInputMoviePlayback(const std::string& path, std::string& error);
     // Side-effect bundle shared by the native-picker fast path and the ImGui
     // fallback dialog: load the file, auto-enable matching cards based on the
     // source directory (Graphic HGR/, sdcard/, SOUND SID/, ...), update the
@@ -1097,7 +1101,9 @@ private:
         bool listScanned = false;
         std::string snapshotsRoot;     // absolute path of snapshots/
         std::string statusMessage;     // last error/info shown inside the dialog
+        bool movieMode = false;        // the same dialog, choosing an input movie in movies/
         void reset() {
+            movieMode = false;
             filename[0] = '\0';
             snapList.clear();
             listScanned = false;
@@ -1106,6 +1112,7 @@ private:
         }
     };
     SnapshotDialogState snapshotDlg;
+    uint8_t lastMovieState_ = 0;       // to announce a replay's verdict once
 
     // Loaded program/ROM regions (shown in Memory Map)
     struct LoadedRegion {

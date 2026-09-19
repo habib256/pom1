@@ -19,6 +19,7 @@
 #include "M6502.h"
 #include "Logger.h"
 #include "SnapshotIO.h"
+#include <algorithm>
 #include <sstream>
 #include <iomanip>
 
@@ -1474,6 +1475,22 @@ void M6502::serialize(pom1::SnapshotWriter& writer) const
     writer.writeU8(static_cast<uint8_t>(IRQ ? 1 : 0));
     writer.writeU8(static_cast<uint8_t>(NMI ? 1 : 0));
     writer.writeU32(static_cast<uint32_t>(cycles));
+}
+
+void M6502::serializeTiming(pom1::SnapshotWriter& writer) const
+{
+    writer.writeU8(dramRefreshEnabled ? 1 : 0);
+    writer.writeU32(static_cast<uint32_t>(dramRefreshAccum));
+    writer.writeU32(static_cast<uint32_t>(pendingInterruptCycles_));
+}
+
+void M6502::deserializeTiming(pom1::SnapshotReader& reader)
+{
+    dramRefreshEnabled      = reader.readU8() != 0;
+    // Both are small by construction (the phase stays below 61, an interrupt
+    // entry costs 7): clamp what a forged blob could inflate.
+    dramRefreshAccum        = std::clamp(static_cast<int>(reader.readU32()), 0, 60);
+    pendingInterruptCycles_ = std::clamp(static_cast<int>(reader.readU32()), 0, 7);
 }
 
 void M6502::deserialize(pom1::SnapshotReader& reader)

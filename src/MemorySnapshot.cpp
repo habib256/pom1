@@ -440,6 +440,26 @@ void Memory::writeSnapshotSections(pom1::SnapshotWriter& w, const M6502* cpu) co
         w.endSection(h);
     }
 
+    // ── RUN section (v7): what a cycle-exact resume needs beyond the rest —
+    //    see kSnapshotVersion. The keys typed but not yet read live in
+    //    keyBuffer; the latch (lastKey/keyReady) is MEM's.
+    {
+        auto h = w.beginSection("RUN");
+        w.writeU8(cpu ? 1 : 0);
+        if (cpu) cpu->serializeTiming(w);
+        w.writeU32(gen2Scanner.noiseGeneratorState());
+        w.writeU32(static_cast<uint32_t>(terminalFieldPhase_));
+        std::queue<char> keys = keyBuffer;
+        const auto count = static_cast<uint16_t>(
+            std::min<std::size_t>(keys.size(), pom1::kRunSectionMaxKeys));
+        w.writeU16(count);
+        for (uint16_t i = 0; i < count; ++i) {
+            w.writeU8(static_cast<uint8_t>(keys.front()));
+            keys.pop();
+        }
+        w.endSection(h);
+    }
+
     // ── GEN2VID section: GEN2 release soft-switch latch + video phase.
     //    The latch survives Apple-1 RESET on real hardware, so it must
     //    survive snapshots / rewind too (a page-2 game restored mid-frame
@@ -598,6 +618,26 @@ bool Memory::readSnapshotSections(pom1::SnapshotReader& r, std::string& error, M
             // Restore the visible Apple-1 text grid (rewind / save-state).
             if (displayDevice) displayDevice->deserialize(r);
             else               r.skipCurrentSection();
+            continue;
+        }
+
+        if (sectionName == "RUN") {
+            // Length already checked against its flags and count by
+            // validateSnapshot().
+            const bool cpuTiming = (r.readU8() & 1u) != 0;
+            if (cpuTiming) {
+                if (cpu) {
+                    cpu->deserializeTiming(r);
+                } else {
+                    r.readU8(); r.readU32(); r.readU32();
+                }
+            }
+            gen2Scanner.setNoiseGeneratorState(r.readU32());
+            terminalFieldPhase_ = static_cast<int>(r.readU32() % 17030u);
+            const uint16_t count = r.readU16();
+            std::queue<char> keys;
+            for (uint16_t i = 0; i < count; ++i) keys.push(static_cast<char>(r.readU8()));
+            keyBuffer = std::move(keys);
             continue;
         }
 

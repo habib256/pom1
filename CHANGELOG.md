@@ -10,6 +10,54 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Added — les movies : enregistrer les frappes au cycle près, les rejouer, et vérifier le rejeu
+
+Deuxième brique de l'issue #40 (re-recording pour longplays), après
+l'exécution déterministe.
+
+*File → Record Input Movie* prend un snapshot de la machine telle qu'elle est,
+puis note chaque touche que l'Apple-1 reçoit avec le cycle émulé où il la
+reçoit ; l'arrêt enregistre un `.p1m` dans `movies/`. *File → Play Input
+Movie* remet la machine au point de départ et rend chaque touche **sur son
+cycle** : la tranche d'émulation est coupée juste avant, la touche livrée, et
+la suite reprend. À la fin, l'état de la machine (64 Ko + registres) est comparé
+à celui de l'enregistrement, et la barre d'état dit « verified » ou « DIVERGED ».
+Pendant un rejeu, le clavier de l'hôte est ignoré : le movie tape.
+
+- **Format** (`src/InputMovie.h`, pur) : snapshot, paires (cycle, touche), cycle
+  de fin, empreinte de l'état final. Parseur borné, tout ou rien. La machine à
+  états (enregistrer, rejouer, où s'arrêter, verdict) y vit aussi, testable seule.
+- **Contrôleur** : un compteur de cycles émulés sur tous les chemins ; tout
+  passage du CPU va par `runCpuCounted()`, toute frappe par `drainKeyboard()`.
+- **Snapshot v7** : une section `RUN` pour ce qu'aucune section ne gardait et
+  qu'une reprise au cycle près exige — commutateur et phase du rafraîchissement
+  DRAM, cycles d'interruption pas encore comptés, état du bruit GEN2, phase de
+  trame du terminal, touches en attente. Sans elle, un rejeu dérive d'un cycle
+  volé par le rafraîchissement (vérifié : le test diverge quand on la saute).
+  Les anciens lecteurs ignorent la section ; un snapshot v6 ne la restaure pas,
+  comme avant.
+- **Interface** : deux entrées du menu *File*, l'indicateur `REC`/`PLAY` de la
+  barre d'état, le choix du fichier par le sélecteur du bureau ou, à défaut, le
+  dialogue intégré des snapshots en mode movie.
+
+Ce qu'un movie ne porte pas — un reset, un chargement mémoire, un changement de
+carte, l'horloge de l'hôte lue par la carte RTC — fait diverger le rejeu, et la
+vérification le dit. Restent (TODO.md) le re-record, `--movie-play` en headless
+et l'export vidéo.
+
+Épinglé par `input_movie_smoke` : un enregistrement sur une machine vivante,
+rafraîchissement DRAM actif, touches tapées en temps réel, rejoué sur une
+machine vivante et sur une machine déterministe — mêmes touches lues aux mêmes
+tours de boucle, verdict vérifié ; un movie falsifié est déclaré divergé.
+Vérifié à la main dans POM1 : une session `E000R` / `PRINT 1+1` enregistrée
+puis rejouée, « Input movie replay verified ».
+
+Cliquets relevés, pour cette fonctionnalité : `controller_public_methods`
+203 → 206 (enregistrer, arrêter, rejouer), `controller_lines` 3 197 → 3 345 (la
+colle des movies), `memory_lines` 4 041 → 4 081 (la section `RUN`),
+`mainwindow_lines` 17 289 → 17 391 (menu, barre d'état, dialogue), fan-out de
+`EmulationController.h` 20 → 21 (l'entrant est `input_movie_smoke`).
+
 ### Fixed — `--dump-after-cycles N` voulait dire « N cycles, plus ce qui a tourné avant »
 
 L'entrée de `TODO.md` « `--paste-at-cycle` promet un déterminisme qu'il n'a
