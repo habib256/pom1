@@ -1834,6 +1834,34 @@ add_test(NAME measured_cpu_rate_smoke
          WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(measured_cpu_rate_smoke PROPERTIES TIMEOUT 30)
 
+# deterministic_run_smoke -- a Deterministic controller ends in the same state
+# after the same calls however long the host sleeps between them; a Live one,
+# the control, does not. The headless driver builds cycle-bounded runs this
+# way, so --dump-after-cycles N means N cycles on any host, at any load.
+add_executable(test_deterministic_run
+    deterministic_run_smoke_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/EmulationController.cpp
+    ${CMAKE_SOURCE_DIR}/src/EmulationController_State.cpp
+    ${CMAKE_SOURCE_DIR}/src/EmulationController_Machine.cpp
+    ${CMAKE_SOURCE_DIR}/src/EmulationController_Cards.cpp
+    ${CMAKE_SOURCE_DIR}/src/RewindBuffer.cpp
+    ${CMAKE_SOURCE_DIR}/src/SnapshotPublisher.cpp
+    ${CMAKE_SOURCE_DIR}/src/KeyboardController.cpp
+    ${POM1_TEST_CORE_SOURCES}
+)
+target_include_directories(test_deterministic_run PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/imgui
+)
+target_link_libraries(test_deterministic_run PRIVATE libresidfp_static)
+if(WIN32)
+    target_link_libraries(test_deterministic_run PRIVATE ws2_32)
+endif()
+add_test(NAME deterministic_run_smoke
+         COMMAND test_deterministic_run
+         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(deterministic_run_smoke PROPERTIES TIMEOUT 30)
+
 # rom_swap_reset_smoke -- a card transaction that rewrites $E000-$FFFF must
 # re-vector through RESET before the CPU resumes. Without it the program counter
 # is an offset into the ROM that was just replaced, and the new image decodes

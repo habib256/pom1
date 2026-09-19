@@ -144,6 +144,16 @@ private:
 class EmulationController
 {
 public:
+    /// How the CPU advances.
+    ///   Live          -- the emulation thread runs it against the wall clock:
+    ///                    the GUI, `--cmd-port`, an idle headless machine.
+    ///   Deterministic -- ONLY the synchronous calls run it (runCyclesSync and
+    ///                    its kin); the thread never executes a cycle, whatever
+    ///                    a verb asks. A machine built this way reaches the same
+    ///                    state after the same calls on any host, at any load:
+    ///                    no cycle runs that nobody counted. See runHeadless.
+    enum class ExecutionMode { Live, Deterministic };
+
     /// `audio` is the machine's audio seam: main_imgui.cpp owns the real
     /// AudioDevice and passes it here, so the shipped app's Memory never builds
     /// one. With nothing injected Memory owns a device built from
@@ -152,7 +162,8 @@ public:
     /// suite used to open a real OS sound device 161 times.
     explicit EmulationController(DisplayDevice* screen,
                                  bool initializeAudioHardware = false,
-                                 pom1::IAudioService* audio = nullptr);
+                                 pom1::IAudioService* audio = nullptr,
+                                 ExecutionMode mode = ExecutionMode::Live);
     ~EmulationController();
 
     void copySnapshot(EmulationSnapshot& out) const;
@@ -691,6 +702,9 @@ private:
 #endif
     std::atomic<bool> terminateRequested { false };
     std::atomic<bool> runRequested { false };
+    // ExecutionMode::Deterministic: the emulation thread stays parked for the
+    // controller's whole life, even while runRequested says "running".
+    const bool deterministic_ = false;
     std::atomic<int> executionSpeedCyclesPerFrame { POM1_CPU_CYCLES_PER_FRAME_1X_60HZ };
     /// Dernière vitesse utilisée pour le budget temps réel (réinitialise le budget si elle change).
     int cycleBudgetAnchorCpf = -1;
