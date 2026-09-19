@@ -10,6 +10,22 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+## [1.9.7] — 2026-09-19 — « Grand ménage »
+
+Première version publiée depuis la 1.9.5, et avant tout **un grand refactor et
+un nettoyage en profondeur**. L'essentiel est dans la section [1.9.6] ci-dessous,
+préparée mais jamais publiée (la CI Raspberry Pi bloquait l'empaquetage) : cœur
+rendu hermétique (audio et ressources injectés, restauration de snapshot tout ou
+rien), chargeurs devenus des fonctions pures et fuzzées, décisions sorties de
+l'UI dans des modules testés, fichiers monstres découpés, environnement de
+développement optionnel (`-DPOM1_DEVTOOLS=OFF`), cliquets d'architecture, cinq
+tiers de CI en warnings-as-errors, couverture mesurée par module, canal de
+contrôle `--cmd-port` et presets en fichier, débogage source dans la DevBench.
+
+Cette section-ci ajoute des correctifs, dont plusieurs viennent des retours
+d'Uncle Bernie sur sa carte GEN2 : chargement de fichiers hors du répertoire de
+données, jeu de caractères, défilement fin.
+
 ### Fixed — un programme GEN2 déposé sur la fenêtre se chargeait puis « bloquait »
 
 Glisser `vsplits.apl` sur POM1 depuis `tests/gfx/` le chargeait et le
@@ -366,6 +382,23 @@ littéral. La boîte des snapshots, elle, ne navigue pas du tout — elle liste
 
 `mainwindow_lines` 17098 → 17236 : les deux boîtes réécrites et les cicatrices
 qui les expliquent. Aucun plafond de façade ne bouge.
+
+### Fixed — empaquetage : ce qui empêchait de publier 1.9.6
+
+Le job `raspberry` de `release.yml` tombait, et c'est lui qui a retenu la
+1.9.6. Deux défauts en série, le second caché par le premier :
+
+- `Gen2VideoScanner.h` utilisait `size_t` en n'incluant que `<cstdint>`,
+  `<utility>` et `<vector>` ; sur les cinq autres tiers un en-tête tiers le
+  laissait fuir, la libstdc++ arm64 de bookworm non. `<cstddef>` ajouté, avec la
+  raison à côté.
+- La clé `Version=` du `POM1.desktop` (version de la *Desktop Entry
+  Specification*, jamais celle de POM1) était refusée par le linuxdeploy arm64 —
+  `1.5` puis `1.1`, alors que le x86_64 du même tag accepte les deux. La clé est
+  optionnelle : retirée, il n'y a plus de valeur à refuser.
+
+Vérifié par l'essai à blanc hebdomadaire de `release.yml` (14 sept.) : les
+quatre paquets, Pi compris.
 
 ## [1.9.6] — 2026-09-10 — « Priorité tenue »
 
