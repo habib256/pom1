@@ -352,6 +352,27 @@ bool validateSnapshot(const std::uint8_t* data, std::size_t size, std::string& e
         }
     }
 
+    // RUN (v7+) ends with a count-then-keys list: its length must be exactly
+    // what the flags and the count declare, or the apply pass would read keys
+    // out of the next section.
+    if (const auto* run = outline.find("RUN")) {
+        const std::uint8_t* p = data + run->payloadOffset;
+        const bool cpuTiming = run->length >= 1 && (p[0] & 1u);
+        const std::uint32_t head = kRunSectionFixedLen + (cpuTiming ? kRunSectionCpuLen : 0);
+        bool ok = run->length >= head;
+        if (ok) {
+            const std::uint8_t* c = p + head - 2;
+            const std::uint32_t keys = static_cast<std::uint32_t>(c[0]) |
+                                       (static_cast<std::uint32_t>(c[1]) << 8);
+            ok = keys <= kRunSectionMaxKeys && run->length == head + keys;
+        }
+        if (!ok) {
+            error = "corrupt snapshot: RUN section length " + std::to_string(run->length) +
+                    " does not match its contents";
+            return false;
+        }
+    }
+
     // GEN2VID (v5+) carries a count-then-elements journal, and the count drives
     // a reserve(). Bound it by the payload that is actually there: each event is
     // emuCycle(8) + kind(1) + value(1), so a count larger than the section can

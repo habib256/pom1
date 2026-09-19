@@ -15,6 +15,8 @@
 #include "MainWindow_Internal.h"
 #include "ResourceLocator.h"
 #include "NativeFileDialog.h"
+#include "FileBytes.h"
+#include "InputMovie.h"
 #include "ProgramCardSniff.h"
 #include "POM1Build.h"
 #include "PomRenderer.h"
@@ -34,6 +36,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <fstream>
 #include <optional>
 #include <system_error>
 #include <vector>
@@ -1115,23 +1118,23 @@ namespace {
 // Resolve `snapshots/` through the single search order, then create it beside
 // the cwd on the first miss. Unlike the other data dirs this one is WRITTEN to,
 // so the create-on-miss branch stays.
-std::string resolveSnapshotsDir()
+std::string resolveSnapshotsDir(const char* name = "snapshots")
 {
     namespace fs = std::filesystem;
-    const std::string found = resolveDataDir("snapshots");
+    const std::string found = resolveDataDir(name);
     if (!found.empty()) return found;
     // None found — create alongside the cwd.
     std::error_code ec;
-    fs::create_directories("snapshots", ec);
+    fs::create_directories(name, ec);
     if (!ec) {
-        auto canon = fs::canonical("snapshots", ec);
+        auto canon = fs::canonical(name, ec);
         if (!ec) return canon.string();
     }
     return std::string();
 }
 
 // "pom1_2026-04-28_16-37-12.snap" — local time, safe filesystem chars.
-std::string defaultSnapshotFilename()
+std::string defaultSnapshotFilename(const char* extension = "snap")
 {
     std::time_t now = std::time(nullptr);
     std::tm tm{};
@@ -1141,8 +1144,8 @@ std::string defaultSnapshotFilename()
     localtime_r(&now, &tm);
 #endif
     char buf[64];
-    std::strftime(buf, sizeof(buf), "pom1_%Y-%m-%d_%H-%M-%S.snap", &tm);
-    return std::string(buf);
+    std::strftime(buf, sizeof(buf), "pom1_%Y-%m-%d_%H-%M-%S.", &tm);
+    return std::string(buf) + extension;
 }
 
 } // namespace
@@ -1211,22 +1214,81 @@ void MainWindow_ImGui::saveSnapshot()
     showSaveSnapshotDialog = true;
 }
 
+void MainWindow_ImGui::toggleInputMovieRecording()
+{
+    namespace fs = std::filesystem;
+    if (uiSnapshot.movieState != 1) {
+        std::string err;
+        if (emulation->startInputMovieRecording(err))
+            setStatusMessage("Recording input movie — File > Stop Recording to save it", 4.0f);
+        else
+            setStatusMessage(err, 4.0f);
+        return;
+    }
+    std::vector<uint8_t> bytes;
+    if (!emulation->stopInputMovie(&bytes)) return;
+    const std::string dir = resolveSnapshotsDir("movies");
+    const std::string path = (fs::path(dir.empty() ? "." : dir) /
+                              defaultSnapshotFilename(pom1::movie::kExtension)).string();
+    std::ofstream out(path, std::ios::binary);
+    out.write(reinterpret_cast<const char*>(bytes.data()),
+              static_cast<std::streamsize>(bytes.size()));
+    setStatusMessage(out ? "Input movie saved: " + path : "Error: cannot write " + path, 5.0f);
+}
+
+bool MainWindow_ImGui::startInputMoviePlayback(const std::string& path, std::string& error)
+{
+    std::vector<uint8_t> bytes;
+    if (!pom1::readFileBounded(path, pom1::movie::kMaxMovieBytes, "input movie", bytes, error))
+        return false;
+    if (!emulation->playInputMovie(bytes, error)) return false;
+    emulation->copySnapshot(uiSnapshot);
+    setStatusMessage("Playing input movie: " + std::filesystem::path(path).filename().string(), 3.0f);
+    return true;
+}
+
+void MainWindow_ImGui::playInputMovie()
+{
+    if (uiSnapshot.movieState == 2) {               // the same entry stops a replay
+        emulation->stopInputMovie(nullptr);
+        return;
+    }
+#if !POM1_IS_WASM
+    if (pom1::NativeFileDialog::isAvailable()) {
+        std::string picked, err;
+        if (pom1::NativeFileDialog::openFile(window, "Play Input Movie", resolveSnapshotsDir("movies"),
+                {{"POM1 input movies (*.p1m)", {pom1::movie::kExtension}}}, picked)) {
+            if (!startInputMoviePlayback(picked, err)) setStatusMessage(err, 5.0f);
+            return;
+        }
+        if (pom1::NativeFileDialog::isAvailable()) return;   // a Cancel
+    }
+#endif
+    snapshotDlg.reset();
+    snapshotDlg.movieMode = true;
+    showLoadSnapshotDialog = true;
+}
+
 void MainWindow_ImGui::renderLoadSnapshotDialog()
 {
     namespace fs = std::filesystem;
     ImGui::SetNextWindowSize(ImVec2(520, 380), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Load Snapshot", &showLoadSnapshotDialog)) {
+    // The same dialog picks an input movie from movies/ (movieMode).
+    const bool movie = snapshotDlg.movieMode;
+    const std::string ext = movie ? std::string(".") + pom1::movie::kExtension : ".snap";
+    if (ImGui::Begin(movie ? "Play Input Movie###LoadSnapshot" : "Load Snapshot###LoadSnapshot",
+                     &showLoadSnapshotDialog)) {
         nativePickerHint();
 
         if (!snapshotDlg.listScanned) {
             if (snapshotDlg.snapshotsRoot.empty())
-                snapshotDlg.snapshotsRoot = resolveSnapshotsDir();
+                snapshotDlg.snapshotsRoot = resolveSnapshotsDir(movie ? "movies" : "snapshots");
             snapshotDlg.snapList.clear();
             if (!snapshotDlg.snapshotsRoot.empty() &&
                 fs::is_directory(snapshotDlg.snapshotsRoot)) {
                 for (const auto& entry : fs::directory_iterator(snapshotDlg.snapshotsRoot)) {
                     if (entry.is_regular_file() &&
-                        entry.path().extension() == ".snap")
+                        entry.path().extension() == ext)
                         snapshotDlg.snapList.push_back(entry.path().filename().string());
                 }
                 std::sort(snapshotDlg.snapList.begin(), snapshotDlg.snapList.end());
@@ -1234,23 +1296,27 @@ void MainWindow_ImGui::renderLoadSnapshotDialog()
             snapshotDlg.listScanned = true;
         }
 
-        ImGui::TextWrapped(
-            "Restore a previously saved POM1 state from the snapshots/ "
-            "directory. Captures: RAM + card-enabled flags + each "
-            "peripheral's serialised payload. CPU register state is NOT yet "
-            "captured — the loaded snapshot resumes from the reset vector.");
+        ImGui::TextWrapped("%s", movie
+            ? "Replay an input movie from movies/: the machine returns to where "
+              "the recording started and receives the same keys on the same "
+              "cycles, then checks it ended in the recorded state."
+            : "Restore a previously saved POM1 state from the snapshots/ "
+              "directory. Captures: RAM + card-enabled flags + each "
+              "peripheral's serialised payload. CPU register state is NOT yet "
+              "captured — the loaded snapshot resumes from the reset vector.");
         ImGui::Spacing();
 
         if (snapshotDlg.snapshotsRoot.empty()) {
             ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
-                               "No snapshots/ directory found.");
+                               movie ? "No movies/ directory found." : "No snapshots/ directory found.");
         } else {
-            ImGui::Text("Snapshots in: %s", snapshotDlg.snapshotsRoot.c_str());
+            ImGui::Text(movie ? "Movies in: %s" : "Snapshots in: %s", snapshotDlg.snapshotsRoot.c_str());
         }
 
         ImGui::BeginChild("SnapList", ImVec2(-1, 200), true);
         if (snapshotDlg.snapList.empty()) {
-            ImGui::TextDisabled("(no .snap files yet — use File → Save Snapshot first)");
+            ImGui::TextDisabled("%s", movie ? "(no .p1m files yet — use File → Record Input Movie first)"
+                                            : "(no .snap files yet — use File → Save Snapshot first)");
         } else {
             for (const auto& f : snapshotDlg.snapList) {
                 if (ImGui::Selectable(f.c_str())) {
@@ -1276,12 +1342,13 @@ void MainWindow_ImGui::renderLoadSnapshotDialog()
         ImGui::Spacing();
         const bool hasFile = snapshotDlg.filename[0] != '\0';
         ImGui::BeginDisabled(!hasFile);
-        if (ImGui::Button("Load", uiPx(ImVec2(120, 0)))) {
+        if (ImGui::Button(movie ? "Play" : "Load", uiPx(ImVec2(120, 0)))) {
             std::string err;
-            if (emulation->loadSnapshot(snapshotDlg.filename, err)) {
+            if (movie ? startInputMoviePlayback(snapshotDlg.filename, err)
+                      : emulation->loadSnapshot(snapshotDlg.filename, err)) {
                 emulation->copySnapshot(uiSnapshot);
                 std::string filename = fs::path(snapshotDlg.filename).filename().string();
-                setStatusMessage("Loaded snapshot: " + filename, 3.0f);
+                if (!movie) setStatusMessage("Loaded snapshot: " + filename, 3.0f);
                 showLoadSnapshotDialog = false;
                 snapshotDlg.reset();
             } else {

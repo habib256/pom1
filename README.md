@@ -316,6 +316,8 @@ Bus-window exclusions are enforced (one P-LAB card at a time, per Parmigiani's r
 
 Drag-and-drop takes programs (`.txt` `.hex` `.apl` `.mon` `.tur` `.bin`), cassettes (`.aci` `.aiff` `.wav` `.mp3` `.ogg` `.flac`), snapshots (`.snap`) and 1541 disks (`.d64`) — each routed to exactly what the matching *File* menu entry would do. `.hex` covers **both** dialects: a Woz Monitor dump and a true Intel HEX file are told apart by their shape, not their name.
 
+**Input movies** — *File → Record Input Movie* notes every key the Apple-1 receives, to the emulated cycle, from the machine as it is now; stopping saves a `.p1m` to `movies/`. *File → Play Input Movie* puts the machine back where the recording started and replays the keys on the same cycles, then checks it ended in the recorded state and says so in the status bar. A reset, a memory load or a card change during recording is not in the movie, and the check reports it.
+
 ### 🔤 Five BASICs, one socket
 
 | Interpreter | Where | Start |

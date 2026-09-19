@@ -99,6 +99,19 @@ void MainWindow_ImGui::renderMenuBar()
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Save current POM1 state to snapshots/ as a versioned .snap file.\n"
                                   "Same format as the --snapshot-save CLI flag.");
+            if (ImGui::MenuItem(uiSnapshot.movieState == 1 ? "Stop Recording Input Movie"
+                                                          : "Record Input Movie",
+                                nullptr, uiSnapshot.movieState == 1, uiSnapshot.movieState != 2))
+                toggleInputMovieRecording();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Record every key the Apple-1 receives, to the cycle, from the\n"
+                                  "machine as it is now. Saved to movies/ when you stop.");
+            if (ImGui::MenuItem(uiSnapshot.movieState == 2 ? "Stop Input Movie" : "Play Input Movie...",
+                                nullptr, false, uiSnapshot.movieState != 1))
+                playInputMovie();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Replay a movie: same start, same keys on the same cycles,\n"
+                                  "and a check that it ends in the recorded state.");
             ImGui::Separator();
             ImGui::MenuItem("Cassette Deck", nullptr, &showCassetteDeck);
             if (ImGui::IsItemHovered())
@@ -1670,6 +1683,21 @@ void MainWindow_ImGui::renderStatusBar()
             }
             speedText = oss.str();
         }
+        // Input movie: what is running, and the verdict of a replay, once.
+        if (uiSnapshot.movieState == 1 || uiSnapshot.movieState == 2) {
+            std::ostringstream m;
+            m << std::fixed << std::setprecision(1)
+              << (uiSnapshot.movieState == 1 ? "| REC " : "| PLAY ")
+              << uiSnapshot.movieCycles / static_cast<double>(POM1_CPU_CLOCK_HZ) << " s, "
+              << (uiSnapshot.movieState == 1 ? uiSnapshot.movieKeys : uiSnapshot.movieKeysPlayed)
+              << " keys ";
+            speedText = m.str() + speedText;
+        } else if (lastMovieState_ == 2 && uiSnapshot.movieVerdict != 0) {
+            setStatusMessage(uiSnapshot.movieVerdict == 1
+                ? "Input movie replay verified: same machine state as the recording"
+                : "Input movie replay DIVERGED: see logs/pom1.log", 6.0f);
+        }
+        lastMovieState_ = uiSnapshot.movieState;
         std::ostringstream ramOss;
         ramOss << "| RAM: " << presetRamKB << " KB";
         const int oorCount = emulation->getOutOfRangeAccessCount();

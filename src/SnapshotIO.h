@@ -77,7 +77,15 @@ inline constexpr char     kSnapshotMagic[8] = {'P','O','M','1','S','N','A','P'};
 //     pre-v6 snapshots restore the PIA to its post-reset seed ($A7/$A7/$00/$7F,
 //     what resetMemory installs) and treat an in-flight CFFA1 transfer as its
 //     last sector, which is exactly what those snapshots used to do.
-inline constexpr uint32_t kSnapshotVersion  = 6;
+// v7: September 2026 — a RUN section for the state a CYCLE-EXACT resume needs
+//     and no section held: the CPU's DRAM-refresh switch and phase and an
+//     interrupt entry's not-yet-charged cycles, the GEN2 floating-bus noise
+//     generator, the terminal field phase, and the keys typed but not yet read
+//     (Memory's key buffer). Input movies (issue #40) replay from a snapshot and
+//     must land on the same cycles; without these a replay drifts by a refresh
+//     stall or loses a queued key. Older readers skip the unknown section; a
+//     pre-v7 snapshot restores none of it, which is what it always did.
+inline constexpr uint32_t kSnapshotVersion  = 7;
 
 /// Section names are 8 bytes, NUL-padded. 8 bytes keeps the file aligned
 /// and reads cheaply via fixed-size buffers. Names beyond 8 chars are
@@ -245,6 +253,15 @@ struct SnapshotOutline {
 inline constexpr std::uint32_t kMemSectionLenV5 =
     0x10000u + 1 + 1 + 4 + 2 + 2 + 1 + 1;
 inline constexpr std::uint32_t kMemSectionLen = kMemSectionLenV5 + 4;
+
+/// RUN section (v7): u8 flags (bit 0 = CPU timing present); if bit 0, the CPU
+/// timing (u8 DRAM refresh on, u32 refresh phase, u32 pending interrupt
+/// cycles); then u32 GEN2 noise state, u32 terminal field phase, u16 key count
+/// and that many queued keys. The validator, the writer and the reader agree
+/// through these numbers.
+inline constexpr std::uint32_t kRunSectionCpuLen   = 1 + 4 + 4;
+inline constexpr std::uint32_t kRunSectionFixedLen = 1 + 4 + 4 + 2;
+inline constexpr std::uint32_t kRunSectionMaxKeys  = 4096;
 
 /// Walk a snapshot's section table WITHOUT consuming any payload or touching
 /// any machine state. PURE: bytes in, a description out.

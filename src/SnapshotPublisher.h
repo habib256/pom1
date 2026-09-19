@@ -30,6 +30,11 @@ public:
     /// Thread-safe: takes only snapshotMutex. Called from the UI thread.
     void copyTo(EmulationSnapshot& out) const;
 
+    /// The input movie's status, kept apart from publish(): it lives in the
+    /// controller, not in Memory or the CPU.
+    void setMovieStatus(uint8_t state, uint8_t verdict, uint64_t cycles, uint64_t length,
+                        uint32_t keys, uint32_t keysPlayed);
+
 private:
     // Innermost rank — nothing may be acquired while this is held.
     mutable pom1::RankedMutex<pom1::LockRank::Snapshot> snapshotMutex;

@@ -110,7 +110,7 @@ int main()
         for (size_t i = 0; i < n; ++i) {
             const std::string_view a = names[i].substr(0, pom1::kSectionNameLen);
             assert(a != "CPU" && a != "MEM" && a != "FLAGS" &&
-                   a != "SCREEN" && a != "GEN2VID" &&
+                   a != "SCREEN" && a != "GEN2VID" && a != "RUN" &&
                    "card name collides with a reserved framework section");
             for (size_t j = i + 1; j < n; ++j) {
                 if (a == names[j].substr(0, pom1::kSectionNameLen)) {
@@ -142,6 +142,7 @@ int main()
             "ACI", "TMS9918", "A1-SID", "microSD", "CFFA1", "Juke-Box",
             "CodeTank", "Wi-Fi Mo", "Terminal", "A1-IO/RT", "PR-40",
             "GT-6144", "IECCard",
+            "RUN",       // v7: cycle-exact resume state (input movies)
             "GEN2VID",
             // no "SCREEN": this fixture attaches no display device.
         };

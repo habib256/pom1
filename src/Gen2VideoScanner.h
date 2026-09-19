@@ -246,6 +246,11 @@ public:
     // card leaves undriven. Bernie's PDF explicitly recommends random noise
     // here (post #6: "I recommend to put random data there") so no software
     // grows a dependency. Deterministic xorshift32 keeps tests reproducible.
+    // The noise generator's state, for a snapshot that must resume cycle-exact
+    // (RUN section, v7). Zero is the one state xorshift never leaves.
+    uint32_t noiseGeneratorState() const { return noiseState; }
+    void setNoiseGeneratorState(uint32_t s) { noiseState = s ? s : 0x1D872B41u; }
+
     uint8_t nextNoise() {
         noiseState ^= noiseState << 13;
         noiseState ^= noiseState >> 17;

@@ -1862,6 +1862,34 @@ add_test(NAME deterministic_run_smoke
          WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(deterministic_run_smoke PROPERTIES TIMEOUT 30)
 
+# input_movie_smoke -- an input movie recorded on a live machine (DRAM refresh
+# on, keys typed in real time) replays to the same state on a live and on a
+# deterministic machine, cycle for cycle, and a tampered one reports Diverged.
+# Issue #40's foundation.
+add_executable(test_input_movie
+    input_movie_smoke_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/EmulationController.cpp
+    ${CMAKE_SOURCE_DIR}/src/EmulationController_State.cpp
+    ${CMAKE_SOURCE_DIR}/src/EmulationController_Machine.cpp
+    ${CMAKE_SOURCE_DIR}/src/EmulationController_Cards.cpp
+    ${CMAKE_SOURCE_DIR}/src/RewindBuffer.cpp
+    ${CMAKE_SOURCE_DIR}/src/SnapshotPublisher.cpp
+    ${CMAKE_SOURCE_DIR}/src/KeyboardController.cpp
+    ${POM1_TEST_CORE_SOURCES}
+)
+target_include_directories(test_input_movie PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/imgui
+)
+target_link_libraries(test_input_movie PRIVATE libresidfp_static)
+if(WIN32)
+    target_link_libraries(test_input_movie PRIVATE ws2_32)
+endif()
+add_test(NAME input_movie_smoke
+         COMMAND test_input_movie
+         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(input_movie_smoke PROPERTIES TIMEOUT 60)
+
 # rom_swap_reset_smoke -- a card transaction that rewrites $E000-$FFFF must
 # re-vector through RESET before the CPU resumes. Without it the program counter
 # is an offset into the ROM that was just replaced, and the new image decodes

@@ -203,6 +203,18 @@ void SnapshotPublisher::publish(Memory& mem, const M6502& cpu, bool cpuRunning)
     }
 }
 
+void SnapshotPublisher::setMovieStatus(uint8_t state, uint8_t verdict, uint64_t cycles,
+                                       uint64_t length, uint32_t keys, uint32_t keysPlayed)
+{
+    std::lock_guard<decltype(snapshotMutex)> lock(snapshotMutex);
+    latestSnapshot.movieState      = state;
+    latestSnapshot.movieVerdict    = verdict;
+    latestSnapshot.movieCycles     = cycles;
+    latestSnapshot.movieLength     = length;
+    latestSnapshot.movieKeys       = keys;
+    latestSnapshot.movieKeysPlayed = keysPlayed;
+}
+
 void SnapshotPublisher::copyTo(EmulationSnapshot& out) const
 {
     std::lock_guard<decltype(snapshotMutex)> lock(snapshotMutex);

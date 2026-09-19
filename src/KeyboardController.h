@@ -11,6 +11,7 @@
 #define KEYBOARDCONTROLLER_H
 
 #include <mutex>
+#include <functional>
 #include <queue>
 
 #include "LockOrder.h"
@@ -35,6 +36,9 @@ public:
     /// EmulationController::stateMutex). Drains the pending queue into
     /// Memory::setKeyPressed(). keyMutex is released before touching `mem`.
     void drainTo(Memory& mem);
+    /// Same, telling `onKey` about each key as it is handed over — how an input
+    /// movie learns what the machine received and when.
+    void drainTo(Memory& mem, const std::function<void(char)>& onKey);
 
 private:
     // Rank-checked: see LockOrder.h. keyMutex sits between stateMutex and

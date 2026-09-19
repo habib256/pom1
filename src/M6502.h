@@ -93,6 +93,8 @@ public:
     uint8_t getStatusRegister(void) const { return statusRegister; }
     uint8_t getStackPointer(void) const { return stackPointer; }
     uint16_t getProgramCounter(void) const { return programCounter; }
+    /// Cycles the last executed instruction took (input movies count steps).
+    int getLastInstructionCycles(void) const { return cycles; }
     /// Cycles accumulated so far by the instruction currently executing
     /// (opcode fetch + addressing mode + operation as they run). Sampled by
     /// Memory's GEN2 soft-switch handler to timestamp a $C25x access at its
@@ -156,6 +158,11 @@ public:
     // instruction boundary.
     void serialize(pom1::SnapshotWriter& writer) const;
     void deserialize(pom1::SnapshotReader& reader);
+    // Timing state outside the architectural registers — the DRAM-refresh
+    // switch and phase, and an interrupt entry's cycles not yet charged. Only
+    // a cycle-exact resume needs it (the snapshot's RUN section, v7).
+    void serializeTiming(pom1::SnapshotWriter& writer) const;
+    void deserializeTiming(pom1::SnapshotReader& reader);
 
 private:
 

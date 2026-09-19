@@ -186,3 +186,6 @@ logs/
 # Node deps pulled by the WASM browser smoke (tools/wasm_smoke.mjs):
 # npm install --no-save playwright. Never sources.
 node_modules/
+
+# Input movies recorded from File > Record Input Movie (user output)
+movies/

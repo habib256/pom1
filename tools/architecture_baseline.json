@@ -19,15 +19,15 @@
     "MainWindow_Presets.cpp -> Pom1BenchHost.h"
   ],
   "metric_ceilings": {
-    "controller_lines": 3197,
-    "controller_public_methods": 203,
-    "mainwindow_lines": 17289,
-    "memory_lines": 4041,
+    "controller_lines": 3345,
+    "controller_public_methods": 206,
+    "mainwindow_lines": 17391,
+    "memory_lines": 4081,
     "memory_public_methods": 190,
     "sources_outside_test_devices": 89
   },
   "header_fanout_ceilings": {
-    "EmulationController.h": 20,
+    "EmulationController.h": 21,
     "GraphicsCard.h": 12,
     "MainWindow_ImGui.h": 18,
     "Memory.h": 61

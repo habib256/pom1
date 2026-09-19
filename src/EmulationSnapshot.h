@@ -105,6 +105,16 @@ struct EmulationSnapshot
     // window shows one per refresh through a Gen2FieldPacer instead of whichever
     // happens to be the latest -- which is what made a fine scroll stagger.
     pom1::Gen2FieldRing gen2Fields;
+
+    // Input movie (InputMovie.h): 0 idle, 1 recording, 2 playing; the verdict
+    // of the last replay (0 none, 1 verified, 2 diverged); cycles elapsed in
+    // the movie; keys recorded, or played so far and in total.
+    uint8_t  movieState = 0;
+    uint8_t  movieVerdict = 0;
+    uint64_t movieCycles = 0;
+    uint64_t movieLength = 0;
+    uint32_t movieKeys = 0;
+    uint32_t movieKeysPlayed = 0;
 };
 
 #endif // EMULATIONSNAPSHOT_H

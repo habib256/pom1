@@ -23,6 +23,20 @@ void KeyboardController::clear()
     std::swap(queuedKeys, empty);
 }
 
+void KeyboardController::drainTo(Memory& mem, const std::function<void(char)>& onKey)
+{
+    std::queue<char> localKeys;
+    {
+        std::lock_guard<decltype(keyMutex)> lock(keyMutex);
+        std::swap(localKeys, queuedKeys);
+    }
+    while (!localKeys.empty()) {
+        mem.setKeyPressed(localKeys.front());
+        onKey(localKeys.front());
+        localKeys.pop();
+    }
+}
+
 void KeyboardController::drainTo(Memory& mem)
 {
     // Swap-out pattern: release keyMutex before touching `mem`, so the UI
