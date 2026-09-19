@@ -1,7 +1,7 @@
 // gen2_vsplits_smoke -- Uncle Bernie's own vertical-split demo, run on the real
 // core, must scroll one scanline per field and show the text Table 2 promises.
 //
-// tests/gfx/vsplits.apl is the program exactly as Bernie sent it (Applefritter
+// software/Graphic HGR/vsplits.apl is the program exactly as Bernie sent it (Applefritter
 // PM, 16 sept. 2026, "iconvsplits.zip"), a WOZMON dump that runs at $0280. It
 // fills the text page with $80-$FF, then every field: waits for V-blank by
 // sampling HST0 (D7 of any $C25x read) until three double-samples in a row say
@@ -125,7 +125,7 @@ int main()
     mem.setHgrFramebufferAttached(true);
 
     const char* env = std::getenv("POM1_VSPLITS");
-    const char* path = env ? env : "tests/gfx/vsplits.apl";
+    const char* path = env ? env : "software/Graphic HGR/vsplits.apl";
     uint16_t start = 0;
     int bytes = 0;
     if (mem.loadHexDump(path, start, &bytes) != 0) {

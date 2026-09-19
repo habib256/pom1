@@ -569,6 +569,18 @@ add_test(NAME gen2_chargen_smoke COMMAND test_gen2_chargen
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 set_tests_properties(gen2_chargen_smoke PROPERTIES TIMEOUT 5)
 
+# -- A GEN2 program gets the GEN2, from wherever it is loaded -----------------
+# Dropping vsplits.apl from outside software/Graphic HGR/ ran it on a machine
+# with no graphics card, where it waited forever for HST0. ProgramCardSniff.h
+# reads the code: absolute accesses to $C250-$C257 name the GEN2. Pins the
+# pattern, Bernie's file, and no false positive across the shipped corpus.
+add_executable(test_program_card_sniff program_card_sniff_smoke_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/MemoryImageLoader.cpp)
+target_include_directories(test_program_card_sniff PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME program_card_sniff_smoke COMMAND test_program_card_sniff
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(program_card_sniff_smoke PROPERTIES TIMEOUT 10)
+
 # -- GEN2: one emulated field per refresh -------------------------------------
 # The GEN2 window shows the NEXT field from a ring of recent ones instead of the
 # latest, which is what made Bernie's one-line-per-field scroll stagger. Pins the
@@ -580,7 +592,7 @@ add_test(NAME gen2_field_pacer_smoke COMMAND test_gen2_field_pacer)
 set_tests_properties(gen2_field_pacer_smoke PROPERTIES TIMEOUT 10)
 
 # -- Uncle Bernie's vertical-split demo, on the real core ----------------------
-# tests/gfx/vsplits.apl exactly as Bernie sent it: HST0-synchronised TEXT/LORES
+# software/Graphic HGR/vsplits.apl, Bernie's program bytes as sent: HST0-synchronised TEXT/LORES
 # splits, a 32-line text window moving one scanline per field. 200 fields must
 # each show one band exactly one line below the last, and the top text row must
 # read @ABCDEFGH... when the window reaches it.

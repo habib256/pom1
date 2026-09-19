@@ -22,14 +22,6 @@ PNG matches byte-for-byte on any machine.
   `sketchs/gen2/demo_hgr_mire/`, loads + runs at `$E000`).
 - `hgr_testcard_gen2.png` — golden render (280×192) of the above on preset 11
   (Uncle Bernie GEN2 HGR) after 2,000,000 emulated cycles.
-- `vsplits.apl` — **Uncle Bernie's own** vertical-split demo, byte for byte as he
-  sent it (Applefritter PM, 16 sept. 2026). A WOZMON dump, `280R`: fills the
-  text page with `$80-$FF`, then every field syncs to V-blank on HST0, counts
-  H-blanks and throws TEXT/GR so a 32-scanline text window scrolls one line per
-  field over LORES. Driven by `gen2_vsplits_smoke` (not a golden image — the
-  test asserts the motion and the top text row, which hold for any power-on
-  phase). Also a good manual check: `--preset 11 --load 0280:tests/gfx/vsplits.apl
-  --run 0280`.
 
 ## Regenerate a golden (after an intended renderer change)
 
