@@ -410,9 +410,15 @@ documented arbitrary cold-state, never cleared on RESET.
 **Other / future hooks (not blocking Phase 2):**
 - **Char set (Table 2):** 2716 EPROM = full ASCII like the IIe. Bits 7/6/5 of the
   screen byte = display attribute (inverted/flashing/normal); low 6 bits = Apple-II
-  encoding. **Landed** — `GraphicsCard::resolveGlyph` decodes the three attribute
-  bands (`$00-$3F` inverse, `$40-$7F` flashing at ~2 Hz, `$80-$FF` normal) and
-  `renderText` paints them, so no char-set template is outstanding.
+  encoding. **Landed** — `src/Gen2CharGen.h` decodes the three attribute bands
+  (`$00-$3F` inverse, `$40-$7F` flashing at ~2 Hz, `$80-$FF` normal) and
+  `renderText` paints them; `gen2_chargen_smoke` pins every Table 2 equivalence
+  on both the IIe-ROM and the 5×7 fallback path. (Until 19 sept. 2026 both paths
+  had a hole: the fallback drew `$80-$9F` as boxes — Bernie's "block of 'O'
+  looking characters" — and the ROM path drew MouseText for `$40-$7F`.) **Still
+  outstanding: the template itself.** Bernie's EPROM puts each cell's blank
+  scanline at the TOP; the IIe glyphs POM1 uses put it at the bottom. He offered
+  the template in the PDF ("I can send you the character set template I use").
 - **Improved GEN1/GEN2 ACI** is available by adding a **`$C5xx` PROM page** (fast
   ACI routines, BASIC load in ~2 s). **Shipped** — POM1 emulates it as the Extended
   ACI (`roms/XACI.rom` at `$C500-$C5FF`, pinned by `extended_aci_smoke`). It is a
