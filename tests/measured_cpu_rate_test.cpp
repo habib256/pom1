@@ -49,8 +49,7 @@ int main()
     EmulationController emu(nullptr);
 
     // ---- x1: the pacer holds the CPU at the Apple-1's real clock ------------
-    const double target1x =
-        static_cast<double>(POM1_CPU_CYCLES_PER_FRAME_1X_60HZ) * 60.0;   // ~1.023 MHz
+    const double target1x = pom1CyclesPerSecond(POM1_CPU_CYCLES_PER_FRAME_1X_60HZ);   // 1 022 727 Hz
     const double hz1x = measureFor(emu, POM1_CPU_CYCLES_PER_FRAME_1X_60HZ, 1.5);
     std::printf("  x1  : target %.0f Hz, measured %.0f Hz\n", target1x, hz1x);
     if (hz1x <= 0.0) {

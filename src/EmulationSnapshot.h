@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "CardTypes.h"        // pom1::CardSet — the attached topology
+#include "Gen2FieldRing.h"
 #include "Gen2VideoScanner.h"
 #include "M6502.h"
 #include "SID.h"
@@ -100,6 +101,10 @@ struct EmulationSnapshot
     Gen2VideoScanner::DisplayState gen2DisplayState{};
     Gen2VideoScanner::DisplayState gen2FrameStartState{};
     std::vector<Gen2VideoScanner::Event> gen2VideoEvents;
+    // Every field completed recently, oldest first (Gen2FieldRing.h): the GEN2
+    // window shows one per refresh through a Gen2FieldPacer instead of whichever
+    // happens to be the latest -- which is what made a fine scroll stagger.
+    pom1::Gen2FieldRing gen2Fields;
 };
 
 #endif // EMULATIONSNAPSHOT_H

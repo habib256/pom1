@@ -36,6 +36,8 @@
 #include "M6502.h"
 #include "GraphicsCard.h"
 #include "Gen2CharGen.h"   // pom1::gen2char::Rows
+#include "Gen2FieldRing.h"
+#include "SnapshotPublisher.h"
 
 #include <array>
 #include <cstdio>
@@ -197,6 +199,49 @@ int main()
     CHECK(sawWrap, "the band never wrapped from the bottom back to the top in 200 fields");
     CHECK(fieldsAtTop == 1, "the band sat at the top in %d fields, expected exactly 1",
           fieldsAtTop);
+
+    // ---- The same demo through the SnapshotPublisher's field ring ----------
+    //
+    // What the GEN2 window actually draws from: the emulation thread publishes
+    // after every slice, and each completed field lands in the ring
+    // (Gen2FieldRing.h) with its own framebuffer, text pages and journal. The
+    // pacer can only show one field per refresh if the ring holds EVERY field,
+    // in order, each one complete -- so render each new ring entry and demand
+    // the band one line below the previous entry's, with no seq missing.
+    // Slices vary from ~700 to ~5 900 cycles, like a loaded emulation thread.
+    {
+        SnapshotPublisher publisher;
+        EmulationSnapshot snap;
+        GraphicsCard ringCard;
+        pom1::Gen2FieldPacer composer;
+        uint64_t lastSeq = 0;
+        int lastBand = -1, fieldsSeen = 0;
+        uint32_t lcg = 12345;
+        for (int slice = 0; slice < 4000 && fieldsSeen < 200; ++slice) {
+            lcg = lcg * 1103515245u + 12345u;
+            cpu.run(700 + static_cast<int>((lcg >> 8) % 5200));
+            publisher.publish(mem, cpu, true);
+            publisher.copyTo(snap);
+            for (const auto& f : snap.gen2Fields) {
+                if (f->seq <= lastSeq) continue;
+                CHECK(lastSeq == 0 || f->seq == lastSeq + 1,
+                      "ring skipped from field %llu to %llu", static_cast<unsigned long long>(lastSeq),
+                      static_cast<unsigned long long>(f->seq));
+                lastSeq = f->seq;
+                ringCard.render(composer.compose(*f), f->endState, f->frameStart, f->events);
+                const int p = bandStart(textScanlines(ringCard));
+                CHECK(p >= 0, "ring field %llu: not one %d-line text band",
+                      static_cast<unsigned long long>(f->seq), kBand);
+                if (p >= 0 && lastBand >= 0 && fieldsSeen > 1)
+                    CHECK(p == (lastBand + 1) % kH, "ring field %llu: band at %d, expected %d",
+                          static_cast<unsigned long long>(f->seq), p, (lastBand + 1) % kH);
+                lastBand = p;
+                ++fieldsSeen;
+            }
+        }
+        CHECK(fieldsSeen >= 200, "only %d fields reached the ring", fieldsSeen);
+        std::printf("  ring: %d consecutive fields, each one line below the last\n", fieldsSeen);
+    }
 
     if (failures) {
         std::printf("gen2_vsplits_smoke: %d failure(s)\n", failures);

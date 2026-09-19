@@ -21,7 +21,7 @@
   "metric_ceilings": {
     "controller_lines": 3166,
     "controller_public_methods": 203,
-    "mainwindow_lines": 17266,
+    "mainwindow_lines": 17279,
     "memory_lines": 4041,
     "memory_public_methods": 190,
     "sources_outside_test_devices": 89

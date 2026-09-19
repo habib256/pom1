@@ -1434,7 +1434,7 @@ void MainWindow_ImGui::renderToolbar()
             }
             if (is1M) ImGui::PopStyleColor();
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("x1 - 1.022727 MHz (~%d cycles/frame @ 60 Hz)", POM1_CPU_CYCLES_PER_FRAME_1X_60HZ);
+                ImGui::SetTooltip("x1 - 1.022727 MHz (~%d cycles/frame @ 59.94 Hz)", POM1_CPU_CYCLES_PER_FRAME_1X_60HZ);
             }
         }
         ImGui::SameLine();
@@ -1638,7 +1638,7 @@ void MainWindow_ImGui::renderStatusBar()
         ImGui::Text("%s", statusMessage.c_str());
 
         std::string cpuText = cpuRunning ? "RUNNING" : "STOPPED";
-        // `executionSpeed * 60` is the TARGET the pacer aims for; it says
+        // pom1CyclesPerSecond(executionSpeed) is the TARGET the pacer aims for; it says
         // nothing about what the host actually delivered. Pair it with the
         // measured rate (EmulationController::getMeasuredCpuHz), which is the
         // only number that answers "is my machine keeping up?".
@@ -1661,7 +1661,7 @@ void MainWindow_ImGui::renderStatusBar()
                 oss << "| Max: " << std::setw(4) << std::setprecision(0)
                     << measuredMHz << " MHz";
             } else {
-                const double targetMHz = executionSpeed * 60.0 / 1000000.0;
+                const double targetMHz = pom1CyclesPerSecond(executionSpeed) / 1000000.0;
                 oss << "| " << std::setprecision(3) << targetMHz << " MHz";
                 // 5 % slack absorbs slice jitter; below that the machine really
                 // is behind. Meaningless while the CPU is stopped (0 measured).

@@ -660,7 +660,7 @@ void EmulationController::runEmulationSlice(double elapsedSeconds)
         measuredTimeAccum_ = 0.0;
     }
 
-    const double cyclesPerSecond = static_cast<double>(cpf) * kFramesPerSecond;
+    const double cyclesPerSecond = pom1CyclesPerSecond(cpf);   // x1 = the crystal, exactly
     emulationCycleBudget += cyclesPerSecond * elapsedSeconds;
 
     // Cap budget to 2 frames to prevent runaway accumulation (e.g. after a speed change).
