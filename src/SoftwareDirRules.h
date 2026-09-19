@@ -129,6 +129,17 @@ inline const Rule* matchPath(std::string_view path)
     return nullptr;
 }
 
+/// The rule for `card` when the card was named by something other than a path
+/// (ProgramCardSniff.h reads it from the code): the card's picker-default row,
+/// i.e. its canonical folder, so the program is treated exactly as if it had
+/// been loaded from there. nullptr for a card no folder implies.
+inline const Rule* ruleForCard(CardId card)
+{
+    for (const Rule& r : kRules)
+        if (r.card == card && r.isPickerDefault) return &r;
+    return nullptr;
+}
+
 /// The folder the file picker should open into: the directory of the SINGLE
 /// content card plugged, or nullptr when none or several are — an ambiguous
 /// machine leaves the picker at the `software/` root rather than guessing.

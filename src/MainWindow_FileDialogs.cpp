@@ -15,6 +15,7 @@
 #include "MainWindow_Internal.h"
 #include "ResourceLocator.h"
 #include "NativeFileDialog.h"
+#include "ProgramCardSniff.h"
 #include "POM1Build.h"
 #include "PomRenderer.h"
 
@@ -33,6 +34,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <optional>
 #include <system_error>
 #include <vector>
 
@@ -387,7 +389,14 @@ bool MainWindow_ImGui::performMemoryLoad(const std::string& path,
     // Storage cards unplugged to make room for a graphic-card program; reported
     // in the final status line.
     std::vector<std::string> evicted;
-    if (const pom1::softwaredir::Rule* rule = pom1::softwaredir::matchPath(path)) {
+    // A folder POM1 does not know -- a developer's own, a drag and drop -- says
+    // nothing, so ask the code: a program that reads the GEN2's soft switches
+    // needs the GEN2, from wherever it was loaded (ProgramCardSniff.h).
+    const pom1::softwaredir::Rule* rule = pom1::softwaredir::matchPath(path);
+    std::optional<pom1::CardId> sniffed;
+    if (!rule && (sniffed = pom1::cardsniff::cardAddressedByFile(path, fileType == 0)))
+        rule = pom1::softwaredir::ruleForCard(*sniffed);
+    if (rule) {
         const bool alreadyPlugged = cardPlugged(rule->card);
         if (!alreadyPlugged) {
             if (rule->card == pom1::CardId::Gen2) {
@@ -502,6 +511,7 @@ bool MainWindow_ImGui::performMemoryLoad(const std::string& path,
         }
         ss << ": was shadowing the program]";
     }
+    if (sniffed) ss << "  [" << pom1::cardsniff::sniffedReason(*sniffed) << "]";
     setStatusMessage(ss.str(), evicted.empty() ? 3.0f : 5.0f);
     showLoadDialog = false;
     loadDlg.reset();

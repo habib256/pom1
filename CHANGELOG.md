@@ -10,6 +10,38 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Fixed — un programme GEN2 déposé sur la fenêtre se chargeait puis « bloquait »
+
+Glisser `vsplits.apl` sur POM1 depuis `tests/gfx/` le chargeait et le
+démarrait… sur la machine par défaut, qui n'a pas de carte graphique. Sa
+première boucle attend le drapeau HST0 de la GEN2 dans le bit 7 d'une lecture
+`$C25x` ; sans carte, rien ne le lève jamais, et le programme tournait sans fin
+derrière un écran Apple-1 vide. POM1 ne décidait de la carte que d'après le
+**dossier** d'origine (`software/Graphic HGR/` → GEN2), or le dossier de travail
+d'un développeur est précisément celui que POM1 ne connaît pas.
+
+Quand aucune règle de dossier ne s'applique, POM1 lit désormais **le code**
+(`src/ProgramCardSniff.h`, pur) : une instruction à adressage absolu sur
+`$C250-$C257` — `BIT $C250`, `LDA $C254,X` — nomme la GEN2, seule présente à
+ces adresses sur le bus. La règle canonique de la carte s'applique alors
+exactement comme si le fichier venait de `software/Graphic HGR/`
+(`softwaredir::ruleForCard`) : carte branchée **avant** le chargement, fenêtre
+GEN2 ouverte, cartes de stockage retirées, puis le programme démarre. La barre
+d'état le dit : « GEN2 plugged: the program uses its soft switches ». Le
+glisser-déposer, le menu et le navigateur intégré passent tous par
+`performMemoryLoad`, donc tous en profitent. GEN2 seulement : les fenêtres des
+autres cartes se chevauchent (TMS9918 et A1-SID à `$CC00`), leurs octets ne
+désigneraient pas une carte unique.
+
+Aucun faux positif sur les 123 programmes livrés : 18 détectés, tous dans
+`software/Graphic HGR/`. Épinglé par `program_card_sniff_smoke` (motif, fichier
+de Bernie, et 69 programmes d'autres dossiers dont aucun n'est pris pour un
+programme GEN2) ; vérifié dans POM1 sur le preset par défaut : `vsplits.apl`
+chargé depuis `tests/gfx/` branche la GEN2, ouvre sa fenêtre et défile.
+
+`mainwindow_lines` 17 279 → 17 289 : la détection et son message dans
+`performMemoryLoad`.
+
 ### Fixed — GEN2 : le défilement fin d'Uncle Bernie ne titube plus, et « x1 » est enfin l'horloge de l'Apple-1
 
 Bernie, avec sa démo `vsplits` (une fenêtre TEXT qui descend d'une ligne par

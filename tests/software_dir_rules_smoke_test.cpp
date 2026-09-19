@@ -211,6 +211,18 @@ int main()
         }
     }
 
+    // ---- ruleForCard: a card named by the CODE takes its canonical row ----
+    // (ProgramCardSniff.h). The picker-default row, never an alias: a GEN2
+    // program dropped from anywhere behaves as one from software/Graphic HGR/.
+    {
+        const Rule* gen2 = ruleForCard(CardId::Gen2);
+        assert(gen2 && std::string(gen2->directory) == "Graphic HGR");
+        assert(gen2->raiseCardWindow && gen2->evictStorageCards);
+        const Rule* tms = ruleForCard(CardId::Tms9918);
+        assert(tms && std::string(tms->directory) == "Graphic TMS9918" && "not the cc65 alias");
+        assert(ruleForCard(CardId::Cffa1) == nullptr && "no folder implies CFFA1");
+    }
+
     std::printf("software_dir_rules_smoke: OK\n");
     return 0;
 }
