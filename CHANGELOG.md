@@ -10,7 +10,7 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
-## [1.9.7] — 2026-09-19 — « Grand ménage »
+## [1.9.7] — 2026-09-19 — « Spring Cleaning »
 
 Première version publiée depuis la 1.9.5, et avant tout **un grand refactor et
 un nettoyage en profondeur**. L'essentiel est dans la section [1.9.6] ci-dessous,
