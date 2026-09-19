@@ -10,6 +10,65 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Fixed — GEN2 : une rangée de « O » là où Bernie attendait `@ABCDEFGH`
+
+Rapport d'Uncle Bernie (Applefritter, 16 sept. 2026), avec son programme de
+démonstration `vsplits` : une fenêtre TEXT de quatre lignes qui défile
+verticalement sur un champ LORES, synchronisée au faisceau par le drapeau HST0.
+Quand la fenêtre passe en haut de l'écran, ses premières lignes devaient
+commencer par `@ABCDEFGH…`, comme sur sa carte ; POM1 y dessinait *« a block of
+'O' looking characters »*.
+
+Ces lignes contiennent `$80-$9F`. Le tableau 2 de sa spécification dit que ce sont
+les caractères `@A-Z[\]^_` en vidéo normale — les six bits de poids faible sont
+le code du 2513, les deux du haut l'attribut. Deux décodeurs s'en écartaient :
+
+- **La police 5×7 de secours** (utilisée quand `roms/apple2e_char.rom` est
+  introuvable) décodait un octet normal par `b & 0x7F` : `$80-$9F` tombait sur
+  les codes de contrôle `$00-$1F`, qu'elle dessine comme un cadre vide. Quarante
+  cadres côte à côte, c'est la rangée de « O ». Son build — une copie des sources
+  de juin, entre l'arrivée de HST0 (13 juin) et celle de la ROM IIe (18 juin),
+  ou lancée d'un répertoire où la ROM n'était pas trouvée — passait par là.
+- **La ROM IIe** range à `$40-$7F` son jeu *alternatif* (MouseText, minuscules
+  inversées). La GEN2 n'en a pas : `$40-$7F` y est la copie clignotante de
+  `$00-$3F`. Tout octet clignotant affichait donc un pictogramme MouseText.
+
+Le décodage vit maintenant dans un seam pur, `src/Gen2CharGen.h` : un octet
+d'écran et une phase de clignotement en entrée, les huit lignes de la cellule en
+sortie, sur les deux chemins. `GraphicsCard` ne fait plus que charger la ROM et
+peindre. Même sémantique de clignotement sur les deux chemins (normal hors
+phase, inverse en phase) ; elle différait.
+
+Épinglé par deux tests, tous deux dans la porte `emulator` :
+
+- **`gen2_chargen_smoke`** — chaque équivalence du tableau 2 (`$80-$9F` dessine
+  ce que dessine `$C0-$DF`, `$00-$3F` en est l'inverse, `$40-$7F` alterne les
+  deux), sur la ROM **et** sur la police de secours. Assertions par équivalence,
+  donc valables pour n'importe quel dessin de glyphes, y compris l'EPROM de
+  Bernie le jour où POM1 la portera. Vérifié par mutation : réintroduire l'un ou
+  l'autre défaut fait échouer 92 et 130 contrôles.
+- **`gen2_vsplits_smoke`** — le programme de Bernie **tel qu'il l'a envoyé**
+  (`tests/gfx/vsplits.apl`), exécuté sur le vrai cœur pendant 200 trames. Dans
+  chacune, les lignes TEXT forment exactement une bande de 32 lignes, décalée
+  d'une ligne sur la précédente, et qui commence sur la ligne que le programme a
+  lui-même comptée (sa variable `$2C`) ; quand elle atteint le haut, la ligne 0
+  doit se lire `@ABCDEFGH…`. C'est le seul programme de l'arbre qui traverse de
+  bout en bout le timing 6502, HST0, le journal des soft switches et le rendu.
+  Une datation d'événement décalée d'une ligne le fait échouer dès la première
+  trame.
+
+Fan-out `GraphicsCard.h` 11 → 12 et `Memory.h` 60 → 61, et l'entrant est
+`tests/gen2_vsplits_smoke_test.cpp` : un test qui fait tourner un programme sur
+le vrai cœur puis regarde ce que la carte affiche ne peut pas s'écrire sans
+inclure les deux. Consommateur de test, pas couplage de production — même cas
+que `gen2_journal_snapshot_smoke`.
+
+Hors de ce correctif, et consigné dans `TODO.md` : la ligne blanche de chaque
+cellule est **en haut** sur l'EPROM de Bernie, en bas sur les glyphes IIe — il
+faut son gabarit de caractères, pas un décalage deviné ; et le défilement
+saccadé qu'il signale ne vient pas de l'émulation (une ligne par trame
+exactement, mesuré) mais de la présentation des trames à l'écran.
+
 ### Fixed — Krusader tombait dans son propre gestionnaire de BRK : on ne change pas les ROMs d'un Apple-1 en marche
 
 Le rouge du nocturne ThreadSanitizer sur `headless_preset_matrix` depuis le

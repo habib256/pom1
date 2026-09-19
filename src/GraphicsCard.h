@@ -51,8 +51,9 @@
  *      sub-pixels are pair-averaged down to 280 framebuffer pixels (the
  *      chroma-bandwidth downsample a real CRT performs optically).
  *
- * TEXT renders B&W (per Bernie's spec sheet) through a built-in 5×7 ASCII
- * font with the Apple II inverse/flashing attributes; LORES paints 7×4
+ * TEXT renders B&W (per Bernie's spec sheet) through the character generator
+ * in Gen2CharGen.h — Table 2's inverse/flashing/normal bands, from the IIe
+ * char ROM or a built-in 5×7 fallback; LORES paints 7×4
  * blocks from the 16-colour MAME palette. Both honour PAGE2 ($0800) like
  * the Apple II; HIRES PAGE2 reads $4000-$5FFF.
  *

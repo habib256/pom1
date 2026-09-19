@@ -1,4 +1,5 @@
 #include "GraphicsCard.h"
+#include "Gen2CharGen.h"
 #include "ResourceLocator.h"
 
 #include <algorithm>
@@ -225,165 +226,15 @@ inline uint32_t lerpRgba(uint32_t newPix, uint32_t prevPix, float persistence)
     return (uint32_t(0xFFu) << 24) | (bl << 16) | (g << 8) | r;
 }
 
-// ─── Apple IIe Enhanced text char ROM (loaded from roms/apple2e_char.rom) ─
+// ─── GEN2 character ROM (loaded from roms/apple2e_char.rom) ─────────────
 //
-// Bernie's release card carries a 2716 char-gen EPROM physically derived from
-// the Apple-1's Signetics 2513 footprint, but reprogrammed with the Apple IIe
-// full-ASCII glyph set (uppercase + lowercase with descenders, 7×8 cells).
-// The exact 2716 dump is not published — POM1 ships the Apple IIe Enhanced US
-// 4 KB char ROM (apple2e_char.rom, same file POM2 uses) which carries the
-// same primary glyph table in its first 2 KB; we ignore the alt set (MouseText
-// — the GEN2 has no alt-set selector). If the file is missing, fall back to
-// the historic built-in 5×7 ASCII font below so headless tests and minimal
-// builds keep rendering text. See loadApple2eCharRom() below for the csbits
-// normalization (verbatim port of POM2's Memory::loadCharRom).
-//
-// kAscii5x7 = the legacy POM2 fallback font, kept as a no-roms-found safety
-// net. Packed 8 bytes per glyph (top→bottom), bits 0-4 = pixel pattern,
-// MSB-left: bit 4 is the leftmost dot. Printable range $20-$7F; lowercase
-// inherits the uppercase glyphs (matches the original Apple II look).
-const uint8_t kAscii5x7[96 * 8] = {
-    // 0x20 ' '
-    0,0,0,0,0,0,0,0,
-    // 0x21 '!'
-    0x04,0x04,0x04,0x04,0x04,0x00,0x04,0x00,
-    // 0x22 '"'
-    0x0A,0x0A,0x0A,0,0,0,0,0,
-    // 0x23 '#'
-    0x0A,0x0A,0x1F,0x0A,0x1F,0x0A,0x0A,0,
-    // 0x24 '$'
-    0x04,0x0F,0x14,0x0E,0x05,0x1E,0x04,0,
-    // 0x25 '%'
-    0x19,0x19,0x02,0x04,0x08,0x13,0x13,0,
-    // 0x26 '&'
-    0x08,0x14,0x14,0x08,0x15,0x12,0x0D,0,
-    // 0x27 '\''
-    0x04,0x04,0x08,0,0,0,0,0,
-    // 0x28 '('
-    0x02,0x04,0x08,0x08,0x08,0x04,0x02,0,
-    // 0x29 ')'
-    0x08,0x04,0x02,0x02,0x02,0x04,0x08,0,
-    // 0x2A '*'
-    0x00,0x04,0x15,0x0E,0x15,0x04,0x00,0,
-    // 0x2B '+'
-    0x00,0x04,0x04,0x1F,0x04,0x04,0x00,0,
-    // 0x2C ','
-    0,0,0,0,0,0x04,0x04,0x08,
-    // 0x2D '-'
-    0x00,0x00,0x00,0x1F,0x00,0x00,0x00,0,
-    // 0x2E '.'
-    0,0,0,0,0,0x0C,0x0C,0,
-    // 0x2F '/'
-    0x01,0x01,0x02,0x04,0x08,0x10,0x10,0,
-    // 0x30 '0'
-    0x0E,0x11,0x13,0x15,0x19,0x11,0x0E,0,
-    // 0x31 '1'
-    0x04,0x0C,0x04,0x04,0x04,0x04,0x0E,0,
-    // 0x32 '2'
-    0x0E,0x11,0x01,0x02,0x04,0x08,0x1F,0,
-    // 0x33 '3'
-    0x0E,0x11,0x01,0x06,0x01,0x11,0x0E,0,
-    // 0x34 '4'
-    0x02,0x06,0x0A,0x12,0x1F,0x02,0x02,0,
-    // 0x35 '5'
-    0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E,0,
-    // 0x36 '6'
-    0x06,0x08,0x10,0x1E,0x11,0x11,0x0E,0,
-    // 0x37 '7'
-    0x1F,0x01,0x02,0x04,0x08,0x08,0x08,0,
-    // 0x38 '8'
-    0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E,0,
-    // 0x39 '9'
-    0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C,0,
-    // 0x3A ':'
-    0,0,0x0C,0x0C,0,0x0C,0x0C,0,
-    // 0x3B ';'
-    0,0,0x0C,0x0C,0,0x0C,0x04,0x08,
-    // 0x3C '<'
-    0x02,0x04,0x08,0x10,0x08,0x04,0x02,0,
-    // 0x3D '='
-    0,0,0x1F,0,0x1F,0,0,0,
-    // 0x3E '>'
-    0x08,0x04,0x02,0x01,0x02,0x04,0x08,0,
-    // 0x3F '?'
-    0x0E,0x11,0x01,0x02,0x04,0x00,0x04,0,
-    // 0x40 '@'
-    0x0E,0x11,0x01,0x0D,0x15,0x15,0x0E,0,
-    // 0x41 'A'
-    0x0E,0x11,0x11,0x11,0x1F,0x11,0x11,0,
-    // 0x42 'B'
-    0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E,0,
-    // 0x43 'C'
-    0x0E,0x11,0x10,0x10,0x10,0x11,0x0E,0,
-    // 0x44 'D'
-    0x1C,0x12,0x11,0x11,0x11,0x12,0x1C,0,
-    // 0x45 'E'
-    0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F,0,
-    // 0x46 'F'
-    0x1F,0x10,0x10,0x1E,0x10,0x10,0x10,0,
-    // 0x47 'G'
-    0x0E,0x11,0x10,0x17,0x11,0x11,0x0F,0,
-    // 0x48 'H'
-    0x11,0x11,0x11,0x1F,0x11,0x11,0x11,0,
-    // 0x49 'I'
-    0x0E,0x04,0x04,0x04,0x04,0x04,0x0E,0,
-    // 0x4A 'J'
-    0x07,0x02,0x02,0x02,0x02,0x12,0x0C,0,
-    // 0x4B 'K'
-    0x11,0x12,0x14,0x18,0x14,0x12,0x11,0,
-    // 0x4C 'L'
-    0x10,0x10,0x10,0x10,0x10,0x10,0x1F,0,
-    // 0x4D 'M'
-    0x11,0x1B,0x15,0x15,0x11,0x11,0x11,0,
-    // 0x4E 'N'
-    0x11,0x11,0x19,0x15,0x13,0x11,0x11,0,
-    // 0x4F 'O'
-    0x0E,0x11,0x11,0x11,0x11,0x11,0x0E,0,
-    // 0x50 'P'
-    0x1E,0x11,0x11,0x1E,0x10,0x10,0x10,0,
-    // 0x51 'Q'
-    0x0E,0x11,0x11,0x11,0x15,0x12,0x0D,0,
-    // 0x52 'R'
-    0x1E,0x11,0x11,0x1E,0x14,0x12,0x11,0,
-    // 0x53 'S'
-    0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E,0,
-    // 0x54 'T'
-    0x1F,0x04,0x04,0x04,0x04,0x04,0x04,0,
-    // 0x55 'U'
-    0x11,0x11,0x11,0x11,0x11,0x11,0x0E,0,
-    // 0x56 'V'
-    0x11,0x11,0x11,0x11,0x11,0x0A,0x04,0,
-    // 0x57 'W'
-    0x11,0x11,0x11,0x15,0x15,0x15,0x0A,0,
-    // 0x58 'X'
-    0x11,0x11,0x0A,0x04,0x0A,0x11,0x11,0,
-    // 0x59 'Y'
-    0x11,0x11,0x11,0x0A,0x04,0x04,0x04,0,
-    // 0x5A 'Z'
-    0x1F,0x01,0x02,0x04,0x08,0x10,0x1F,0,
-    // 0x5B '['
-    0x0E,0x08,0x08,0x08,0x08,0x08,0x0E,0,
-    // 0x5C '\\'
-    0x10,0x10,0x08,0x04,0x02,0x01,0x01,0,
-    // 0x5D ']'
-    0x0E,0x02,0x02,0x02,0x02,0x02,0x0E,0,
-    // 0x5E '^'
-    0x04,0x0A,0x11,0,0,0,0,0,
-    // 0x5F '_'
-    0,0,0,0,0,0,0x1F,0,
-    // 0x60 '`'
-    0x08,0x04,0x02,0,0,0,0,0,
-    // $61-$7F zero-filled: lowercase remaps to uppercase in resolveGlyph().
-};
-
-// Apple IIe Enhanced US character ROM, normalized to AppleWin's "csbits"
-// convention (each byte = one scanline of 7 pixels, bit 0 leftmost, 1 = lit;
-// the inverse range $00-$3F is pre-flipped to white-on-black). Indexed BY THE
-// SCREEN BYTE directly: rows = &gApple2eCharRom[screenByte * 8] gives the 8
-// scanlines for that cell, no ASCII translation needed. Loaded lazily on the
-// first TEXT render so the cwd is whatever launched POM1 (Memory probes the
-// same set of roms/ candidates). gApple2eCharRomOk drives the fallback to
-// kAscii5x7 below.
+// Bernie's release card carries a 2716 char-gen EPROM with a full-ASCII glyph
+// set (Table 2 of his spec). The exact 2716 dump is not published, so POM1
+// ships the Apple IIe Enhanced US 4 KB char ROM (apple2e_char.rom, the file
+// POM2 uses), whose primary glyphs match. WHICH glyph a screen byte shows --
+// attribute bands, the flashing range, the no-ROM 5x7 fallback -- is decided
+// in Gen2CharGen.h; this file only loads the ROM and paints cells. Loaded
+// lazily on the first TEXT render so the cwd is whatever launched POM1.
 std::array<uint8_t, 4096> gApple2eCharRom{};
 bool gApple2eCharRomOk      = false;
 bool gApple2eCharRomTried   = false;
@@ -399,81 +250,22 @@ void loadApple2eCharRom()
         if (!f) return;
         f.read(reinterpret_cast<char*>(gApple2eCharRom.data()), 4096);
         if (f.gcount() != 4096) { gApple2eCharRom.fill(0); return; }
-        // 4 KB Apple IIe Enhanced ROM stores pixels with INVERTED polarity
-        // (1 = OFF) and bit 0 = leftmost natively. XOR with 0xFF flips to
-        // (1 = ON). Verbatim from POM2::Memory::loadCharRom (4K branch).
-        for (auto& b : gApple2eCharRom) b ^= 0xFF;
+        pom1::gen2char::normalizeApple2eCharRom(gApple2eCharRom.data(),
+                                                gApple2eCharRom.size());
         gApple2eCharRomOk = true;
         return;
     }
-    // Not found: gApple2eCharRomOk stays false, glyphRows7 falls back to
-    // the kAscii5x7 built-in font below.
+    // Not found: gApple2eCharRomOk stays false and glyphRows7 draws with
+    // Gen2CharGen's built-in 5x7 font.
 }
 
-// Map a screen byte to a glyph row pattern + video attributes (Apple II
-// text encoding — the GEN2 char-gen follows the same convention):
-//   $00-$3F  inverse   ─ low 6 bits = char index (always inverse)
-//   $40-$7F  flashing  ─ low 6 bits = char index (alternates ~2 Hz)
-//   $80-$FF  normal    ─ low 7 bits = ASCII
-void resolveGlyph(uint8_t screenByte, uint8_t out[8], bool& invert, bool& flash)
-{
-    uint8_t ascii;
-    flash = false;
-    if (screenByte & 0x80) {
-        invert = false;
-        ascii  = screenByte & 0x7F;
-    } else {
-        invert = true;
-        flash  = (screenByte & 0x40) != 0;   // bit 6 set → FLASH attribute
-        const uint8_t idx6 = screenByte & 0x3F;
-        ascii = (idx6 < 0x20) ? static_cast<uint8_t>(0x40 + idx6) : idx6;
-    }
-
-    // Lowercase fallback to uppercase (no char-ROM dump for the GEN2 yet).
-    if (ascii >= 0x61 && ascii <= 0x7A) ascii = static_cast<uint8_t>(ascii - 0x20);
-
-    if (ascii >= 0x20 && ascii <= 0x7F) {
-        std::memcpy(out, &kAscii5x7[(ascii - 0x20) * 8], 8);
-    } else {
-        const uint8_t box[8] = { 0x1F, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1F, 0 };
-        std::memcpy(out, box, 8);
-    }
-}
-
-// Resolve a screen byte into the cell's 8 rows as 7-bit lit masks: bit `gx`
-// (0 = leftmost) set ⇔ pixel gx is lit, with inverse + flash applied.
-// Primary path: direct lookup into the Apple IIe Enhanced char ROM (csbits
-// format, already inverse-flipped + bit-ordered). For the flashing range
-// $40-$7F the stored pattern is the normal-looking glyph; XOR with 0x7F when
-// the flash phase is ON to alternate to inverse video. Fallback path: the
-// built-in kAscii5x7 5×7 font centred in the 7-pixel cell.
-std::array<uint8_t, 8> glyphRows7(uint8_t screenByte, bool flashPhase)
+// The cell for a screen byte, as 8 rows of 7-bit lit masks (bit gx = pixel gx
+// lit), inverse and flash already applied.
+pom1::gen2char::Rows glyphRows7(uint8_t screenByte, bool flashPhase)
 {
     loadApple2eCharRom();
-    std::array<uint8_t, 8> rows{};
-    if (gApple2eCharRomOk) {
-        const bool flashRange = screenByte >= 0x40 && screenByte <= 0x7F;
-        const uint8_t mask = (flashRange && flashPhase) ? 0x7F : 0x00;
-        const size_t off = static_cast<size_t>(screenByte) * 8u;
-        for (int gy = 0; gy < 8; ++gy)
-            rows[gy] = static_cast<uint8_t>(gApple2eCharRom[off + gy] ^ mask);
-        return rows;
-    }
-    uint8_t glyph[8];
-    bool invert = false, flash = false;
-    resolveGlyph(screenByte, glyph, invert, flash);
-    if (flash && flashPhase) invert = !invert;
-    for (int gy = 0; gy < 8; ++gy) {
-        const uint8_t row8 = glyph[gy];
-        uint8_t bits = 0;
-        for (int gx = 0; gx < 7; ++gx) {
-            bool lit = (gx >= 1 && gx <= 5) && ((row8 >> (5 - gx)) & 1);
-            if (invert) lit = !lit;
-            if (lit) bits |= static_cast<uint8_t>(1u << gx);
-        }
-        rows[gy] = bits;
-    }
-    return rows;
+    return pom1::gen2char::glyphRows(screenByte, flashPhase,
+                                     gApple2eCharRomOk ? gApple2eCharRom.data() : nullptr);
 }
 
 // Text rows [rowLo, rowHi) whose 8-scanline cells INTERSECT the band

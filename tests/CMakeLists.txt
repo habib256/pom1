@@ -557,6 +557,27 @@ pom1_add_smoke_test(test_gen2_journal_snapshot gen2_journal_snapshot_smoke_test.
 target_sources(test_gen2_journal_snapshot PRIVATE
     ${CMAKE_SOURCE_DIR}/src/GraphicsCard.cpp)
 
+# -- GEN2 character generator: Table 2 on both paths ---------------------------
+# Every screen byte shows the glyph Bernie's Table 2 promises, through the IIe
+# char ROM AND through the built-in 5x7 fallback. The fallback drew $80-$9F as
+# hollow boxes -- his "block of 'O' looking characters" -- and the ROM path drew
+# the IIe's MouseText for $40-$7F. Pure header; runs from the source tree for
+# roms/apple2e_char.rom.
+add_executable(test_gen2_chargen gen2_chargen_smoke_test.cpp)
+target_include_directories(test_gen2_chargen PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME gen2_chargen_smoke COMMAND test_gen2_chargen
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(gen2_chargen_smoke PROPERTIES TIMEOUT 5)
+
+# -- Uncle Bernie's vertical-split demo, on the real core ----------------------
+# tests/gfx/vsplits.apl exactly as Bernie sent it: HST0-synchronised TEXT/LORES
+# splits, a 32-line text window moving one scanline per field. 200 fields must
+# each show one band exactly one line below the last, and the top text row must
+# read @ABCDEFGH... when the window reaches it.
+pom1_add_smoke_test(test_gen2_vsplits gen2_vsplits_smoke_test.cpp gen2_vsplits_smoke)
+target_sources(test_gen2_vsplits PRIVATE ${CMAKE_SOURCE_DIR}/src/GraphicsCard.cpp)
+set_tests_properties(gen2_vsplits_smoke PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
 # -- GEN2 horizontal mid-scanline splits ---------------------------------------
 # Bernie's flagship release-card feature (port of POM2 horizontal_split):
 # TEXT columns alternating with HGR columns on the SAME scanline at the
