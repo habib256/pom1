@@ -7,7 +7,7 @@
 // SFX through the machine's 1-bit speaker) and native file I/O. To port the
 // editor: copy sfxbeep/ verbatim and implement one ISfxHost. Mirrors
 // tmspaint/ITmsPaintHost (pickFilePath defaults to false so the module stays
-// standalone and falls back to its own ImGui browser on WASM / no-picker hosts).
+// standalone and falls back to its own ImGui path prompt on WASM / no-picker hosts).
 
 #ifndef SFXBEEP_ISFX_HOST_H
 #define SFXBEEP_ISFX_HOST_H
@@ -31,7 +31,7 @@ public:
     virtual void stopPreview() = 0;
 
     // Native OS file picker for Export ASM / Load. Default returns false so the
-    // editor opens its built-in ImGui browser instead (WASM / no zenity/kdialog).
+    // editor asks for the path itself (WASM / no desktop picker).
     // forSave=true => a save dialog. extCsv is a comma-separated extension list.
     virtual bool pickFilePath(bool /*forSave*/, const std::string& /*title*/,
                               const std::string& /*filterDesc*/, const std::string& /*extCsv*/,
@@ -39,6 +39,11 @@ public:
                               std::string& /*outPath*/) {
         return false;
     }
+
+    // True when pickFilePath() can actually show a picker, so a false return
+    // from it is a Cancel rather than "there is no picker" -- only the latter
+    // opens the editor's own path prompt. Default false, like pickFilePath.
+    virtual bool nativeFilePickerAvailable() const { return false; }
 };
 
 }  // namespace sfxbeep

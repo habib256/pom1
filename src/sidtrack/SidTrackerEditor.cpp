@@ -98,6 +98,7 @@ void SidTrackerEditor::render() {
         ImGui::Separator();
         ImGui::TextUnformatted(status_.c_str());
     }
+    renderExportPrompt();
 }
 
 void SidTrackerEditor::renderToolbar() {
@@ -544,12 +545,22 @@ void SidTrackerEditor::renderKeyboard() {
 void SidTrackerEditor::doExport() {
     if (!host_) return;
     std::string path;
-    if (!host_->pickFilePath(/*forSave=*/true, "Export SID song (.inc)",
-                             "ca65 include", "inc,asm", "", std::string(nameBuf_) + ".inc",
-                             path)) {
-        status_ = "Export cancelled (or no native picker).";
+    if (host_->pickFilePath(/*forSave=*/true, "Export SID song (.inc)",
+                            "ca65 include", "inc,asm", "", std::string(nameBuf_) + ".inc",
+                            path)) {
+        writeExport(path);
         return;
     }
+    if (host_->nativeFilePickerAvailable()) {
+        status_ = "Export cancelled.";
+        return;
+    }
+    // No desktop picker (WASM, a Linux box with none): ask for the path here.
+    std::snprintf(exportPath_, sizeof(exportPath_), "%s.inc", nameBuf_);
+    exportPromptOpen_ = true;
+}
+
+void SidTrackerEditor::writeExport(const std::string& path) {
     const std::string text = formatSongAsm(model_);
     if (FILE* f = std::fopen(path.c_str(), "wb")) {
         const bool wrote = std::fwrite(text.data(), 1, text.size(), f) == text.size();
@@ -559,6 +570,29 @@ void SidTrackerEditor::doExport() {
     } else {
         status_ = "Could not write " + path;
     }
+}
+
+void SidTrackerEditor::renderExportPrompt() {
+    if (exportPromptOpen_) {
+        ImGui::OpenPopup("Export SID song##sidtrack");
+        exportPromptOpen_ = false;
+    }
+    if (!ImGui::BeginPopupModal("Export SID song##sidtrack", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+    ImGui::TextUnformatted("File to write (a relative path starts in the current folder):");
+    ImGui::SetNextItemWidth(420.0f);
+    const bool enter = ImGui::InputText("##exportPath", exportPath_, sizeof(exportPath_),
+                                        ImGuiInputTextFlags_EnterReturnsTrue);
+    if ((ImGui::Button("Export") || enter) && exportPath_[0]) {
+        writeExport(exportPath_);
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) {
+        status_ = "Export cancelled.";
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
 }
 
 }  // namespace sidtrack

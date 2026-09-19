@@ -3,10 +3,11 @@
 //
 // NativeFileDialog.h — thin portable wrapper around each desktop OS's
 // localised file picker (Win32 GetOpenFileNameW, Cocoa NSOpenPanel/NSSavePanel,
-// Linux zenity/kdialog). Returns false when no native backend is wired in
-// (WASM, or a Linux box without zenity/kdialog on $PATH) so the caller can
-// fall back to the in-process ImGui browser. Strings are UTF-8 throughout —
-// the Win32 impl translates to/from UTF-16 internally.
+// Linux: the xdg-desktop-portal FileChooser over D-Bus, else zenity, else
+// kdialog). Returns false when no native backend is wired in (WASM, or a Linux
+// box with none of the three) so the caller can fall back to the in-process
+// ImGui browser. Strings are UTF-8 throughout — the Win32 impl translates
+// to/from UTF-16 internally.
 
 #ifndef POM1_NATIVE_FILE_DIALOG_H
 #define POM1_NATIVE_FILE_DIALOG_H
@@ -35,9 +36,19 @@ public:
     /// preference is enabled AND this build can actually pop one. Every call
     /// site keys off this: when it is false the Load/Save flows fall back to
     /// POM1's in-process ImGui browser (instant, no XPC cold-start). Always
-    /// false on Emscripten/WASM, and on Linux until a zenity or kdialog binary
-    /// is detected on $PATH.
+    /// false on Emscripten/WASM, and on Linux when no desktop portal, zenity or
+    /// kdialog is found — or every one found has failed to run this session.
+    /// POM1_FILE_DIALOG=portal|zenity|kdialog|builtin narrows the Linux choice
+    /// to one backend (builtin = none).
     static bool isAvailable();
+
+    /// One sentence saying why POM1's own browser is showing instead of the
+    /// desktop's picker, for the UI to display beside it — or "" when the
+    /// desktop's picker IS available, when the user chose POM1's browser (the
+    /// Settings preference, POM1_FILE_DIALOG=builtin) or when the platform has
+    /// none by design (WASM). Never empty for "nothing found": that case names
+    /// what to install.
+    static std::string unavailableHint();
 
     /// User preference: when false, isAvailable() reports false even on a
     /// platform that has a native picker, so the (faster) in-process ImGui
@@ -76,8 +87,8 @@ public:
 
     /// Host event-loop pump, installed once by main_imgui.cpp.
     ///
-    /// The Linux backend forks a zenity/kdialog child and waits for it, and
-    /// that wait runs on the render thread — so without a pump NOTHING
+    /// The Linux backend waits for the desktop portal's answer, or for a
+    /// forked zenity/kdialog child, and that wait runs on the render thread — so without a pump NOTHING
     /// services the window-system connection for as long as the picker is up.
     /// The compositor's xdg_shell ping goes unanswered and GNOME puts up
     /// "POM1 is not responding" over a window that is merely waiting for the

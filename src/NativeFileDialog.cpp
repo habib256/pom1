@@ -8,9 +8,10 @@
 //               GetSaveFileNameW. Wide-string round-trip through MultiByte
 //               <-> WideChar so callers stay UTF-8.
 //   * macOS   : implemented in NativeFileDialog_Mac.mm (Objective-C++).
-//   * Linux   : forks `zenity --file-selection ...` (GNOME / generic) or
-//               `kdialog --getopenfilename ...` (KDE), captures stdout via
-//               pipe. The first call probes $PATH and caches the choice.
+//   * Linux   : the xdg-desktop-portal FileChooser over D-Bus (libdbus-1,
+//               dlopen'd), else forks `zenity --file-selection ...` (GNOME /
+//               generic), else `kdialog --getopenfilename ...` (KDE). Probed
+//               once; a backend that cannot run hands the request to the next.
 //   * WASM    : everything stubs out (isAvailable() = false), the existing
 //               ImGui dialog stays as the only option.
 
@@ -229,11 +230,27 @@ bool NativeFileDialog::saveFile(GLFWwindow* parent,
 // AppKit. Nothing to do in this file.
 
 #else
-// ── Linux (and other Unixes): zenity / kdialog fork+exec. ───────────────────
+// ── Linux (and other Unixes): desktop portal, then zenity / kdialog. ────────
 //
-// We never link against GTK/Qt directly — that would drag a heavy compile-
-// time dependency for what amounts to two CLI calls. The first
-// isAvailable() call probes $PATH and caches "zenity", "kdialog", or "none".
+// We never link against GTK/Qt — that would drag a heavy compile-time
+// dependency for what amounts to "show the desktop's picker". Three backends,
+// tried in this order and probed ONCE per session:
+//
+//   1. the xdg-desktop-portal FileChooser, over D-Bus (PortalFileChooser.h
+//      says why). libdbus-1 is dlopen'd, so POM1 takes no build dependency on
+//      it and no runtime one either: no library, no session bus or no portal
+//      simply means "no portal";
+//   2. zenity (GTK), forked;
+//   3. kdialog (KDE), forked.
+//
+// A backend that proves it cannot RUN is struck off for the session and the
+// next one serves the SAME request, so a broken portal still ends in a dialog.
+// A Cancel is not a failure and strikes nothing.
+//
+// POM1_FILE_DIALOG=portal|zenity|kdialog|builtin restricts the choice to one
+// backend (builtin = none: POM1's own browser). The tests use it to put a fake
+// zenity in front of a desktop that has a real portal; a user uses it when the
+// desktop's portal misbehaves.
 
 #include <cerrno>
 #include <chrono>
@@ -242,22 +259,31 @@ bool NativeFileDialog::saveFile(GLFWwindow* parent,
 #include <cstring>
 #include <mutex>
 #include <thread>
+#include <dlfcn.h>
 #include <unistd.h>
 #include <poll.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <string>
+
+#include "PortalFileChooser.h"
 
 namespace pom1 {
 
 namespace {
 
-enum class Backend { Unprobed, None, Zenity, Kdialog };
+// Outcome of one attempt. `Failed` means the backend could not run at all —
+// not the user's Cancel, which is also "no path" but must not strike it off.
+enum class Pick { Chosen, Cancelled, Failed };
 
-Backend& backend()
+enum class Backend { None = 0, Portal = 1, Zenity = 2, Kdialog = 3 };
+
+std::string lowerAscii(std::string s)
 {
-    static Backend b = Backend::Unprobed;
-    return b;
+    for (char& c : s)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    return s;
 }
 
 bool onPath(const char* binary)
@@ -284,41 +310,484 @@ bool onPath(const char* binary)
     return check(dir);
 }
 
-Backend probeBackend()
+// ── libdbus-1, dlopen'd ────────────────────────────────────────────────────
+//
+// The two structs POM1 must allocate itself are declared here rather than
+// taken from <dbus/dbus.h>, which is what keeps libdbus-dev out of the build.
+// Both are the frozen libdbus-1 ABI: DBusError is {name, message, five 1-bit
+// flags, padding} = 32 bytes on LP64 with the same offsets (checked against
+// the 1.14 headers); DBusMessageIter is 72 bytes there and only ever passed by
+// pointer, so it is over-allocated, which is always safe.
+namespace dbus {
+
+struct Error {
+    const char* name;
+    const char* message;
+    unsigned int flags;
+    void* padding;
+};
+struct Iter { alignas(void*) unsigned char opaque[128]; };
+struct Conn;
+struct Msg;
+using Bool = uint32_t;
+
+constexpr int kString = 's', kBool = 'b', kUint32 = 'u', kByte = 'y', kArray = 'a',
+              kVariant = 'v', kStruct = 'r', kDictEntry = 'e', kObjectPath = 'o';
+
+struct Api {
+    bool ok = false;
+    void  (*error_init)(Error*) = nullptr;
+    void  (*error_free)(Error*) = nullptr;
+    Bool  (*error_is_set)(const Error*) = nullptr;
+    Conn* (*connection_open_private)(const char*, Error*) = nullptr;
+    Bool  (*bus_register)(Conn*, Error*) = nullptr;
+    void  (*connection_set_exit_on_disconnect)(Conn*, Bool) = nullptr;
+    void  (*connection_close)(Conn*) = nullptr;
+    void  (*connection_unref)(Conn*) = nullptr;
+    Bool  (*connection_read_write)(Conn*, int) = nullptr;
+    Msg*  (*connection_pop_message)(Conn*) = nullptr;
+    Msg*  (*connection_send_with_reply_and_block)(Conn*, Msg*, int, Error*) = nullptr;
+    const char* (*bus_get_unique_name)(Conn*) = nullptr;
+    void  (*bus_add_match)(Conn*, const char*, Error*) = nullptr;
+    Msg*  (*message_new_method_call)(const char*, const char*, const char*, const char*) = nullptr;
+    void  (*message_unref)(Msg*) = nullptr;
+    Bool  (*message_is_signal)(Msg*, const char*, const char*) = nullptr;
+    const char* (*message_get_path)(Msg*) = nullptr;
+    void  (*message_iter_init_append)(Msg*, Iter*) = nullptr;
+    Bool  (*message_iter_append_basic)(Iter*, int, const void*) = nullptr;
+    Bool  (*message_iter_open_container)(Iter*, int, const char*, Iter*) = nullptr;
+    Bool  (*message_iter_close_container)(Iter*, Iter*) = nullptr;
+    Bool  (*message_iter_init)(Msg*, Iter*) = nullptr;
+    int   (*message_iter_get_arg_type)(Iter*) = nullptr;
+    void  (*message_iter_get_basic)(Iter*, void*) = nullptr;
+    void  (*message_iter_recurse)(Iter*, Iter*) = nullptr;
+    Bool  (*message_iter_next)(Iter*) = nullptr;
+};
+
+template <typename Fn>
+bool bind(void* lib, const char* name, Fn& fn)
+{
+    void* sym = dlsym(lib, name);
+    if (!sym) return false;
+    std::memcpy(&fn, &sym, sizeof fn);   // POSIX: a dlsym result may be a function
+    return true;
+}
+
+const Api& api()
+{
+    static const Api loaded = []() {
+        Api a;
+        void* lib = dlopen("libdbus-1.so.3", RTLD_NOW | RTLD_LOCAL);
+        if (!lib) return a;                       // never dlclose'd: lives with POM1
+        bool ok = true;
+        ok &= bind(lib, "dbus_error_init", a.error_init);
+        ok &= bind(lib, "dbus_error_free", a.error_free);
+        ok &= bind(lib, "dbus_error_is_set", a.error_is_set);
+        ok &= bind(lib, "dbus_connection_open_private", a.connection_open_private);
+        ok &= bind(lib, "dbus_bus_register", a.bus_register);
+        ok &= bind(lib, "dbus_connection_set_exit_on_disconnect",
+                   a.connection_set_exit_on_disconnect);
+        ok &= bind(lib, "dbus_connection_close", a.connection_close);
+        ok &= bind(lib, "dbus_connection_unref", a.connection_unref);
+        ok &= bind(lib, "dbus_connection_read_write", a.connection_read_write);
+        ok &= bind(lib, "dbus_connection_pop_message", a.connection_pop_message);
+        ok &= bind(lib, "dbus_connection_send_with_reply_and_block",
+                   a.connection_send_with_reply_and_block);
+        ok &= bind(lib, "dbus_bus_get_unique_name", a.bus_get_unique_name);
+        ok &= bind(lib, "dbus_bus_add_match", a.bus_add_match);
+        ok &= bind(lib, "dbus_message_new_method_call", a.message_new_method_call);
+        ok &= bind(lib, "dbus_message_unref", a.message_unref);
+        ok &= bind(lib, "dbus_message_is_signal", a.message_is_signal);
+        ok &= bind(lib, "dbus_message_get_path", a.message_get_path);
+        ok &= bind(lib, "dbus_message_iter_init_append", a.message_iter_init_append);
+        ok &= bind(lib, "dbus_message_iter_append_basic", a.message_iter_append_basic);
+        ok &= bind(lib, "dbus_message_iter_open_container", a.message_iter_open_container);
+        ok &= bind(lib, "dbus_message_iter_close_container", a.message_iter_close_container);
+        ok &= bind(lib, "dbus_message_iter_init", a.message_iter_init);
+        ok &= bind(lib, "dbus_message_iter_get_arg_type", a.message_iter_get_arg_type);
+        ok &= bind(lib, "dbus_message_iter_get_basic", a.message_iter_get_basic);
+        ok &= bind(lib, "dbus_message_iter_recurse", a.message_iter_recurse);
+        ok &= bind(lib, "dbus_message_iter_next", a.message_iter_next);
+        // libdbus otherwise sets SIGPIPE to SIG_IGN for the whole process on its
+        // first connection. It writes with MSG_NOSIGNAL anyway; leave the
+        // process's signal dispositions to POM1.
+        void (*changeSigpipe)(Bool) = nullptr;
+        if (bind(lib, "dbus_connection_set_change_sigpipe", changeSigpipe)) changeSigpipe(0);
+        a.ok = ok;
+        return a;
+    }();
+    return loaded;
+}
+
+// A D-Bus address value escapes every byte outside [-0-9A-Za-z_/.\*].
+std::string escapeAddressValue(const std::string& v)
+{
+    static const char* hexd = "0123456789abcdef";
+    std::string out;
+    for (unsigned char c : v) {
+        const bool plain = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                        || c == '-' || c == '_' || c == '/' || c == '.' || c == '\\' || c == '*';
+        if (plain) { out.push_back(static_cast<char>(c)); continue; }
+        out.push_back('%');
+        out.push_back(hexd[c >> 4]);
+        out.push_back(hexd[c & 0xF]);
+    }
+    return out;
+}
+
+// The session bus, WITHOUT libdbus's autolaunch: asking it for "the session
+// bus" on a box that has none can spawn a dbus-daemon behind the user's back.
+// $DBUS_SESSION_BUS_ADDRESS, else systemd's per-user socket, else nothing.
+std::string sessionBusAddress()
+{
+    if (const char* a = std::getenv("DBUS_SESSION_BUS_ADDRESS"); a && *a) return a;
+    if (const char* rt = std::getenv("XDG_RUNTIME_DIR"); rt && *rt) {
+        const std::string sock = std::string(rt) + "/bus";
+        struct stat st{};
+        if (stat(sock.c_str(), &st) == 0 && S_ISSOCK(st.st_mode))
+            return "unix:path=" + escapeAddressValue(sock);
+    }
+    return {};
+}
+
+// A private connection per dialog, closed on scope exit. Private so closing it
+// is ours to do; exit-on-disconnect off so a dying bus cannot _exit() POM1.
+struct Connection {
+    Conn* c = nullptr;
+    Connection() = default;
+    Connection(const Connection&) = delete;
+    Connection& operator=(const Connection&) = delete;
+    ~Connection()
+    {
+        if (c) { api().connection_close(c); api().connection_unref(c); }
+    }
+    bool open()
+    {
+        const Api& d = api();
+        if (!d.ok) return false;
+        const std::string address = sessionBusAddress();
+        if (address.empty()) return false;
+        Error err{};
+        d.error_init(&err);
+        c = d.connection_open_private(address.c_str(), &err);
+        if (!c) { d.error_free(&err); return false; }
+        d.connection_set_exit_on_disconnect(c, 0);
+        if (!d.bus_register(c, &err)) { d.error_free(&err); return false; }
+        return true;
+    }
+};
+
+// ── message building ──
+void appendString(Iter& it, const std::string& s)
+{
+    const char* p = s.c_str();   // caller has checked isValidUtf8
+    api().message_iter_append_basic(&it, kString, &p);
+}
+
+template <typename Writer>
+void appendOption(Iter& dict, const char* key, const char* signature, Writer write)
+{
+    const Api& d = api();
+    Iter entry{}, variant{};
+    d.message_iter_open_container(&dict, kDictEntry, nullptr, &entry);
+    d.message_iter_append_basic(&entry, kString, &key);
+    d.message_iter_open_container(&entry, kVariant, signature, &variant);
+    write(variant);
+    d.message_iter_close_container(&entry, &variant);
+    d.message_iter_close_container(&dict, &entry);
+}
+
+// `ay`, NUL-terminated: the portal's type for a path, which is bytes, not text.
+void appendPathBytes(Iter& variant, const std::string& path)
+{
+    const Api& d = api();
+    Iter bytes{};
+    d.message_iter_open_container(&variant, kArray, "y", &bytes);
+    for (char ch : path) {
+        const unsigned char b = static_cast<unsigned char>(ch);
+        d.message_iter_append_basic(&bytes, kByte, &b);
+    }
+    const unsigned char nul = 0;
+    d.message_iter_append_basic(&bytes, kByte, &nul);
+    d.message_iter_close_container(&variant, &bytes);
+}
+
+// `a(sa(us))`: each filter is a name and a list of (0 = glob, pattern).
+void appendFilters(Iter& variant, const std::vector<FileFilter>& filters)
+{
+    const Api& d = api();
+    std::vector<FileFilter> all = filters;
+    all.push_back(FileFilter{ "All files", {} });
+    Iter list{};
+    d.message_iter_open_container(&variant, kArray, "(sa(us))", &list);
+    for (const auto& f : all) {
+        Iter entry{}, patterns{};
+        d.message_iter_open_container(&list, kStruct, nullptr, &entry);
+        appendString(entry, portal::isValidUtf8(f.description) && !f.description.empty()
+                                ? f.description : std::string("Files"));
+        d.message_iter_open_container(&entry, kArray, "(us)", &patterns);
+        for (const auto& glob : portal::globPatterns(f.extensions)) {
+            if (!portal::isValidUtf8(glob)) continue;
+            Iter pair{};
+            const uint32_t kind = 0;
+            d.message_iter_open_container(&patterns, kStruct, nullptr, &pair);
+            d.message_iter_append_basic(&pair, kUint32, &kind);
+            appendString(pair, glob);
+            d.message_iter_close_container(&patterns, &pair);
+        }
+        d.message_iter_close_container(&entry, &patterns);
+        d.message_iter_close_container(&list, &entry);
+    }
+    d.message_iter_close_container(&variant, &list);
+}
+
+// Request.Response (u response, a{sv} results) -> the first of results["uris"].
+Pick parseResponse(Msg* signal, std::string& outPath)
+{
+    const Api& d = api();
+    Iter it{};
+    if (!d.message_iter_init(signal, &it) || d.message_iter_get_arg_type(&it) != kUint32)
+        return Pick::Cancelled;
+    uint32_t response = 0;
+    d.message_iter_get_basic(&it, &response);
+    // Anything but Success is a Cancel, including 2 ("ended some other way"):
+    // xdg-desktop-portal-gtk answers 2 when the dialog is closed by its window
+    // button. Treating that as a failure would strike the portal and pop zenity
+    // at a user who just closed a dialog.
+    if (response != static_cast<uint32_t>(portal::Response::Success)) return Pick::Cancelled;
+    if (!d.message_iter_next(&it) || d.message_iter_get_arg_type(&it) != kArray)
+        return Pick::Cancelled;
+    Iter dict{};
+    d.message_iter_recurse(&it, &dict);
+    while (d.message_iter_get_arg_type(&dict) == kDictEntry) {
+        Iter entry{};
+        d.message_iter_recurse(&dict, &entry);
+        const char* key = nullptr;
+        if (d.message_iter_get_arg_type(&entry) == kString) d.message_iter_get_basic(&entry, &key);
+        if (key && std::strcmp(key, "uris") == 0 && d.message_iter_next(&entry)
+            && d.message_iter_get_arg_type(&entry) == kVariant) {
+            Iter variant{}, uris{};
+            d.message_iter_recurse(&entry, &variant);
+            if (d.message_iter_get_arg_type(&variant) == kArray) {
+                d.message_iter_recurse(&variant, &uris);
+                if (d.message_iter_get_arg_type(&uris) == kString) {
+                    const char* uri = nullptr;
+                    d.message_iter_get_basic(&uris, &uri);
+                    if (uri) outPath = portal::fileUriToPath(uri);
+                }
+            }
+        }
+        d.message_iter_next(&dict);
+    }
+    // A choice that is not a local file (an sftp:// the file manager offered)
+    // cannot be loaded; report no path rather than hand a URL to fopen().
+    return outPath.empty() ? Pick::Cancelled : Pick::Chosen;
+}
+
+} // namespace dbus
+
+// "x11:<xid>" for POM1's own window, so the portal can make its dialog modal
+// to it -- which also keeps it from opening BEHIND a fullscreen POM1. Best
+// effort, and resolved at run time so this module keeps no GLFW dependency (its
+// test links it alone): glfwGetX11Window only exists in an X11-capable GLFW,
+// and GLFW 3.4's glfwGetPlatform says whether X11 is the one running. Anything
+// else -- Wayland, GLFW linked statically -- sends "", which the portal accepts
+// as "no parent".
+std::string parentWindowId(GLFWwindow* parent)
+{
+    if (!parent) return {};
+    void* getX11 = dlsym(RTLD_DEFAULT, "glfwGetX11Window");
+    if (!getX11) return {};
+    if (void* getPlatform = dlsym(RTLD_DEFAULT, "glfwGetPlatform")) {
+        int (*platform)() = nullptr;
+        std::memcpy(&platform, &getPlatform, sizeof platform);
+        constexpr int kGlfwPlatformX11 = 0x00060004;
+        if (platform() != kGlfwPlatformX11) return {};
+    }
+    unsigned long (*x11Window)(GLFWwindow*) = nullptr;
+    std::memcpy(&x11Window, &getX11, sizeof x11Window);
+    const unsigned long xid = x11Window(parent);
+    if (!xid) return {};
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "x11:%lx", xid);
+    return buf;
+}
+
+// Is there a FileChooser to talk to? Reading its `version` property also
+// starts the portal if it is D-Bus-activatable and not running yet. A bus with
+// no portal answers at once (ServiceUnknown); the timeout only bounds a portal
+// that is slow to come up.
+bool portalAvailable()
+{
+    dbus::Connection conn;
+    if (!conn.open()) return false;
+    const dbus::Api& d = dbus::api();
+    dbus::Msg* m = d.message_new_method_call(portal::kService, portal::kObject,
+                                             "org.freedesktop.DBus.Properties", "Get");
+    if (!m) return false;
+    dbus::Iter args{};
+    d.message_iter_init_append(m, &args);
+    const char* iface = portal::kChooser;
+    const char* prop = "version";
+    d.message_iter_append_basic(&args, dbus::kString, &iface);
+    d.message_iter_append_basic(&args, dbus::kString, &prop);
+    dbus::Error err{};
+    d.error_init(&err);
+    dbus::Msg* reply = d.connection_send_with_reply_and_block(conn.c, m, 3000, &err);
+    d.message_unref(m);
+    if (!reply) { d.error_free(&err); return false; }
+    uint32_t version = 0;
+    dbus::Iter it{};
+    if (d.message_iter_init(reply, &it) && d.message_iter_get_arg_type(&it) == dbus::kVariant) {
+        dbus::Iter v{};
+        d.message_iter_recurse(&it, &v);
+        if (d.message_iter_get_arg_type(&v) == dbus::kUint32) d.message_iter_get_basic(&v, &version);
+    }
+    d.message_unref(reply);
+    return version >= 1;
+}
+
+// OpenFile / SaveFile, then wait for the Response signal while pumping the
+// host's event loop -- the same render-thread wait as the forked helpers below.
+Pick runPortal(bool save, GLFWwindow* parent, const std::string& title,
+               const std::string& defaultDir, const std::string& defaultName,
+               const std::vector<FileFilter>& filters, std::string& outPath)
+{
+    dbus::Connection conn;
+    if (!conn.open()) return Pick::Failed;
+    const dbus::Api& d = dbus::api();
+
+    static unsigned counter = 0;
+    const std::string token = portal::handleToken(static_cast<unsigned long>(getpid()), ++counter);
+    const char* unique = d.bus_get_unique_name(conn.c);
+    if (!unique) return Pick::Failed;
+    std::string handle = portal::requestPath(unique, token);
+
+    // Subscribe BEFORE asking: the answer is a signal, and a fast portal can
+    // send it before the method call has even returned.
+    dbus::Error err{};
+    d.error_init(&err);
+    d.bus_add_match(conn.c, portal::responseMatchRule(handle).c_str(), &err);
+    if (d.error_is_set(&err)) { d.error_free(&err); return Pick::Failed; }
+
+    dbus::Msg* m = d.message_new_method_call(portal::kService, portal::kObject, portal::kChooser,
+                                             save ? "SaveFile" : "OpenFile");
+    if (!m) return Pick::Failed;
+    dbus::Iter args{};
+    d.message_iter_init_append(m, &args);
+    dbus::appendString(args, parentWindowId(parent));
+    const std::string fallbackTitle = save ? "Save File" : "Open File";
+    dbus::appendString(args, !title.empty() && portal::isValidUtf8(title) ? title : fallbackTitle);
+
+    dbus::Iter options{};
+    d.message_iter_open_container(&args, dbus::kArray, "{sv}", &options);
+    dbus::appendOption(options, "handle_token", "s",
+                       [&](dbus::Iter& v) { dbus::appendString(v, token); });
+    dbus::appendOption(options, "modal", "b", [&](dbus::Iter& v) {
+        const dbus::Bool yes = 1;
+        d.message_iter_append_basic(&v, dbus::kBool, &yes);
+    });
+    dbus::appendOption(options, "filters", "a(sa(us))",
+                       [&](dbus::Iter& v) { dbus::appendFilters(v, filters); });
+    if (!defaultDir.empty()) {
+        std::error_code ec;
+        const std::string dir = std::filesystem::absolute(defaultDir, ec).string();
+        if (!ec)
+            dbus::appendOption(options, "current_folder", "ay",
+                               [&](dbus::Iter& v) { dbus::appendPathBytes(v, dir); });
+    }
+    if (save && !defaultName.empty() && portal::isValidUtf8(defaultName)) {
+        dbus::appendOption(options, "current_name", "s",
+                           [&](dbus::Iter& v) { dbus::appendString(v, defaultName); });
+    }
+    d.message_iter_close_container(&args, &options);
+
+    dbus::Msg* reply = d.connection_send_with_reply_and_block(conn.c, m, 10000, &err);
+    d.message_unref(m);
+    if (!reply) { d.error_free(&err); return Pick::Failed; }   // no FileChooser after all
+    const char* returned = nullptr;
+    dbus::Iter r{};
+    if (d.message_iter_init(reply, &r) && d.message_iter_get_arg_type(&r) == dbus::kObjectPath)
+        d.message_iter_get_basic(&r, &returned);
+    const std::string requestObject = returned ? returned : "";
+    d.message_unref(reply);
+    if (requestObject.empty()) return Pick::Failed;
+    if (requestObject != handle) {
+        // Portals before 0.9 ignored handle_token and invented the path. Follow it.
+        handle = requestObject;
+        d.bus_add_match(conn.c, portal::responseMatchRule(handle).c_str(), &err);
+        if (d.error_is_set(&err)) { d.error_free(&err); return Pick::Failed; }
+    }
+
+    auto& pump = waitPumpFn();
+    for (;;) {
+        if (!d.connection_read_write(conn.c, pump ? 8 : 250)) return Pick::Failed;   // bus gone
+        while (dbus::Msg* msg = d.connection_pop_message(conn.c)) {
+            const char* path = d.message_get_path(msg);
+            if (d.message_is_signal(msg, portal::kRequest, "Response") && path && handle == path) {
+                const Pick p = dbus::parseResponse(msg, outPath);
+                d.message_unref(msg);
+                return p;
+            }
+            d.message_unref(msg);
+        }
+        if (pump) pump();
+    }
+}
+
+// ── Backend choice ─────────────────────────────────────────────────────────
+struct Backends {
+    std::vector<Backend> order;     // what this session found, best first
+    bool struck[4] = {};            // proved unable to run
+    bool builtinForced = false;     // POM1_FILE_DIALOG=builtin
+};
+
+Backends& backends()
+{
+    static Backends b;
+    return b;
+}
+
+void probeBackends()
 {
     static std::once_flag once;
     std::call_once(once, []() {
-        // Prefer zenity (GNOME / generic). Most desktops ship it; KDE users
-        // typically have kdialog instead.
-        if (onPath("zenity"))       backend() = Backend::Zenity;
-        else if (onPath("kdialog")) backend() = Backend::Kdialog;
-        else                         backend() = Backend::None;
+        Backends& b = backends();
+        const char* env = std::getenv("POM1_FILE_DIALOG");
+        const std::string forced = env ? lowerAscii(env) : std::string();
+        if (forced == "builtin" || forced == "none") { b.builtinForced = true; return; }
+        const bool any = forced != "portal" && forced != "zenity" && forced != "kdialog";
+        if ((any || forced == "portal")  && portalAvailable())  b.order.push_back(Backend::Portal);
+        if ((any || forced == "zenity")  && onPath("zenity"))   b.order.push_back(Backend::Zenity);
+        if ((any || forced == "kdialog") && onPath("kdialog"))  b.order.push_back(Backend::Kdialog);
     });
-    return backend();
 }
 
-// Set once the forked helper proves it cannot RUN — as opposed to the user
-// pressing Cancel, which is also a non-zero exit. The two were indistinguishable
-// and both ended as an empty string, so a zenity that died on launch made
-// File ▸ Load Memory do *nothing at all*: no dialog, no fallback, no log line.
-// That is not hypothetical — an AppImage exports its own LD_LIBRARY_PATH, the
-// forked system zenity inherits it, loads POM1's bundled GTK/glib instead of the
-// distribution's and exits before drawing. Uncle Bernie's Mint 17 box is exactly
-// that shape. Once this is true, isAvailable() goes false for the rest of the
-// session and every caller falls back to POM1's own browser.
-bool g_backendUnusable = false;
-
-// Run argv[], capture stdout up to 64 KB. Returns "" when the child exited
-// non-zero (which both zenity and kdialog do on Cancel) or could not be
-// spawned; the latter also raises g_backendUnusable. Newlines are stripped —
-// these tools terminate the path with \n.
-std::string runChildCapture(const std::vector<std::string>& argv)
+Backend activeBackend()
 {
+    probeBackends();
+    for (Backend b : backends().order)
+        if (!backends().struck[static_cast<int>(b)]) return b;
+    return Backend::None;
+}
+
+// Run argv[], capture stdout up to 64 KB into `out`. Chosen = exit 0 with a
+// path; Cancelled = a plain non-zero exit (both zenity and kdialog exit 1 on
+// Cancel); Failed = the child could not RUN. Newlines are stripped — these
+// tools terminate the path with \n.
+//
+// Failed used to be indistinguishable from a Cancel — both ended as an empty
+// string — so a zenity that died on launch made File ▸ Load Memory do *nothing
+// at all*: no dialog, no fallback, no log line. It is now what strikes the
+// backend off (see openFile), and the caller falls back.
+Pick runChildCapture(const std::vector<std::string>& argv, std::string& out)
+{
+    out.clear();
     int fds[2];
-    if (pipe(fds) != 0) return {};
+    if (pipe(fds) != 0) return Pick::Failed;
 
     pid_t pid = fork();
-    if (pid < 0) { close(fds[0]); close(fds[1]); return {}; }
+    if (pid < 0) { close(fds[0]); close(fds[1]); return Pick::Failed; }
     if (pid == 0) {
         // Child: redirect stdout to the pipe, drop stderr to /dev/null so the
         // GTK/KDE plug-init chatter doesn't pollute POM1's console.
@@ -348,7 +817,6 @@ std::string runChildCapture(const std::vector<std::string>& argv)
     auto& pump = waitPumpFn();
     const int pollTimeoutMs = pump ? 8 : -1;
 
-    std::string out;
     char buf[1024];
     bool eof = false;
     while (!eof && out.size() < 64 * 1024) {
@@ -381,20 +849,19 @@ std::string runChildCapture(const std::vector<std::string>& argv)
         std::this_thread::sleep_for(std::chrono::milliseconds(4));
     }
     // 127 is the _exit() above when execvp failed; a signal death (no WIFEXITED)
-    // means it started and crashed. Either way the backend cannot be used, and
-    // saying so is the difference between a fallback and a dead menu item.
-    // Note what happened but do NOT log it from here: this module stays free of
-    // POM1 services (no Logger, no Memory — same standalone rule that keeps it
-    // reusable by the portable editor hosts), and its test links it alone. The
-    // caller notices via isAvailable() going false and says so.
+    // means it started and crashed. Either way the backend cannot be used.
+    // Nothing is logged from here: this module stays free of POM1 services (no
+    // Logger, no Memory — the standalone rule that keeps it reusable by the
+    // portable editor hosts), and its test links it alone. The caller notices
+    // through isAvailable() / unavailableHint() and says so.
     if (!exited || !WIFEXITED(status) || WEXITSTATUS(status) == 127) {
-        g_backendUnusable = true;
-        return {};
+        out.clear();
+        return Pick::Failed;
     }
-    if (WEXITSTATUS(status) != 0) return {};   // a plain Cancel
+    if (WEXITSTATUS(status) != 0) { out.clear(); return Pick::Cancelled; }
     while (!out.empty() && (out.back() == '\n' || out.back() == '\r'))
         out.pop_back();
-    return out;
+    return out.empty() ? Pick::Cancelled : Pick::Chosen;
 }
 
 // "*.bin *.txt" — zenity's --file-filter pattern syntax (space-separated).
@@ -451,9 +918,10 @@ std::string zenityInitialFile(const std::string& dir)
     return ".pom1";   // non-existent placeholder → GTK opens in `dir`
 }
 
-std::string runZenityOpen(const std::string& title,
-                          const std::string& defaultDir,
-                          const std::vector<FileFilter>& filters)
+Pick runZenityOpen(const std::string& title,
+                   const std::string& defaultDir,
+                   const std::vector<FileFilter>& filters,
+                   std::string& outPath)
 {
     std::vector<std::string> argv = {
         "zenity", "--file-selection",
@@ -472,13 +940,14 @@ std::string runZenityOpen(const std::string& title,
         argv.push_back(spec);
     }
     argv.push_back("--file-filter=All files | *");
-    return runChildCapture(argv);
+    return runChildCapture(argv, outPath);
 }
 
-std::string runZenitySave(const std::string& title,
-                          const std::string& defaultDir,
-                          const std::string& defaultName,
-                          const std::vector<FileFilter>& filters)
+Pick runZenitySave(const std::string& title,
+                   const std::string& defaultDir,
+                   const std::string& defaultName,
+                   const std::vector<FileFilter>& filters,
+                   std::string& outPath)
 {
     std::vector<std::string> argv = {
         "zenity", "--file-selection", "--save", "--confirm-overwrite",
@@ -499,12 +968,13 @@ std::string runZenitySave(const std::string& title,
         argv.push_back(spec);
     }
     argv.push_back("--file-filter=All files | *");
-    return runChildCapture(argv);
+    return runChildCapture(argv, outPath);
 }
 
-std::string runKdialogOpen(const std::string& title,
-                           const std::string& defaultDir,
-                           const std::vector<FileFilter>& filters)
+Pick runKdialogOpen(const std::string& title,
+                    const std::string& defaultDir,
+                    const std::vector<FileFilter>& filters,
+                    std::string& outPath)
 {
     std::vector<std::string> argv = {
         "kdialog", "--getopenfilename",
@@ -515,13 +985,14 @@ std::string runKdialogOpen(const std::string& title,
         argv.push_back("--title");
         argv.push_back(title);
     }
-    return runChildCapture(argv);
+    return runChildCapture(argv, outPath);
 }
 
-std::string runKdialogSave(const std::string& title,
-                           const std::string& defaultDir,
-                           const std::string& defaultName,
-                           const std::vector<FileFilter>& filters)
+Pick runKdialogSave(const std::string& title,
+                    const std::string& defaultDir,
+                    const std::string& defaultName,
+                    const std::vector<FileFilter>& filters,
+                    std::string& outPath)
 {
     std::string start = defaultDir.empty() ? std::string(":")
                                            : (defaultDir + "/" + defaultName);
@@ -533,7 +1004,7 @@ std::string runKdialogSave(const std::string& title,
         argv.push_back("--title");
         argv.push_back(title);
     }
-    return runChildCapture(argv);
+    return runChildCapture(argv, outPath);
 }
 
 // When the user types a bare basename in a save dialog, append the first
@@ -554,53 +1025,92 @@ std::string ensureExtension(std::string path,
     return path;
 }
 
+// One request, served by the best backend still standing: a backend that fails
+// to run is struck off and the next one gets the SAME request, so the user sees
+// a dialog as long as any of the three works.
+template <typename Attempt>
+bool serve(std::string& outPath, Attempt attempt)
+{
+    for (;;) {
+        const Backend b = activeBackend();
+        if (b == Backend::None) { outPath.clear(); return false; }
+        const Pick p = attempt(b);
+        if (p == Pick::Failed) {
+            backends().struck[static_cast<int>(b)] = true;
+            continue;
+        }
+        if (p != Pick::Chosen) outPath.clear();
+        return p == Pick::Chosen;
+    }
+}
+
 } // namespace
 
 bool NativeFileDialog::platformAvailable()
 {
-    return probeBackend() != Backend::None;
+    return activeBackend() != Backend::None;
 }
 
-bool NativeFileDialog::openFile(GLFWwindow* /*parent*/,
+bool NativeFileDialog::openFile(GLFWwindow* parent,
                                 const std::string& title,
                                 const std::string& defaultDir,
                                 const std::vector<FileFilter>& filters,
                                 std::string& outPath)
 {
-    switch (probeBackend()) {
-    case Backend::Zenity:
-        outPath = runZenityOpen(title, defaultDir, filters);
-        break;
-    case Backend::Kdialog:
-        outPath = runKdialogOpen(title, defaultDir, filters);
-        break;
-    default:
-        return false;
-    }
-    return !outPath.empty();
+    return serve(outPath, [&](Backend b) {
+        switch (b) {
+        case Backend::Portal:
+            return runPortal(false, parent, title, defaultDir, {}, filters, outPath);
+        case Backend::Zenity:
+            return runZenityOpen(title, defaultDir, filters, outPath);
+        case Backend::Kdialog:
+            return runKdialogOpen(title, defaultDir, filters, outPath);
+        default:
+            return Pick::Failed;
+        }
+    });
 }
 
-bool NativeFileDialog::saveFile(GLFWwindow* /*parent*/,
+bool NativeFileDialog::saveFile(GLFWwindow* parent,
                                 const std::string& title,
                                 const std::string& defaultDir,
                                 const std::string& defaultName,
                                 const std::vector<FileFilter>& filters,
                                 std::string& outPath)
 {
-    switch (probeBackend()) {
-    case Backend::Zenity:
-        outPath = runZenitySave(title, defaultDir, defaultName, filters);
-        break;
-    case Backend::Kdialog:
-        outPath = runKdialogSave(title, defaultDir, defaultName, filters);
-        break;
-    default:
-        return false;
-    }
-    if (outPath.empty()) return false;
+    const bool ok = serve(outPath, [&](Backend b) {
+        switch (b) {
+        case Backend::Portal:
+            return runPortal(true, parent, title, defaultDir, defaultName, filters, outPath);
+        case Backend::Zenity:
+            return runZenitySave(title, defaultDir, defaultName, filters, outPath);
+        case Backend::Kdialog:
+            return runKdialogSave(title, defaultDir, defaultName, filters, outPath);
+        default:
+            return Pick::Failed;
+        }
+    });
+    if (!ok) return false;
     outPath = ensureExtension(std::move(outPath), filters);
     return true;
 }
+
+namespace {
+
+// Why no desktop picker is available, for unavailableHint() below. Empty when
+// one is, or when the user asked for POM1's own browser (POM1_FILE_DIALOG=builtin).
+std::string linuxUnavailableReason()
+{
+    if (activeBackend() != Backend::None || backends().builtinForced) return {};
+    if (!backends().order.empty())
+        return "Your desktop's file dialog could not start, so POM1's own browser is "
+               "used instead.";
+    return "No desktop file dialog found (xdg-desktop-portal, zenity or kdialog), so "
+           "POM1's own browser is used instead. Install zenity (GNOME, Cinnamon, XFCE, "
+           "MATE) or kdialog (KDE) to get your desktop's.";
+}
+
+} // namespace
 
 } // namespace pom1
 
@@ -661,10 +1171,6 @@ bool& nativeEnabledFlag()
     return v;
 }
 
-#if !POM1_IS_WASM && defined(__linux__)
-bool backendUnusable() { return g_backendUnusable; }
-#endif
-
 } // namespace
 
 void NativeFileDialog::setEnabled(bool enabled) { nativeEnabledFlag() = enabled; }
@@ -673,11 +1179,19 @@ bool NativeFileDialog::defaultEnabled() { return defaultNativeEnabled(); }
 
 bool NativeFileDialog::isAvailable()
 {
-#if !POM1_IS_WASM && defined(__linux__)
-    // A backend that proved it cannot run is not available, whatever $PATH says.
-    if (backendUnusable()) return false;
-#endif
+    // On Linux a backend that proved it cannot run is struck off, so
+    // platformAvailable() already goes false once none is left standing.
     return nativeEnabledFlag() && platformAvailable();
+}
+
+std::string NativeFileDialog::unavailableHint()
+{
+    if (!nativeEnabledFlag()) return {};     // the user chose POM1's browser
+#if !POM1_IS_WASM && !defined(_WIN32) && !defined(__APPLE__)
+    return linuxUnavailableReason();
+#else
+    return {};                               // WASM has none by design; Win32/Cocoa always do
+#endif
 }
 
 bool NativeFileDialog::pickFiltered(GLFWwindow* parent,

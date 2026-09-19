@@ -35,12 +35,16 @@ private:
     void renderStepEditor();  // precise sliders for the selected step
     void loadFromBank(int index);
     void doExport();
+    void writeExport(const std::string& path);
+    void renderExportPrompt();   // no desktop picker: ask for the path here
 
     ISfxHost* host_;
     SfxModel  model_;
     int       selected_ = -1;
     char      nameBuf_[48];
     std::string status_;
+    bool      exportPromptOpen_ = false;
+    char      exportPath_[512] = {};
 
     // Built-in bank (parsed once from SfxBank.h).
     std::vector<ParsedSfx> bank_;

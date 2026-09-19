@@ -54,6 +54,26 @@ std::string resolveDataDir(const char* name)
     return pom1::ResourceLocator::defaultLocator().findDirectory(name).string();
 }
 
+// Say, at the top of POM1's own dialog, why it is showing instead of the
+// desktop's picker -- "nothing found, install zenity or kdialog" or "it could
+// not start". Silent when the user chose POM1's browser. Logged once per
+// session too, so a report from a box that never showed the desktop's dialog
+// carries the reason in logs/pom1.log.
+void nativePickerHint()
+{
+    const std::string hint = pom1::NativeFileDialog::unavailableHint();
+    if (hint.empty()) return;
+    static bool logged = false;
+    if (!logged) {
+        logged = true;
+        pom1::log().warn("DIALOG", hint);
+    }
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.75f, 0.35f, 1.0f));
+    ImGui::TextWrapped("%s", hint.c_str());
+    ImGui::PopStyleColor();
+    ImGui::Separator();
+}
+
 // Append a context sub-directory to a resolved base dir, but only when that
 // sub-directory actually exists on disk. `base` is a canonical absolute path
 // (from resolveDataDir); `sub` is a plain folder name like "Graphic HGR" (or
@@ -156,16 +176,9 @@ void MainWindow_ImGui::loadMemory()
             // A Cancel is a Cancel. But a picker that could not RUN marks itself
             // unavailable (NativeFileDialog.cpp), and that must not read as "the
             // user changed their mind" — it used to, and File ▸ Load Memory then
-            // did nothing whatsoever, with nothing in the log. Fall through to
-            // POM1's own browser, which is always there.
-            if (!pom1::NativeFileDialog::isAvailable()) {
-                pom1::log().warn("DIALOG",
-                                 "the native file picker could not run — using POM1's "
-                                 "built-in browser for the rest of this session (a forked "
-                                 "zenity/kdialog inheriting an AppImage's LD_LIBRARY_PATH "
-                                 "is the usual cause)");
-                showLoadDialog = true;
-            }
+            // did nothing whatsoever. POM1's own browser is always there, and it
+            // says why it is showing (nativePickerHint).
+            if (!pom1::NativeFileDialog::isAvailable()) showLoadDialog = true;
             return;
         }
 
@@ -513,6 +526,7 @@ void MainWindow_ImGui::renderLoadDialog()
     const char* title = addressOnly ? "Load Binary — Address"
                                     : "Load Program";
     if (ImGui::Begin(title, &showLoadDialog)) {
+        nativePickerHint();
 
         if (!addressOnly) {
             if (!loadDlg.filesScanned) {
@@ -717,8 +731,10 @@ void MainWindow_ImGui::loadTape()
         std::string defDir = resolveDataDir("cassettes");
         std::string picked;
         if (!pom1::NativeFileDialog::openFile(window, "Load Cassette Tape",
-                                              defDir, filters, picked))
+                                              defDir, filters, picked)) {
+            if (!pom1::NativeFileDialog::isAvailable()) showLoadTapeDialog = true;   // could not run
             return;
+        }
         // Mirror the ImGui dialog's text-field for callers that re-open the
         // legacy dialog later (Refresh / Save preview reads from filePath).
         std::strncpy(loadTapeDlg.filePath, picked.c_str(),
@@ -744,6 +760,7 @@ void MainWindow_ImGui::renderLoadTapeDialog()
 {
     ImGui::SetNextWindowSize(ImVec2(560, 440), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Load Tape", &showLoadTapeDialog)) {
+        nativePickerHint();
         ImGui::TextWrapped("Load an Apple-1 cassette image or audio tape. Supported formats: "
                            ".aci (exact pulse dump), .aiff (Uncle Bernie's ACIace), .wav, .ogg, "
                            ".mp3, .flac.");
@@ -975,6 +992,7 @@ void MainWindow_ImGui::renderSaveDialog()
 {
     ImGui::SetNextWindowSize(ImVec2(500, 320), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Save Memory", &showSaveDialog)) {
+        nativePickerHint();
         static char filename[256] = "dump.txt";
         static char startStr[8] = "0000";
         static char endStr[8] = "0FFF";
@@ -1031,21 +1049,24 @@ void MainWindow_ImGui::renderSaveDialog()
                     resolveDataDir("software"),
                     memoryContextSubdir());
                 std::string picked;
-                if (!pom1::NativeFileDialog::saveFile(window, "Save Memory",
-                                                      defDir, path,
-                                                      filters, picked)) {
+                if (pom1::NativeFileDialog::saveFile(window, "Save Memory",
+                                                     defDir, path,
+                                                     filters, picked)) {
+                    path = picked;
+                    // Mirror the chosen basename back into the filename field so
+                    // a re-open shows the last choice.
+                    std::strncpy(filename,
+                                 std::filesystem::path(path).filename().string().c_str(),
+                                 sizeof(filename) - 1);
+                    filename[sizeof(filename) - 1] = '\0';
+                } else if (pom1::NativeFileDialog::isAvailable()) {
                     // User cancelled — leave the dialog open so they can
                     // tweak the range and re-try.
                     ImGui::End();
                     return;
                 }
-                path = picked;
-                // Mirror the chosen basename back into the filename field so
-                // a re-open shows the last choice.
-                std::strncpy(filename,
-                             std::filesystem::path(path).filename().string().c_str(),
-                             sizeof(filename) - 1);
-                filename[sizeof(filename) - 1] = '\0';
+                // else: the picker could not run — this dialog's own filename
+                // field decides, exactly as on a box that never had one.
             }
 #endif
             std::string error;
@@ -1127,8 +1148,10 @@ void MainWindow_ImGui::loadSnapshot()
         std::string defDir = resolveSnapshotsDir();
         std::string picked;
         if (!pom1::NativeFileDialog::openFile(window, "Load Snapshot",
-                                              defDir, filters, picked))
+                                              defDir, filters, picked)) {
+            if (!pom1::NativeFileDialog::isAvailable()) showLoadSnapshotDialog = true;
             return;
+        }
         std::string err;
         if (emulation->loadSnapshot(picked, err)) {
             emulation->copySnapshot(uiSnapshot);
@@ -1159,8 +1182,10 @@ void MainWindow_ImGui::saveSnapshot()
         std::string picked;
         if (!pom1::NativeFileDialog::saveFile(window, "Save Snapshot",
                                               defDir, snapshotDlg.filename,
-                                              filters, picked))
+                                              filters, picked)) {
+            if (!pom1::NativeFileDialog::isAvailable()) showSaveSnapshotDialog = true;
             return;
+        }
         // The portable wrapper auto-appends .snap on Linux/macOS when the
         // user typed a bare name; Win32 does the same via lpstrDefExt.
         std::string err;
@@ -1181,6 +1206,7 @@ void MainWindow_ImGui::renderLoadSnapshotDialog()
     namespace fs = std::filesystem;
     ImGui::SetNextWindowSize(ImVec2(520, 380), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Load Snapshot", &showLoadSnapshotDialog)) {
+        nativePickerHint();
 
         if (!snapshotDlg.listScanned) {
             if (snapshotDlg.snapshotsRoot.empty())
@@ -1268,6 +1294,7 @@ void MainWindow_ImGui::renderSaveSnapshotDialog()
     namespace fs = std::filesystem;
     ImGui::SetNextWindowSize(ImVec2(520, 240), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Save Snapshot", &showSaveSnapshotDialog)) {
+        nativePickerHint();
 
         if (snapshotDlg.snapshotsRoot.empty())
             snapshotDlg.snapshotsRoot = resolveSnapshotsDir();
@@ -1344,8 +1371,10 @@ void MainWindow_ImGui::saveTape()
         std::string picked;
         if (!pom1::NativeFileDialog::saveFile(window, "Save Cassette Tape",
                                               defDir, defName,
-                                              filters, picked))
+                                              filters, picked)) {
+            if (!pom1::NativeFileDialog::isAvailable()) showSaveTapeDialog = true;
             return;
+        }
         // Keep the dialog's text field in sync for the next ImGui-fallback
         // session.
         std::strncpy(saveTapeDlg.filePath, picked.c_str(),
@@ -1368,6 +1397,7 @@ void MainWindow_ImGui::renderSaveTapeDialog()
 {
     ImGui::SetNextWindowSize(ImVec2(520, 240), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Save Tape", &showSaveTapeDialog)) {
+        nativePickerHint();
         ImGui::TextWrapped("Save the cassette signal captured from accesses to the ACI output flip-flop.");
         ImGui::Spacing();
         ImGui::Text("Output file:");

@@ -10,6 +10,68 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Added — Linux : la boîte de dialogue du bureau sans zenity ni kdialog, et un navigateur intégré qui dit pourquoi il s'affiche
+
+Sous Linux, POM1 n'avait que deux façons de montrer la boîte de dialogue du
+bureau, toutes deux un programme externe : zenity (GTK) et kdialog (KDE).
+Aucun des deux n'est installé partout par défaut ; la machine d'Uncle Bernie
+n'avait ni l'un ni l'autre quand il a écrit que le chargement ne pouvait pas
+atteindre ses fichiers. Embarquer zenity a été écarté : c'est une interface
+GTK, donc toute une pile GTK à livrer dans l'AppImage (24 Mo aujourd'hui), et
+elle n'aurait jamais atteint un build compilé depuis les sources — le sien.
+
+**Premier backend : le portail du bureau.** `org.freedesktop.portal.FileChooser`
+sur D-Bus, l'interface qu'emploient les applications Flatpak et Snap, et à
+laquelle répond le bureau en place (GNOME, KDE, Cinnamon, XFCE…) sans
+programme à installer. libdbus-1 est chargée par `dlopen` : aucune dépendance
+de compilation, aucune à l'exécution — pas de bibliothèque, pas de bus de
+session ou pas de portail veut simplement dire « pas de portail ». L'ordre
+devient **portail → zenity → kdialog → navigateur intégré**, sondé une fois.
+Un backend qui ne peut pas s'exécuter est rayé pour la session et **le suivant
+sert la même demande** ; une annulation ne raye rien. Le portail reçoit la
+fenêtre de POM1 (`x11:<xid>`, via `dlsym` de `glfwGetX11Window`), donc son
+dialogue lui est rattaché et ne peut plus s'ouvrir derrière un POM1 plein
+écran. `POM1_FILE_DIALOG=portal|zenity|kdialog|builtin` force un backend.
+
+Le piège du protocole : la réponse n'est pas le retour de l'appel mais un
+**signal** `Request.Response`, sur un chemin d'objet que le client doit prédire
+(nom unique sur le bus + `handle_token`) et écouter **avant** d'appeler ; une
+prédiction fausse, et l'attente ne finit jamais. Autre point, découvert en
+préparant le code : xdg-desktop-portal-gtk répond `2` quand on ferme le
+dialogue par sa croix — c'est une annulation, et la traiter comme une panne
+aurait fait surgir zenity devant quelqu'un qui venait de fermer une fenêtre.
+Enfin libdbus **avorte le processus** sur une chaîne qui n'est pas de l'UTF-8
+valide ; un nom de fichier Linux est une suite d'octets, donc le dossier part
+en `ay` et le nom suggéré est vérifié avant envoi.
+
+**Le navigateur intégré fonctionne partout et dit pourquoi il est là.** Des
+six appelants (charger/enregistrer mémoire, cassette, snapshot), seul « Load
+Memory » se rabattait sur lui quand le sélecteur natif ne pouvait pas
+s'exécuter ; les cinq autres faisaient `return` et l'utilisateur ne voyait
+rien. Tous se rabattent désormais. En tête de chacun des six dialogues
+intégrés, une ligne orange explique : « aucune boîte de dialogue du bureau
+trouvée — installez zenity (GNOME, Cinnamon, XFCE, MATE) ou kdialog (KDE) »,
+ou « n'a pas pu démarrer » ; rien quand l'utilisateur a choisi le navigateur
+de POM1. La même phrase va une fois dans `logs/pom1.log`. Les exports SFX et
+SID n'avaient **aucun** repli ImGui (« Export cancelled (or no native
+picker) ») : ils demandent maintenant le chemin dans une petite fenêtre, et
+leurs interfaces d'hôte gagnent `nativeFilePickerAvailable()` comme celles des
+autres éditeurs, pour distinguer une annulation d'une absence de sélecteur.
+
+Épinglé par **`portal_file_dialog_smoke`** : un faux portail sur un
+`dbus-daemon` privé sans répertoire d'activation (aucun vrai portail ne peut
+démarrer derrière le test) — choix décodé, annulations 1 et 2, options
+envoyées, portail en erreur relayé par zenity sur la même demande, tous les
+backends en panne, et les deux messages dans des processus neufs. Une règle
+d'écoute cassée échoue en 12 s avec une phrase, pas au timeout de ctest.
+Vérifié à la main contre le vrai portail GNOME : choix, annulation,
+enregistrement avec nom suggéré, et `WM_TRANSIENT_FOR` = la fenêtre de POM1 ;
+puis dans POM1 lui-même, sans bus ni zenity : le navigateur intégré s'ouvre
+avec son message et charge `tests/gfx/vsplits.apl` par un chemin tapé.
+
+`mainwindow_lines` 17 236 → 17 266 : le message dans les six dialogues
+intégrés et le repli des cinq appelants qui n'en avaient pas.
+
 ### Fixed — GEN2 : une rangée de « O » là où Bernie attendait `@ABCDEFGH`
 
 Rapport d'Uncle Bernie (Applefritter, 16 sept. 2026), avec son programme de
