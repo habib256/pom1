@@ -34,7 +34,7 @@ public:
     virtual void previewSilence() = 0;
 
     // Native OS file picker for Export ASM / Load. Default false → the editor
-    // opens its built-in ImGui browser (WASM / no picker). Same shape as
+    // asks for the path itself (WASM / no picker). Same shape as
     // sfxbeep::ISfxHost::pickFilePath.
     virtual bool pickFilePath(bool /*forSave*/, const std::string& /*title*/,
                               const std::string& /*filterDesc*/, const std::string& /*extCsv*/,
@@ -42,6 +42,11 @@ public:
                               std::string& /*outPath*/) {
         return false;
     }
+
+    // True when pickFilePath() can actually show a picker, so a false return
+    // from it is a Cancel rather than "there is no picker" -- only the latter
+    // opens the editor's own path prompt. Default false, like pickFilePath.
+    virtual bool nativeFilePickerAvailable() const { return false; }
 };
 
 }  // namespace sidtrack

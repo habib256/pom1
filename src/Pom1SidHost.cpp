@@ -26,3 +26,7 @@ bool Pom1SidHost::pickFilePath(bool forSave, const std::string& title,
     return pom1::NativeFileDialog::pickFiltered(parent, forSave, title, filterDesc,
                                                 extCsv, defaultDir, defaultName, outPath);
 }
+
+bool Pom1SidHost::nativeFilePickerAvailable() const {
+    return pom1::NativeFileDialog::isAvailable();
+}

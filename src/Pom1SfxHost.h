@@ -26,6 +26,7 @@ public:
                       const std::string& filterDesc, const std::string& extCsv,
                       const std::string& defaultDir, const std::string& defaultName,
                       std::string& outPath) override;
+    bool nativeFilePickerAvailable() const override;
 
 private:
     EmulationController* emu_;

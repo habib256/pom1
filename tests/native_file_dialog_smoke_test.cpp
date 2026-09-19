@@ -71,6 +71,12 @@ void installFakeZenity(const fs::path& dir, int delayMs, const std::string& repl
 
 int main()
 {
+    // Put the fake zenity in charge whatever this desktop has: without this, a
+    // box with a live xdg-desktop-portal would answer every openFile() below
+    // with a REAL dialog (portal_file_dialog_smoke tests that backend, against
+    // a fake portal on a private bus).
+    setenv("POM1_FILE_DIALOG", "zenity", 1);
+
     const fs::path sandbox =
         fs::temp_directory_path() / ("pom1_nfd_smoke_" + std::to_string(::getpid()));
     fs::create_directories(sandbox);

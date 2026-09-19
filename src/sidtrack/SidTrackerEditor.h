@@ -57,6 +57,8 @@ private:
     void startDemo();          // jukebox: play the whole bank end to end
     void panic();              // hard stop: silence chip + drop every held note
     void doExport();
+    void writeExport(const std::string& path);
+    void renderExportPrompt();   // no desktop picker: ask for the path here
 
     ISidHost*  host_;
     SongModel  model_;
@@ -67,6 +69,8 @@ private:
     bool       writeToRow_ = false;     // piano keys enter notes into the selected row
     char       nameBuf_[48];
     std::string status_;
+    bool       exportPromptOpen_ = false;
+    char       exportPath_[512] = {};
 
     // live playback state
     bool     playing_    = false;

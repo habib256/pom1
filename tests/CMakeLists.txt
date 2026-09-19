@@ -2941,8 +2941,24 @@ if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
         ${CMAKE_SOURCE_DIR}/src/NativeFileDialog.cpp
     )
     target_include_directories(test_native_file_dialog PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(test_native_file_dialog PRIVATE ${CMAKE_DL_LIBS})
     add_test(NAME native_file_dialog_smoke COMMAND test_native_file_dialog)
     set_tests_properties(native_file_dialog_smoke PROPERTIES TIMEOUT 30)
+
+    # The desktop-portal backend (xdg-desktop-portal FileChooser over D-Bus),
+    # against a fake portal on a private dbus-daemon with no service directories
+    # -- so no real portal can be activated. Pins the request-path prediction
+    # (get it wrong and the wait never ends), Cancel vs failure, the options
+    # sent, the fall-through to zenity, and the hint POM1's own browser shows.
+    # Skips (77) without dbus-daemon or libdbus-1.
+    add_executable(test_portal_file_dialog
+        portal_file_dialog_smoke_test.cpp
+        ${CMAKE_SOURCE_DIR}/src/NativeFileDialog.cpp
+    )
+    target_include_directories(test_portal_file_dialog PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(test_portal_file_dialog PRIVATE ${CMAKE_DL_LIBS})
+    add_test(NAME portal_file_dialog_smoke COMMAND test_portal_file_dialog)
+    set_tests_properties(portal_file_dialog_smoke PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
 endif()
 
 # P-LAB MODEM BBS — 65C51 ACIA register file + Hayes AT parser. No ATD is
