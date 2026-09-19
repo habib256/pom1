@@ -25,7 +25,7 @@ contribuer : [`CONTRIBUTING.md`](CONTRIBUTING.md). Invariants et pièges :
 
 ## Où en est le projet
 
-137 tests verts en ~3,5 min, deux oracles CPU cycle-exacts, quatre campagnes de
+153 tests verts (~2 min en parallèle), deux oracles CPU cycle-exacts, quatre campagnes de
 fuzzing dont deux ont trouvé de vrais défauts, ordre des verrous prouvé, cinq
 tiers de CI en warnings-as-errors. Un clone neuf compile et passe la suite.
 
