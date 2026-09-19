@@ -592,7 +592,7 @@ add_test(NAME gen2_field_pacer_smoke COMMAND test_gen2_field_pacer)
 set_tests_properties(gen2_field_pacer_smoke PROPERTIES TIMEOUT 10)
 
 # -- Uncle Bernie's vertical-split demo, on the real core ----------------------
-# tests/gfx/vsplits.apl exactly as Bernie sent it: HST0-synchronised TEXT/LORES
+# software/Graphic HGR/vsplits.apl, Bernie's program bytes as sent: HST0-synchronised TEXT/LORES
 # splits, a 32-line text window moving one scanline per field. 200 fields must
 # each show one band exactly one line below the last, and the top text row must
 # read @ABCDEFGH... when the window reaches it.

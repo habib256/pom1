@@ -1,3 +1,5 @@
+// vsplits (Uncle Bernie, 2026) - GEN2 TEXT/LORES vertical splits synced on HST0: a 4-line text
+// window scrolls one scanline per field over LORES. Program bytes exactly as Bernie sent them. Run: 280R
 0280: 4C 8B 02 01 04 00 01 04
 : 20 00 04 A2 00 D8 8A 09
 : 80 9D 00 04 9D 00 05 9D

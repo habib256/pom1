@@ -33,11 +33,17 @@ glisser-déposer, le menu et le navigateur intégré passent tous par
 autres cartes se chevauchent (TMS9918 et A1-SID à `$CC00`), leurs octets ne
 désigneraient pas une carte unique.
 
-Aucun faux positif sur les 123 programmes livrés : 18 détectés, tous dans
-`software/Graphic HGR/`. Épinglé par `program_card_sniff_smoke` (motif, fichier
+Aucun faux positif sur les 122 programmes livrés (`software/` + `sdcard/`) :
+18 détectés — exactement les 18 de `software/Graphic HGR/`. Épinglé par `program_card_sniff_smoke` (motif, fichier
 de Bernie, et 69 programmes d'autres dossiers dont aucun n'est pris pour un
 programme GEN2) ; vérifié dans POM1 sur le preset par défaut : `vsplits.apl`
 chargé depuis `tests/gfx/` branche la GEN2, ouvre sa fenêtre et défile.
+
+**`vsplits.apl` est livré** dans `software/Graphic HGR/`, avec un en-tête qui
+crédite Bernie et donne la commande de lancement (`280R`) ; les octets du
+programme sont les siens. Il quitte `tests/gfx/` : les tests chargent désormais
+le fichier même que chargent les utilisateurs, plutôt qu'une copie qui pourrait
+diverger — il n'a pas de source à recompiler, donc rien à figer.
 
 `mainwindow_lines` 17 279 → 17 289 : la détection et son message dans
 `performMemoryLoad`.
@@ -190,7 +196,7 @@ phase, inverse en phase) ; elle différait.
   Bernie le jour où POM1 la portera. Vérifié par mutation : réintroduire l'un ou
   l'autre défaut fait échouer 92 et 130 contrôles.
 - **`gen2_vsplits_smoke`** — le programme de Bernie **tel qu'il l'a envoyé**
-  (`tests/gfx/vsplits.apl`), exécuté sur le vrai cœur pendant 200 trames. Dans
+  (`software/Graphic HGR/vsplits.apl`), exécuté sur le vrai cœur pendant 200 trames. Dans
   chacune, les lignes TEXT forment exactement une bande de 32 lignes, décalée
   d'une ligne sur la précédente, et qui commence sur la ligne que le programme a
   lui-même comptée (sa variable `$2C`) ; quand elle atteint le haut, la ligne 0

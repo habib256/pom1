@@ -20,7 +20,7 @@
 // The low six bits are the Signetics 2513 code the Apple-1 already uses; bits 7
 // and 6 are the attribute; only $E0-$FF is full ASCII.
 //
-// WHY THIS EXISTS. Uncle Bernie's vertical-split demo (tests/gfx/vsplits.apl,
+// WHY THIS EXISTS. Uncle Bernie's vertical-split demo (software/Graphic HGR/vsplits.apl,
 // Applefritter PM, 16 sept. 2026) fills the text page with $80-$FF and scrolls a
 // text window over LORES. On his build "the first lines of the TEXT field when
 // it is exposed on the top of the screen" showed "a block of 'O' looking

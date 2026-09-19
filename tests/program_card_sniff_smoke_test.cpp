@@ -13,7 +13,7 @@
 //   3. no false positive: no shipped program from another card's folder, or
 //      from the games, is taken for a GEN2 program
 //
-// Runs from the source tree (tests/gfx/, software/).
+// Runs from the source tree (software/).
 
 #include "ProgramCardSniff.h"
 #include "HexDumpFile.h"
@@ -55,18 +55,20 @@ int main()
 
     // ---- 2: Bernie's file --------------------------------------------------------
     {
-        const auto c = pom1::cardsniff::cardAddressedByFile("tests/gfx/vsplits.apl", false);
+        // The sniff reads the code, never the path: that this copy ships in
+        // Graphic HGR/ changes nothing for one saved anywhere else.
+        const auto c = pom1::cardsniff::cardAddressedByFile("software/Graphic HGR/vsplits.apl", false);
         assert(c && *c == CardId::Gen2 && "vsplits.apl must name the GEN2");
         assert(std::string(pom1::cardsniff::sniffedReason(CardId::Gen2)).find("GEN2") == 0);
         assert(!pom1::cardsniff::cardAddressedByFile("tests/gfx/does-not-exist.apl", false));
-        std::printf("[2] tests/gfx/vsplits.apl -> GEN2\n");
+        std::printf("[2] vsplits.apl -> GEN2\n");
     }
 
     // ---- 3: no false positive in the shipped corpus --------------------------------
     //
     // Every program in these folders is, by the folder's own definition, NOT a
-    // GEN2 program. Measured when this was written: 123 programs shipped, 18
-    // detected, all 18 under software/Graphic HGR/.
+    // GEN2 program. Measured when this was written: 122 programs shipped
+    // (software/ + sdcard/), 18 detected -- the 18 of software/Graphic HGR/.
     {
         namespace fs = std::filesystem;
         int scanned = 0;
