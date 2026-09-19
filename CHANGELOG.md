@@ -10,6 +10,43 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Fixed — `--dump-after-cycles N` voulait dire « N cycles, plus ce qui a tourné avant »
+
+L'entrée de `TODO.md` « `--paste-at-cycle` promet un déterminisme qu'il n'a
+pas », et la première brique des « movies » demandées par l'issue #40
+(re-recording pour longplays).
+
+Le pilote headless construisait un contrôleur ordinaire, dont le thread
+d'émulation fait tourner le CPU **en temps réel** dès la construction, puis à
+nouveau après chaque `--load` ou `--run`, jusqu'au premier `runCyclesSync` qui
+l'arrête. Une exécution bornée en cycles partait donc d'un point fixé par la
+vitesse et la charge de l'hôte : quelques centaines de cycles d'avance sur un
+bureau au repos, sans borne sur un runner de CI chargé. Les images témoins,
+`--paste-at-cycle` et tout ce qui reposera sur « la même entrée au même
+cycle » en dépendaient.
+
+`EmulationController` gagne un `ExecutionMode` choisi à la construction.
+**Deterministic** : le thread ne fait jamais tourner un cycle, quoi qu'un verbe
+demande ; seul `runCyclesSync` et ses pareils avancent la machine, et
+`runCyclesSync` livre les touches en attente en tête de chaque tranche (sans
+quoi un `--paste` n'arriverait jamais). Le boot du moniteur, le programme et
+chaque frappe sont comptés dans le budget. Le pilote headless l'emploie pour
+toute exécution bornée en cycles (`--dump-after-cycles`, `--paste-at-cycle`,
+`--exit-after-cycles`), jamais avec `--cmd-port` ni le port de télémétrie, qui
+pilotent une machine vivante. Aucune méthode publique ajoutée : le mode est un
+paramètre du constructeur.
+
+Épinglé par `deterministic_run_smoke` : un script (écrire un programme, y
+sauter, mettre une touche en file, courir 1 M cycles) joué avec l'hôte qui dort
+0 ms puis 3 × 120 ms. Déterministe : état identique à l'octet près, compteur à
+1 009 les deux fois, touche livrée. Témoin en mode temps réel : 1 009 contre
+17 330 — le test ne peut pas passer contre un contrôleur qui ne tournerait pas.
+L'image témoin `gfx_regress_gen2_testcard`, la matrice des 13 presets et les
+harnais telnet passent inchangés.
+
+`controller_lines` 3 166 → 3 197 (le mode et ses commentaires) et fan-out de
+`EmulationController.h` 19 → 20 (l'entrant est `deterministic_run_smoke`).
+
 ## [1.9.7] — 2026-09-19 — « Spring Cleaning »
 
 Première version publiée depuis la 1.9.5, et avant tout **un grand refactor et

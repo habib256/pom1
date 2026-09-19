@@ -740,7 +740,26 @@ static int runHeadless(pom1::CliPlan& plan)
     // destructor, but the declaration order says the same thing statically).
     AudioDevice audio(/*initializeHardware=*/true,
                       plan.audioLatencyMs ? *plan.audioLatencyMs : 0);
-    EmulationController emu(&display, /*initializeAudioHardware=*/true, &audio);
+
+    // A run bounded in CYCLES is a measurement, and a measurement must not
+    // depend on the host. It used to: the emulation thread started the CPU at
+    // construction and again at every --load/--run, in real time, until the
+    // first runCyclesSync stopped it -- so `--dump-after-cycles N` meant N
+    // cycles plus however many ran before, a number set by the host's speed and
+    // load. A Deterministic controller never runs a cycle on its thread; the
+    // Monitor's boot, the program and every --paste are all counted inside the
+    // budget. Not for the two channels that steer a LIVE machine: --cmd-port
+    // and the telemetry port's lock-step.
+    const bool dumping = !plan.dumpGen2Path.empty() || !plan.dumpTmsPath.empty();
+    const bool cycleBounded = dumping
+        ? (plan.dumpAfterCycles > 0 || !plan.timedPastes.empty())
+        : plan.exitAfterCycles > 0;
+    const bool deterministic = cycleBounded && !plan.commandPort && !plan.telemetryPort;
+    EmulationController emu(&display, /*initializeAudioHardware=*/true, &audio,
+                            deterministic ? EmulationController::ExecutionMode::Deterministic
+                                          : EmulationController::ExecutionMode::Live);
+    if (deterministic)
+        pom1::log().info("POM1", "deterministic run: the CPU advances only by counted cycles");
 
     // Machine config: apply the preset (RAM + cards + BASIC ROM) immediately —
     // no GUI deferred plug — then explicit --enable/--disable overrides, then

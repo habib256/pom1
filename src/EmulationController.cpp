@@ -63,8 +63,9 @@ constexpr double kTelemetryStallTimeoutSec = 5.0;
 
 EmulationController::EmulationController(DisplayDevice* screenWidget,
                                          bool initializeAudioHardware,
-                                         pom1::IAudioService* audio)
-    : screen(screenWidget)
+                                         pom1::IAudioService* audio,
+                                         ExecutionMode mode)
+    : screen(screenWidget), deterministic_(mode == ExecutionMode::Deterministic)
 {
     memory = std::make_unique<Memory>(initializeAudioHardware,
                                       pom1::ResourceLocator::defaultLocator(), audio);
@@ -324,6 +325,11 @@ void EmulationController::runCyclesSync(uint64_t cycles)
     cpu->start();                            // clear the CPU stop flag so run() executes
     uint64_t done = 0;
     while (done < cycles) {
+        // Queued keys reach the machine here as they do at the head of every
+        // async slice. On a deterministic machine nothing else would ever
+        // deliver a --paste, and here the point is fixed: the head of a slice
+        // counted from the start of this call, not whenever a thread woke.
+        keyboard.drainTo(*memory);
         const int slice = static_cast<int>(
             std::min<uint64_t>(cycles - done, static_cast<uint64_t>(kMaxSliceCycles)));
         const int actual = cpu->run(slice);  // run() returns the actual cycle count
@@ -865,6 +871,17 @@ void EmulationController::emulationLoop()
     emulationCycleBudget = 0.0;
 
     while (!terminateRequested.load()) {
+        // Deterministic mode parks here for good: a verb that "starts" the CPU
+        // (a load, --run) only arms it, and runCyclesSync is what executes it.
+        // Letting this thread run meanwhile is exactly the uncounted, host-timed
+        // head start that made --dump-after-cycles N mean "N plus whatever ran
+        // before".
+        if (deterministic_) {
+            std::unique_lock<std::mutex> waitLock(wakeMutex);
+            wakeCv.wait_for(waitLock, std::chrono::milliseconds(50),
+                            [this] { return terminateRequested.load(); });
+            continue;
+        }
         if (!runRequested.load()) {
             std::unique_lock<std::mutex> waitLock(wakeMutex);
             // Re-test under the lock via the predicate overload: a notify that
