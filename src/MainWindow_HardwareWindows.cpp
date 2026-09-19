@@ -81,13 +81,25 @@ void MainWindow_ImGui::renderGraphicsCardWindow()
     // the per-scanline-diffed HGR fast path when the latch sits at the
     // classic GRAPHICS+HIRES+PAGE1 state with no events — an idle legacy
     // framebuffer still costs ~7.7 KB of memcmp and zero pixel writes.
-    if (graphicsCard.render(uiSnapshot.memory.data(),
-                            uiSnapshot.gen2DisplayState,
-                            uiSnapshot.gen2FrameStartState,
-                            uiSnapshot.gen2VideoEvents,
-                            uiSnapshot.gen2FiftyHz
-                                ? Gen2VideoScanner::kLinesPerFrame50Hz
-                                : Gen2VideoScanner::kLinesPerFrame)) {
+    //
+    // The frame drawn is the NEXT field in the ring, not the latest: one field
+    // per refresh, so a fine scroll moves one line at a time instead of
+    // standing still and then jumping two (Gen2FieldRing.h). The latest-field
+    // form below only serves until the first field has completed.
+    const pom1::Gen2Field* field = gen2Pacer.pick(uiSnapshot.gen2Fields);
+    const bool changed = field
+        ? graphicsCard.render(gen2Pacer.compose(*field), field->endState, field->frameStart,
+                              field->events,
+                              field->fiftyHz ? Gen2VideoScanner::kLinesPerFrame50Hz
+                                             : Gen2VideoScanner::kLinesPerFrame)
+        : graphicsCard.render(uiSnapshot.memory.data(),
+                              uiSnapshot.gen2DisplayState,
+                              uiSnapshot.gen2FrameStartState,
+                              uiSnapshot.gen2VideoEvents,
+                              uiSnapshot.gen2FiftyHz
+                                  ? Gen2VideoScanner::kLinesPerFrame50Hz
+                                  : Gen2VideoScanner::kLinesPerFrame);
+    if (changed) {
         r->updateTexture(graphicsCardTexture,
                          reinterpret_cast<const uint32_t*>(graphicsCard.pixels()));
         lastCardFbChangeTime = ImGui::GetTime();   // adaptive-UI: card is animating

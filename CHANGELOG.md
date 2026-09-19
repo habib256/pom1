@@ -10,6 +10,55 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Fixed — GEN2 : le défilement fin d'Uncle Bernie ne titube plus, et « x1 » est enfin l'horloge de l'Apple-1
+
+Bernie, avec sa démo `vsplits` (une fenêtre TEXT qui descend d'une ligne par
+trame) : *« The fine scrolling action should be smooth (as on the real
+hardware) but on POM1 it's staggering along, as if it could not do 60 frames
+per second. »* L'émulation était exacte — `gen2_vsplits_smoke` le prouve, une
+ligne par trame sans exception, et le rendu GEN2 coûte ~24 µs par trame.
+C'est **l'affichage** qui titubait.
+
+**Une trame émulée par rafraîchissement.** La fenêtre GEN2 dessinait à chaque
+rafraîchissement la *dernière* trame terminée. Les trames finissent sur
+l'horloge du thread d'émulation, les rafraîchissements sur celle de l'écran,
+et quelques millisecondes de gigue d'un côté ou de l'autre suffisaient pour
+qu'un rafraîchissement ne voie aucune trame nouvelle et que le suivant en voie
+deux : la bande s'arrêtait, puis sautait deux lignes. Désormais
+`SnapshotPublisher` garde les dernières trames terminées dans un anneau
+(`src/Gen2FieldRing.h` — verrou HGR, pages texte, journal des soft switches,
+figés à la fin de la trame), et un `Gen2FieldPacer` montre la trame N+1 à
+chaque rafraîchissement, avec deux trames en réserve. Il ne répète une trame
+que si aucune n'est prête, et n'en saute une que lorsque quatre attendent :
+les deux horloges ont alors une trame d'écart, ce qui sur un écran à 60 Hz
+arrive toutes les ~18 s (60,055 contre 60 Hz). Au passage, les pages TEXT/LORES
+ne sont plus lues en direct au moment du dessin : chaque trame porte les
+siennes.
+
+Mesuré : en simulation déterministe des deux horloges sur 120 s à 60 Hz,
+l'affichage « dernière trame » donnait 297 / 1 048 / 2 010 rafraîchissements
+qui n'avancent pas d'exactement une trame avec 0,5 / 2 / 4 ms de gigue ; le
+pacer en donne 5 / 6 / 7 — la seule dérive d'horloge (`gen2_field_pacer_smoke`).
+Dans l'application réelle, `vsplits` pendant 20 s (trace temporaire, non
+committée) : 1 229 pas d'une trame et un seul saut, là où l'ancien affichage
+aurait montré 37 à-coups — sur une machine rapide ; l'Acer de Bernie a bien
+plus de gigue. `gen2_vsplits_smoke` fait aussi passer la démo par le vrai
+`SnapshotPublisher`, en tranches de 700 à 5 900 cycles : 200 trames
+consécutives dans l'anneau, chacune une ligne sous la précédente.
+
+**« x1 » tournait 0,1 % trop vite.** Le pacer calculait `cpf × 60`, or le cpf
+de x1 (17 062) compte une trame à **59,94 Hz** (`CpuClock.h`) : x1 cadençait à
+1 023 720 Hz au lieu de 1 022 727. La barre d'état l'affichait honnêtement —
+« 1.024 MHz » — et l'infobulle promettait le contraire. Conséquence pour la
+GEN2 : 60,11 trames/s au lieu de 60,055, donc un saut de trame toutes les ~9 s
+au lieu de ~18 s. La cadence vient maintenant de
+`pom1CyclesPerSecond(cpf)` — x1 = le quartz, exactement, vérifié par
+`static_assert` ; la barre d'état et `measured_cpu_rate_smoke` utilisent la
+même fonction (mesuré : 1 022 667 Hz pour une cible de 1 022 727). x2 garde
+l'arrondi de son propre cpf (+0,003 %).
+
+`mainwindow_lines` 17 236 → 17 249 : le pacer de la fenêtre GEN2 et son appel.
+
 ### Fixed — GEN2 : une rangée de « O » là où Bernie attendait `@ABCDEFGH`
 
 Rapport d'Uncle Bernie (Applefritter, 16 sept. 2026), avec son programme de

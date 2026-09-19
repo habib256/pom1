@@ -1181,6 +1181,7 @@ private:
     TapeDialogState saveTapeDlg;
 
     GraphicsCard graphicsCard;
+    pom1::Gen2FieldPacer gen2Pacer;   // one emulated field per refresh (Gen2FieldRing.h)
     pom1::CassetteDeck_ImGui cassetteDeck;
 
     // Keyboard shortcuts. The TABLE is pom1::shortcuts::kBindings (ShortcutTable.h,

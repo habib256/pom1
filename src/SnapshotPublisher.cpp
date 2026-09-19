@@ -174,8 +174,32 @@ void SnapshotPublisher::publish(Memory& mem, const M6502& cpu, bool cpuRunning)
         // mirror (both HGR pages); the dirty-page copy still serves the hex/memory
         // views for the rest of RAM.
         std::memcpy(snapshot.memory.data() + 0x2000, mem.gen2FrameLatch(), 0x4000);
+
+        // One more field in the ring when one has completed since the last
+        // publish -- the scanner's position inside the field has wrapped. A
+        // slice is at most 6 000 cycles against 17 030 per field, so no field
+        // goes by unseen (WASM's 50 000-cycle slices can; the ring then keeps
+        // the latest, which is all Memory still holds anyway). The text pages
+        // are taken here, within one slice of the rollover: not beam-exact, but
+        // no longer whatever they hold whenever the UI happens to draw.
+        const uint64_t position = mem.peekGen2VideoCycle();
+        if (snapshot.gen2Fields.empty() || position < gen2LastPosition_) {
+            auto field = std::make_shared<pom1::Gen2Field>();
+            field->seq = ++gen2FieldSeq_;
+            std::memcpy(field->hgr.data(), mem.gen2FrameLatch(), field->hgr.size());
+            std::memcpy(field->text.data(), mem.getMemoryPointer() + 0x0400, field->text.size());
+            field->events     = snapshot.gen2VideoEvents;
+            field->frameStart = snapshot.gen2FrameStartState;
+            field->endState   = pom1::gen2EndState(field->frameStart, field->events);
+            field->fiftyHz    = snapshot.gen2FiftyHz;
+            snapshot.gen2Fields.push_back(std::move(field));
+            if (snapshot.gen2Fields.size() > pom1::kGen2FieldRingCapacity)
+                snapshot.gen2Fields.erase(snapshot.gen2Fields.begin());
+        }
+        gen2LastPosition_ = position;
     } else {
         snapshot.gen2VideoEvents.clear();
+        snapshot.gen2Fields.clear();
     }
 }
 

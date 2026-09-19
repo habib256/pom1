@@ -34,6 +34,10 @@ private:
     // Innermost rank — nothing may be acquired while this is held.
     mutable pom1::RankedMutex<pom1::LockRank::Snapshot> snapshotMutex;
     EmulationSnapshot latestSnapshot;
+    // GEN2 field ring bookkeeping (see publish): the scanner position at the
+    // previous publish, whose wrap says a field completed, and the last seq.
+    uint64_t gen2LastPosition_ = 0;
+    uint64_t gen2FieldSeq_ = 0;
 };
 
 #endif // SNAPSHOTPUBLISHER_H

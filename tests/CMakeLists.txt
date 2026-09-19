@@ -569,13 +569,24 @@ add_test(NAME gen2_chargen_smoke COMMAND test_gen2_chargen
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 set_tests_properties(gen2_chargen_smoke PROPERTIES TIMEOUT 5)
 
+# -- GEN2: one emulated field per refresh -------------------------------------
+# The GEN2 window shows the NEXT field from a ring of recent ones instead of the
+# latest, which is what made Bernie's one-line-per-field scroll stagger. Pins the
+# pacer's policy and, by a deterministic simulation of both clocks, the claim:
+# only the unavoidable clock-drift skips remain. Pure header, no core.
+add_executable(test_gen2_field_pacer gen2_field_pacer_smoke_test.cpp)
+target_include_directories(test_gen2_field_pacer PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME gen2_field_pacer_smoke COMMAND test_gen2_field_pacer)
+set_tests_properties(gen2_field_pacer_smoke PROPERTIES TIMEOUT 10)
+
 # -- Uncle Bernie's vertical-split demo, on the real core ----------------------
 # tests/gfx/vsplits.apl exactly as Bernie sent it: HST0-synchronised TEXT/LORES
 # splits, a 32-line text window moving one scanline per field. 200 fields must
 # each show one band exactly one line below the last, and the top text row must
 # read @ABCDEFGH... when the window reaches it.
 pom1_add_smoke_test(test_gen2_vsplits gen2_vsplits_smoke_test.cpp gen2_vsplits_smoke)
-target_sources(test_gen2_vsplits PRIVATE ${CMAKE_SOURCE_DIR}/src/GraphicsCard.cpp)
+target_sources(test_gen2_vsplits PRIVATE ${CMAKE_SOURCE_DIR}/src/GraphicsCard.cpp
+                                         ${CMAKE_SOURCE_DIR}/src/SnapshotPublisher.cpp)
 set_tests_properties(gen2_vsplits_smoke PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 # -- GEN2 horizontal mid-scanline splits ---------------------------------------
