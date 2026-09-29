@@ -31,6 +31,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <thread>
 #include <utility>
@@ -65,29 +66,50 @@ struct Log {
     bool operator==(const Log& o) const { return keys == o.keys && counters == o.counters; }
 };
 
+// Controllers and snapshots are ~260 KB each: they live on the heap, or the
+// test's frame outgrows Windows' thread stack (see CLAUDE.md, Testing).
 Log readLog(EmulationController& emu)
 {
-    EmulationSnapshot s;
-    emu.copySnapshot(s);
+    auto s = std::make_unique<EmulationSnapshot>();
+    emu.copySnapshot(*s);
     Log l;
-    const int n = s.memory[0x13];
-    l.keys.assign(s.memory.begin() + 0x0300, s.memory.begin() + 0x0300 + n);
-    l.counters.assign(s.memory.begin() + 0x0400, s.memory.begin() + 0x0400 + n);
+    const int n = s->memory[0x13];
+    l.keys.assign(s->memory.begin() + 0x0300, s->memory.begin() + 0x0300 + n);
+    l.counters.assign(s->memory.begin() + 0x0400, s->memory.begin() + 0x0400 + n);
     return l;
 }
 
-EmulationSnapshot snap(EmulationController& emu)
+// Load the key-logging program with an empty log, and run it. Typed pairs:
+// MSVC's /W4 flags pair<uint16_t, uint8_t> built from two ints (C4244).
+void startProgram(EmulationController& emu)
 {
-    EmulationSnapshot s;
-    emu.copySnapshot(s);
-    return s;
+    std::vector<std::pair<uint16_t, uint8_t>> writes;
+    for (std::size_t i = 0; i < sizeof kProgram; ++i)
+        writes.emplace_back(static_cast<uint16_t>(0x0280 + i), kProgram[i]);
+    writes.emplace_back(static_cast<uint16_t>(0x0013), static_cast<uint8_t>(0));
+    emu.writeMemoryBatch(writes);
+    emu.jumpTo(0x0280);
+}
+
+// The movie fields of a snapshot, without keeping the snapshot.
+struct Status {
+    uint8_t movieState = 0, movieVerdict = 0;
+    uint32_t movieKeys = 0, movieKeysPlayed = 0;
+    bool gen2Enabled = false;
+};
+
+Status snap(EmulationController& emu)
+{
+    auto s = std::make_unique<EmulationSnapshot>();
+    emu.copySnapshot(*s);
+    return {s->movieState, s->movieVerdict, s->movieKeys, s->movieKeysPlayed, s->gen2Enabled};
 }
 
 // Wait (bounded) for a live replay to reach its end and deliver a verdict.
 uint8_t awaitVerdict(EmulationController& emu)
 {
     for (int i = 0; i < 1000; ++i) {
-        const EmulationSnapshot s = snap(emu);
+        const Status s = snap(emu);
         if (s.movieState == 0 && s.movieVerdict != 0) return s.movieVerdict;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -241,14 +263,10 @@ int main(int argc, char** argv)
     std::vector<uint8_t> recording;
     Log recorded;
     {
-        EmulationController emu(nullptr, false, nullptr, Mode::Live);
+        auto emuOwned = std::make_unique<EmulationController>(nullptr, false, nullptr, Mode::Live);
+        EmulationController& emu = *emuOwned;
         emu.setDramRefreshEnabled(true);   // the replays start with it OFF
-        std::vector<std::pair<uint16_t, uint8_t>> writes;
-        for (std::size_t i = 0; i < sizeof kProgram; ++i)
-            writes.emplace_back(static_cast<uint16_t>(0x0280 + i), kProgram[i]);
-        writes.emplace_back(0x0013, 0);
-        emu.writeMemoryBatch(writes);
-        emu.jumpTo(0x0280);
+        startProgram(emu);
         std::this_thread::sleep_for(std::chrono::milliseconds(40));
         std::string err;
         assert(emu.startInputMovieRecording(err));
@@ -268,7 +286,8 @@ int main(int argc, char** argv)
         assert(parsed.keys.size() == 5 && parsed.endCycle > parsed.keys.back().cycle);
     }
     {
-        EmulationController live(nullptr, false, nullptr, Mode::Live);
+        auto liveOwned = std::make_unique<EmulationController>(nullptr, false, nullptr, Mode::Live);
+        EmulationController& live = *liveOwned;
         std::string err;
         assert(live.playInputMovie(recording, err));
         const uint8_t v = awaitVerdict(live);
@@ -278,11 +297,12 @@ int main(int argc, char** argv)
         assert(l == recorded && "same keys read on the same loop turns");
     }
     {
-        EmulationController det(nullptr, false, nullptr, Mode::Deterministic);
+        auto detOwned = std::make_unique<EmulationController>(nullptr, false, nullptr, Mode::Deterministic);
+        EmulationController& det = *detOwned;
         std::string err;
         assert(det.playInputMovie(recording, err));
         det.runCyclesSync(parsed.endCycle + 5000);
-        const EmulationSnapshot s = snap(det);
+        const Status s = snap(det);
         std::printf("    deterministic replay: verdict %u\n", s.movieVerdict);
         assert(s.movieState == 0 && s.movieVerdict == 1);
         assert(readLog(det) == recorded);
@@ -295,11 +315,12 @@ int main(int argc, char** argv)
         t.keys[3].cycle += 200000;          // ...and one typed much later
         t.keys[4].cycle = std::max(t.keys[4].cycle, t.keys[3].cycle);
         t.endCycle = std::max(t.endCycle, t.keys[4].cycle);
-        EmulationController det(nullptr, false, nullptr, Mode::Deterministic);
+        auto detOwned = std::make_unique<EmulationController>(nullptr, false, nullptr, Mode::Deterministic);
+        EmulationController& det = *detOwned;
         std::string err;
         assert(det.playInputMovie(mv::serialize(t), err));
         det.runCyclesSync(t.endCycle + 5000);
-        const EmulationSnapshot s = snap(det);
+        const Status s = snap(det);
         std::printf("[4] tampered replay: verdict %u\n", s.movieVerdict);
         assert(s.movieVerdict == 2 && "a replay that did not reach the recorded state says so");
     }
@@ -311,13 +332,9 @@ int main(int argc, char** argv)
     std::vector<uint8_t> rerecorded;
     Log rerecordedLog;
     {
-        EmulationController emu(nullptr, false, nullptr, Mode::Live);
-        std::vector<std::pair<uint16_t, uint8_t>> writes;
-        for (std::size_t i = 0; i < sizeof kProgram; ++i)
-            writes.emplace_back(static_cast<uint16_t>(0x0280 + i), kProgram[i]);
-        writes.emplace_back(0x0013, 0);
-        emu.writeMemoryBatch(writes);
-        emu.jumpTo(0x0280);
+        auto emuOwned = std::make_unique<EmulationController>(nullptr, false, nullptr, Mode::Live);
+        EmulationController& emu = *emuOwned;
+        startProgram(emu);
         std::this_thread::sleep_for(std::chrono::milliseconds(40));
         std::string err;
         emu.setRewindEnabled(true);
@@ -331,7 +348,7 @@ int main(int argc, char** argv)
         assert(readLog(emu).keys == typed("AX"));
         emu.rewindResumeHere(afterA);
         assert(readLog(emu).keys == typed("A") && "the machine went back");
-        EmulationSnapshot st = snap(emu);
+        const Status st = snap(emu);
         assert(st.movieState == 1 && st.movieKeys == 1 && "the movie went back with it");
         emu.queueKey('B');
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -345,11 +362,12 @@ int main(int argc, char** argv)
         std::string e;
         assert(mv::parse(rerecorded.data(), rerecorded.size(), m, e));
         assert(m.keys.size() == 2 && m.keys[0].key == 'A' && m.keys[1].key == 'B');
-        EmulationController det(nullptr, false, nullptr, Mode::Deterministic);
+        auto detOwned = std::make_unique<EmulationController>(nullptr, false, nullptr, Mode::Deterministic);
+        EmulationController& det = *detOwned;
         std::string err;
         assert(det.playInputMovie(rerecorded, err));
         det.runCyclesSync(m.endCycle + 5000);
-        const EmulationSnapshot s = snap(det);
+        const Status s = snap(det);
         std::printf("[5] re-recorded over a mistake: verdict %u, log %zu keys\n",
                     s.movieVerdict, readLog(det).keys.size());
         assert(s.movieVerdict == 1 && "the re-recorded movie replays to the machine it ended on");
@@ -361,7 +379,8 @@ int main(int argc, char** argv)
         std::vector<uint8_t> branch;
         Log branchLog;
         {
-            EmulationController det(nullptr, false, nullptr, Mode::Deterministic);
+            auto detOwned = std::make_unique<EmulationController>(nullptr, false, nullptr, Mode::Deterministic);
+            EmulationController& det = *detOwned;
             std::string err;
             assert(det.playInputMovie(recording, err));
             det.runCyclesSync(parsed.keys[1].cycle + 100);   // H and E played
@@ -376,13 +395,14 @@ int main(int argc, char** argv)
             branchLog = readLog(det);
             assert(branchLog.keys == typed("HEZ"));
         }
-        EmulationController det(nullptr, false, nullptr, Mode::Deterministic);
+        auto detOwned = std::make_unique<EmulationController>(nullptr, false, nullptr, Mode::Deterministic);
+        EmulationController& det = *detOwned;
         std::string err;
         assert(det.playInputMovie(branch, err));
         mv::Movie m;
         assert(mv::parse(branch.data(), branch.size(), m, err));
         det.runCyclesSync(m.endCycle + 5000);
-        const EmulationSnapshot s = snap(det);
+        const Status s = snap(det);
         std::printf("[6] branch taken over a replay: verdict %u\n", s.movieVerdict);
         assert(s.movieVerdict == 1 && readLog(det) == branchLog);
     }
@@ -390,14 +410,10 @@ int main(int argc, char** argv)
     // ---- 7: a movie on a GEN2 machine (the --movie-frames fixture) --------------------
     std::vector<uint8_t> gen2Movie;
     {
-        EmulationController det(nullptr, false, nullptr, Mode::Deterministic);
+        auto detOwned = std::make_unique<EmulationController>(nullptr, false, nullptr, Mode::Deterministic);
+        EmulationController& det = *detOwned;
         det.setCardEnabled(pom1::CardId::Gen2, true);
-        std::vector<std::pair<uint16_t, uint8_t>> writes;
-        for (std::size_t i = 0; i < sizeof kProgram; ++i)
-            writes.emplace_back(static_cast<uint16_t>(0x0280 + i), kProgram[i]);
-        writes.emplace_back(0x0013, 0);
-        det.writeMemoryBatch(writes);
-        det.jumpTo(0x0280);
+        startProgram(det);
         std::string err;
         assert(det.startInputMovieRecording(err));
         det.runCyclesSync(40000);
@@ -406,10 +422,11 @@ int main(int argc, char** argv)
         det.runCyclesSync(60000);
         assert(det.stopInputMovie(&gen2Movie));
         assert(snap(det).gen2Enabled);
-        EmulationController replay(nullptr, false, nullptr, Mode::Deterministic);
+        auto replayOwned = std::make_unique<EmulationController>(nullptr, false, nullptr, Mode::Deterministic);
+        EmulationController& replay = *replayOwned;
         assert(replay.playInputMovie(gen2Movie, err));
         replay.runCyclesSync(110000);
-        const EmulationSnapshot s = snap(replay);
+        const Status s = snap(replay);
         std::printf("[7] GEN2 machine movie: verdict %u, card %s\n", s.movieVerdict,
                     s.gen2Enabled ? "plugged" : "MISSING");
         assert(s.movieVerdict == 1 && s.gen2Enabled && "the snapshot brings the card back");

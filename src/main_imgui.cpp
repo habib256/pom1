@@ -123,6 +123,7 @@ double pom1_wasm_measured_cpu_hz()
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -754,7 +755,7 @@ static int playMovieHeadless(EmulationController& emu, const pom1::CliPlan& plan
         std::filesystem::create_directories(plan.movieFramesDir, ec);
     }
 
-    GraphicsCard gen2;
+    auto gen2 = std::make_unique<GraphicsCard>();   // ~430 KB of pixel buffers
     uint64_t frames = 0;
     uint64_t lastCycles = 0;
     const uint64_t frameCycles = POM1_CPU_CYCLES_PER_FRAME_1X_60HZ;
@@ -778,11 +779,11 @@ static int playMovieHeadless(EmulationController& emu, const pom1::CliPlan& plan
             w = TMS9918::kFullWidth;
             h = TMS9918::kFullHeight;
         } else {
-            gen2.render(snap->memory.data(), snap->gen2DisplayState, snap->gen2FrameStartState,
+            gen2->render(snap->memory.data(), snap->gen2DisplayState, snap->gen2FrameStartState,
                         snap->gen2VideoEvents,
                         snap->gen2FiftyHz ? Gen2VideoScanner::kLinesPerFrame50Hz
                                           : Gen2VideoScanner::kLinesPerFrame);
-            rgba = gen2.pixels();
+            rgba = gen2->pixels();
             w = GraphicsCard::kHiresWidth;
             h = GraphicsCard::kHiresHeight;
         }
