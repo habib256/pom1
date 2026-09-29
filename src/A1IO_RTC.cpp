@@ -38,6 +38,7 @@
 //   Write high byte to SR, wait, write low byte to SR
 
 #include "A1IO_RTC.h"
+#include "CpuClock.h"
 #include "SnapshotIO.h"
 #include <chrono>
 #include <ctime>
@@ -74,6 +75,9 @@ void A1IO_RTC::reset()
 
     virtualRegisters.fill(0);
     rtcOffsetSeconds = 0;
+    pinned = false;
+    pinnedAnchor = 0;
+    pinnedCycles = 0;
 
     digitalOutputs = 0;
     shiftOutHigh = 0;
@@ -84,13 +88,30 @@ void A1IO_RTC::reset()
     updateVirtualRegisters();
 }
 
-// --- Host clock -> virtual RTC registers ---
+std::time_t A1IO_RTC::rtcNow() const
+{
+    if (pinned)
+        return pinnedAnchor + static_cast<std::time_t>(pinnedCycles / POM1_CPU_CLOCK_HZ);
+    const auto adjusted = std::chrono::system_clock::now() + std::chrono::seconds(rtcOffsetSeconds);
+    return std::chrono::system_clock::to_time_t(adjusted);
+}
+
+void A1IO_RTC::setRtcNow(std::time_t t)
+{
+    if (pinned) {
+        pinnedAnchor = t;
+        pinnedCycles %= POM1_CPU_CLOCK_HZ;   // keep the phase within the second
+        return;
+    }
+    const std::time_t hostTime =
+        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    rtcOffsetSeconds = static_cast<int>(t - hostTime);
+}
+
+// --- RTC instant -> virtual RTC registers ---
 void A1IO_RTC::updateVirtualRegisters()
 {
-    // Get current time adjusted by RTC offset
-    auto now = std::chrono::system_clock::now();
-    auto adjusted = now + std::chrono::seconds(rtcOffsetSeconds);
-    std::time_t tt = std::chrono::system_clock::to_time_t(adjusted);
+    std::time_t tt = rtcNow();
     std::tm* lt = std::localtime(&tt);
 
     if (lt) {
@@ -128,18 +149,21 @@ void A1IO_RTC::updateVirtualRegisters()
 }
 
 // --- Broadcast cycle management ---
-void A1IO_RTC::advanceBroadcast(int cycles)
+bool A1IO_RTC::advanceBroadcast(int cycles)
 {
     broadcastCycleCounter += cycles;
 
+    bool wrapped = false;
     while (broadcastCycleCounter >= kRegisterPeriod) {
         broadcastCycleCounter -= kRegisterPeriod;
         broadcastRegister = (broadcastRegister + 1) % kNumRegisters;
         strobeConsumed = false;
+        if (broadcastRegister == 0) wrapped = true;
     }
 
     // STROBE is active during the first kStrobeCycles of each register period
     strobeActive = (broadcastCycleCounter < kStrobeCycles);
+    return wrapped;
 }
 
 uint8_t A1IO_RTC::getBroadcastPortA() const
@@ -248,10 +272,7 @@ void A1IO_RTC::writeRegister(uint16_t address, uint8_t value)
                 // Update RTC based on register
                 if (regIndex <= 5 && regIndex != 0) {
                     // Registers 1-5: min, sec, day, month, year
-                    // Compute current time and adjust offset
-                    auto now = std::chrono::system_clock::now();
-                    auto adjusted = now + std::chrono::seconds(rtcOffsetSeconds);
-                    std::time_t tt = std::chrono::system_clock::to_time_t(adjusted);
+                    std::time_t tt = rtcNow();
                     std::tm* lt = std::localtime(&tt);
                     if (!lt) break;  // out-of-range time_t (e.g. corrupt snapshot offset)
                     std::tm ltCopy = *lt;
@@ -264,24 +285,18 @@ void A1IO_RTC::writeRegister(uint16_t address, uint8_t value)
                     case 5: ltCopy.tm_year = dataValue + 2000 - 1900; break;
                     }
 
-                    std::time_t newTime = std::mktime(&ltCopy);
-                    std::time_t hostTime = std::chrono::system_clock::to_time_t(now);
-                    rtcOffsetSeconds = static_cast<int>(newTime - hostTime);
+                    setRtcNow(std::mktime(&ltCopy));
                     updateVirtualRegisters();
                 } else if (regIndex == 0) {
                     // Hour. Midnight (0) is a legitimate value — the DDR==0xFF +
                     // RW-edge gate above already filters spurious power-up writes
                     // (DDRs read back 0 at reset), so no hour-zero special case.
-                    auto now = std::chrono::system_clock::now();
-                    auto adjusted = now + std::chrono::seconds(rtcOffsetSeconds);
-                    std::time_t tt = std::chrono::system_clock::to_time_t(adjusted);
+                    std::time_t tt = rtcNow();
                     std::tm* lt = std::localtime(&tt);
                     if (!lt) break;  // out-of-range time_t (e.g. corrupt snapshot offset)
                     std::tm ltCopy = *lt;
                     ltCopy.tm_hour = dataValue;
-                    std::time_t newTime = std::mktime(&ltCopy);
-                    std::time_t hostTime = std::chrono::system_clock::to_time_t(now);
-                    rtcOffsetSeconds = static_cast<int>(newTime - hostTime);
+                    setRtcNow(std::mktime(&ltCopy));
                     updateVirtualRegisters();
                 }
             }
@@ -356,15 +371,15 @@ void A1IO_RTC::writeRegister(uint16_t address, uint8_t value)
 void A1IO_RTC::advanceCycles(int cycles)
 {
     if (cycles <= 0) return;
+    if (pinned) pinnedCycles += static_cast<uint64_t>(cycles);
 
-    // Advance broadcast cycle
-    advanceBroadcast(cycles);
-
-    // Refresh RTC values periodically (every full broadcast cycle = 2400 cycles)
-    // We update on register 0 start to keep it simple
-    if (broadcastRegister == 0 && broadcastCycleCounter < cycles) {
+    // Refresh the RTC values once per broadcast cycle (2400 cycles), when it
+    // passes register 0. Testing where a slice ENDED missed it: slices of a
+    // fixed size can land on the same few registers forever (6000-cycle
+    // slices after a 4727-cycle one alternate 23/11), and the clock the
+    // program read never moved.
+    if (advanceBroadcast(cycles))
         updateVirtualRegisters();
-    }
 
     // Timer 1
     if (t1Running) {
@@ -432,9 +447,9 @@ void A1IO_RTC::setDigitalInput(int channel, uint8_t value)
 
 void A1IO_RTC::setOverrideTime(std::time_t target)
 {
-    const auto nowSys = std::chrono::system_clock::now();
-    const std::time_t hostNow = std::chrono::system_clock::to_time_t(nowSys);
-    rtcOffsetSeconds = static_cast<int>(target - hostNow);
+    pinned = true;
+    pinnedAnchor = target;
+    pinnedCycles = 0;
     updateVirtualRegisters();
 }
 
@@ -452,7 +467,14 @@ void A1IO_RTC::serialize(pom1::SnapshotWriter& w) const
     w.writeU8 (strobeActive ? 1 : 0);
     w.writeU8 (strobeConsumed ? 1 : 0);
     w.writeBytes(virtualRegisters.data(), virtualRegisters.size());
-    w.writeU32(static_cast<uint32_t>(rtcOffsetSeconds));
+    // The format holds an offset from the host clock. A pinned clock is saved
+    // as the offset that lands on its current instant: a restore resumes from
+    // there, on the host clock (pinning is not in the format).
+    const int offset = pinned
+        ? static_cast<int>(rtcNow() - std::chrono::system_clock::to_time_t(
+                                          std::chrono::system_clock::now()))
+        : rtcOffsetSeconds;
+    w.writeU32(static_cast<uint32_t>(offset));
     w.writeBytes(analogInputs.data(),  analogInputs.size());
     w.writeBytes(digitalInputs.data(), digitalInputs.size());
     w.writeU16(digitalOutputs);
@@ -482,6 +504,7 @@ void A1IO_RTC::deserialize(pom1::SnapshotReader& r)
     strobeConsumed = r.readU8() != 0;
     r.readBytes(virtualRegisters.data(), virtualRegisters.size());
     rtcOffsetSeconds = static_cast<int>(r.readU32());
+    pinned = false;
     // Clamp the untrusted offset to ±50 years so now()+offset stays in localtime's
     // representable range (the write path also null-checks localtime defensively).
     constexpr int kMaxOffset = 50 * 365 * 24 * 3600;

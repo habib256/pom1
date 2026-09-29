@@ -6,17 +6,21 @@
 // a headless, fully deterministic test is available and was simply missing.
 //
 // Covered here:
-//   - injected fixed clock → the BCD time/date registers the ATMEGA firmware
+//   - injected fixed clock → the time/date registers the ATMEGA firmware
 //     would report, read back through the 65C22 VIA handshake;
 //   - analog + digital input channels round-trip;
 //   - snapshot round-trip of the register file.
 
 #include "A1IO_RTC.h"
+#include "CpuClock.h"
 
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
+#include <algorithm>
+#include <chrono>
+#include <thread>
 
 int main()
 {
@@ -55,6 +59,37 @@ int main()
             "RTC date mismatch: got %02d/%02d/%02d, expected 14/07/26\n",
             snap.day, snap.month, snap.year);
         return 1;
+    }
+
+    // ── A pinned clock follows EMULATED time, never the host's. It used to be
+    //    an offset from the host clock, which kept ticking: under TSan the
+    //    micro-test t16_a1io_rtc ran for 50 s and read :51 then :52.
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+        rtc.copySnapshot(snap);
+        if (snap.second != 7) {
+            std::fprintf(stderr, "pinned RTC followed the host: :%02d after 1.1 s of "
+                                 "host time and no emulated cycles, expected :07\n",
+                         snap.second);
+            return 1;
+        }
+        // The card refreshes its registers once per broadcast cycle (2400
+        // cycles): run whole seconds in slices, as Memory does.
+        const auto run = [&rtc](uint64_t cycles) {
+            for (uint64_t done = 0; done < cycles; done += 6000)
+                rtc.advanceCycles(static_cast<int>(std::min<uint64_t>(6000, cycles - done)));
+        };
+        run(POM1_CPU_CLOCK_HZ - 10000);          // just under one emulated second
+        rtc.copySnapshot(snap);
+        const int before = snap.second;
+        run(2 * POM1_CPU_CLOCK_HZ);              // two more
+        rtc.copySnapshot(snap);
+        if (before != 7 || snap.second != 9 || snap.minute != 41) {
+            std::fprintf(stderr, "pinned RTC: :%02d then %02d:%02d, expected :07 then 41:09\n",
+                         before, snap.minute, snap.second);
+            return 1;
+        }
+        rtc.setOverrideTime(fixed);              // back to 09:41:07 for what follows
     }
 
     // ── Analog + digital inputs. These are the ADC / digital-in channels the
@@ -101,7 +136,7 @@ int main()
         return 1;
     }
 
-    std::printf("a1io_rtc_smoke: fixed clock, analog/digital inputs, VIA "
+    std::printf("a1io_rtc_smoke: fixed clock on emulated time, analog/digital inputs, VIA "
                 "register file and reset OK\n");
     return 0;
 }

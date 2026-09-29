@@ -61,12 +61,13 @@ public:
     void setAnalogInput(int channel, uint8_t value);
     void setDigitalInput(int channel, uint8_t value);
 
-    // Freeze the RTC to a specific wall-clock instant (seconds since epoch).
-    // Used by the CLI `--rtc-freeze` verb so scripted runs get a deterministic
-    // clock. Internally sets rtcOffsetSeconds = target - host_now; the RTC
-    // then continues ticking from that anchor at host-clock rate (it does not
-    // actually stop — "freeze" is a misnomer inherited from the CLI verb, but
-    // for short scripted runs the drift is under 1 s).
+    // Pin the RTC to a wall-clock instant (seconds since epoch) — the CLI's
+    // `--rtc-freeze`. From then on the clock advances with EMULATED time
+    // (advanceCycles), not the host's: a scripted run reads the same seconds
+    // however fast or slow the host runs it. It used to set an offset from the
+    // host clock, which kept ticking — under ThreadSanitizer the micro-test
+    // t16_a1io_rtc took 50 s and read two different seconds. A snapshot
+    // restore or reset() returns the card to the host clock, as before.
     void setOverrideTime(std::time_t target);
 
     // /IRQ line state. Real 65C22 keeps IFR bit 7 dynamically equal to
@@ -131,6 +132,15 @@ private:
     // RTC time offset: delta from host clock (allows setting RTC)
     int rtcOffsetSeconds;
 
+    // setOverrideTime(): the clock is anchored to an instant and counts
+    // emulated cycles from it instead of reading the host.
+    bool        pinned = false;
+    std::time_t pinnedAnchor = 0;
+    uint64_t    pinnedCycles = 0;
+    // The RTC's current instant, and setting it (the 6502 writing the DS3231).
+    std::time_t rtcNow() const;
+    void        setRtcNow(std::time_t t);
+
     // Analog inputs (configurable)
     std::array<uint8_t, 8> analogInputs;
 
@@ -149,7 +159,7 @@ private:
 
     // --- Internal helpers ---
     void updateVirtualRegisters();
-    void advanceBroadcast(int cycles);
+    bool advanceBroadcast(int cycles);   // true when it passed register 0
     uint8_t getBroadcastPortA() const;
     uint8_t getBroadcastPortB() const;
 };

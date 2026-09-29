@@ -48,7 +48,7 @@ Three phases: **A** boot-time, **B** first-frame preset overrides, **C** deferre
 | `--step <N>` / `--trace-brk` | C | Step N + BRK trace dump. |
 | `--play` / `--rec` / `--rewind` | C | Cassette transport. `--rec` = `armRecording()` (no $C000 wait). |
 | `--sd-mkdir <path>` / `--sd-put <h>:<g>` / `--sd-get <g>:<h>` | C | SD fixture seeding. |
-| `--rtc-freeze "YYYY-MM-DD HH:MM:SS"` | C | Set `A1IO_RTC::rtcOffsetSeconds` (host rate keeps ticking). |
+| `--rtc-freeze "YYYY-MM-DD HH:MM:SS"` | C | Pin the A1-IO RTC to that local instant; from there it advances with **emulated** time (CPU cycles ÷ 1 022 727), never the host's, so a scripted run reads the same seconds on a fast desktop and under ThreadSanitizer. A snapshot restore or a reset returns the card to the host clock. Impl: `A1IO_RTC::setOverrideTime`. Pinned by `a1io_rtc_smoke` and the micro-test `t16_a1io_rtc`. |
 | `--snapshot-save <path>` | C | Write current state (RAM + card-enabled flags + per-card payload via `Peripheral::serialize`) to `<path>`. Format: see `SnapshotIO.h`. |
 | `--snapshot-load <path>` | C | Restore state from a `.snap` written by `--snapshot-save`. Per-card serialize hooks default to no-op until each card migrates its internal state — see `Peripheral.h`. |
 | `--break <addr>` | C | Arm M6502 PC-matched halt (single breakpoint). Fires *before* the instruction at `<addr>` executes; CPU stops itself, logs `[CPU] WARN breakpoint hit at $XXXX` once. Cleared by `hardReset()` (preset switch). Continue with manual `stepCpu()` past the address followed by `startCpu()`, or `clearCpuBreakpoint()` + `startCpu()`. |
