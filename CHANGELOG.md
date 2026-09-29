@@ -10,6 +10,32 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Fixed — `--rtc-freeze` ne gelait rien : l'horloge A1-IO suivait l'hôte
+
+Le seul rouge restant de la CI nocturne : `lib_micro_tests` sous
+ThreadSanitizer, micro-test `t16_a1io_rtc`, qui lisait `:51` puis `:52`.
+`--rtc-freeze` posait un décalage par rapport à l'horloge de l'hôte, qui
+continuait de tourner (l'en-tête l'avouait : « freeze is a misnomer… drift
+under 1 s »). Sous TSan le test dure 50 s ; sur une machine rapide il cassait
+aussi, à chaque fois qu'il chevauchait un changement de seconde.
+
+- **Horloge épinglée** (`A1IO_RTC::setOverrideTime`) : l'instant donné, plus
+  les cycles émulés divisés par la fréquence du CPU. Déterministe quelle que
+  soit la vitesse de l'hôte — ce qui retire aussi l'horloge RTC des sources de
+  divergence d'un rejeu de movie qui part d'une machine épinglée. Format de
+  snapshot inchangé : une horloge épinglée s'enregistre comme le décalage qui
+  tombe sur son instant courant, et une restauration repart de l'hôte, comme
+  avant.
+- **Rafraîchissement des registres d'heure** : il n'avait lieu que si une
+  tranche d'émulation *se terminait* sur le registre 0 de la diffusion ; des
+  tranches de taille fixe pouvaient tomber indéfiniment sur d'autres registres
+  (6 000 cycles après 4 727 : 23, 11, 23…) et l'heure lue ne bougeait plus. Il
+  a lieu désormais à chaque passage par le registre 0.
+
+Reproduit sur un build TSan local (`got … 34 …`), corrigé sur le même build.
+Épinglé par `a1io_rtc_smoke` : 1,1 s d'hôte sans cycle émulé ne bouge pas la
+seconde, trois secondes émulées la font avancer de deux.
+
 ### Added — re-recording : revenir sur une erreur sans casser le movie, et rejouer en headless (issue #40)
 
 Troisième brique de l'issue #40, celle qui lui donne son nom. Un longplay se

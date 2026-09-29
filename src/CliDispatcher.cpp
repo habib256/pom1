@@ -342,7 +342,7 @@ constexpr CliFlagHelp kCliFlagHelp[] = {
     {'C', "--sd-mkdir <path>",                  "Create a directory on the microSD image."},
     {'C', "--sd-put <host>:<guest>",            "Copy a host file onto the microSD image."},
     {'C', "--sd-get <guest>:<host>",            "Copy a file off the microSD image."},
-    {'C', "--rtc-freeze \"YYYY-MM-DD HH:MM:SS\"", "Set the A1-IO RTC offset."},
+    {'C', "--rtc-freeze \"YYYY-MM-DD HH:MM:SS\"", "Pin the A1-IO RTC; it then runs on emulated time."},
     {'C', "--snapshot-save <path>",             "Write the machine state to a .snap file."},
     {'C', "--snapshot-load <path>",             "Restore a .snap written by --snapshot-save."},
     {'C', "--break <addr>",                     "Arm a PC-matched halt before the instruction at <addr>."},
