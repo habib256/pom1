@@ -278,7 +278,10 @@ public:
 
     // ── Input movies (issue #40; format and state machine in InputMovie.h) ──
     /// Start recording from the machine as it is now: a snapshot, then every
-    /// key the machine receives, dated to the cycle.
+    /// key the machine receives, dated to the cycle. During a replay, takes it
+    /// over instead: the keys played so far start a new recording (a branch).
+    /// While recording, a rewind seek sends the movie back with the machine
+    /// (re-recording): see Session::rewindTo in InputMovie.h.
     bool startInputMovieRecording(std::string& error);
     /// Stop recording (the movie lands in `recorded`) or stop a replay.
     bool stopInputMovie(std::vector<uint8_t>* recorded);
@@ -719,6 +722,14 @@ private:
     // Every cycle the CPU has run, on every path (under stateMutex): the clock
     // input movies date keys with.
     uint64_t emulatedCycles_ = 0;
+    // Every key handed to the machine, on every path (under stateMutex). With
+    // the cycle count, the timeline position a rewind frame is stamped with.
+    uint64_t keysDelivered_ = 0;
+    pom1::movie::Clock movieClock() const { return {emulatedCycles_, keysDelivered_}; }
+    uint64_t movieStateHash() const;
+    // A rewind frame taken at `stamp` was just restored (stateMutex held): the
+    // timeline clock goes back with it, and a running movie follows.
+    void followRewind(const std::vector<uint8_t>& frame, pom1::TimelineStamp stamp);
     pom1::movie::Session movie_;
     // The CPU runs through here (stateMutex held): counts the cycles, and while
     // a movie plays, delivers its keys and stops exactly at the next one.

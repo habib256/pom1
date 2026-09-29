@@ -100,12 +100,14 @@ void MainWindow_ImGui::renderMenuBar()
                 ImGui::SetTooltip("Save current POM1 state to snapshots/ as a versioned .snap file.\n"
                                   "Same format as the --snapshot-save CLI flag.");
             if (ImGui::MenuItem(uiSnapshot.movieState == 1 ? "Stop Recording Input Movie"
-                                                          : "Record Input Movie",
-                                nullptr, uiSnapshot.movieState == 1, uiSnapshot.movieState != 2))
+                                : uiSnapshot.movieState == 2 ? "Take Over Replay (Record From Here)"
+                                                              : "Record Input Movie",
+                                nullptr, uiSnapshot.movieState == 1))
                 toggleInputMovieRecording();
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Record every key the Apple-1 receives, to the cycle, from the\n"
-                                  "machine as it is now. Saved to movies/ when you stop.");
+                                  "machine as it is now. Saved to movies/ when you stop.\n"
+                                  "Rewinding while recording takes the movie back too.");
             if (ImGui::MenuItem(uiSnapshot.movieState == 2 ? "Stop Input Movie" : "Play Input Movie...",
                                 nullptr, false, uiSnapshot.movieState != 1))
                 playInputMovie();

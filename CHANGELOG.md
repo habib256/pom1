@@ -10,6 +10,48 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Added — re-recording : revenir sur une erreur sans casser le movie, et rejouer en headless (issue #40)
+
+Troisième brique de l'issue #40, celle qui lui donne son nom. Un longplay se
+peaufine : on joue, on se trompe, on revient en arrière, on reprend — et le
+movie final doit se rejouer **exactement** jusqu'à la machine sur laquelle on
+s'est arrêté.
+
+- **Re-record par le rewind.** Chaque image de la timeline de rewind est
+  estampillée de la position sur la ligne du temps émulée : cycles écoulés **et
+  touches livrées** (`pom1::TimelineStamp`, `pom1::movie::Clock`). Le cycle seul
+  ne suffit pas : une touche prise au cycle C et une capture faite au cycle C ne
+  sont ordonnées que par le compteur de touches. Une restauration remet cette
+  horloge en place et le movie suit (`Session::rewindTo`) : un enregistrement
+  garde les touches tapées avant ce point et reprend de là. Les touches
+  « dépassées » restent tant qu'aucune nouvelle touche n'est tapée — prévisualiser
+  puis « reprendre au direct » ne perd rien. Revenir avant le début de
+  l'enregistrement le fait repartir de cette image. Pendant une prévisualisation
+  de rewind, les frappes attendent la reprise au lieu d'atterrir sur une ligne du
+  temps que l'utilisateur peut encore quitter.
+- **Reprendre un rejeu.** Pendant un rejeu, *File → Take Over Replay* le
+  transforme en enregistrement : les touches déjà jouées ouvrent le nouveau
+  movie, qui repart du même snapshot — une branche.
+- **`--movie-play <path>`** rejoue un movie sur un contrôleur `Deterministic` et
+  sort **0** si la machine finit dans l'état enregistré, **1** si elle diverge,
+  **2** si le movie est illisible. **`--movie-frames <dir>`** écrit en plus une
+  PNG par trame vidéo (TMS9918, sinon GEN2) pour ffmpeg.
+
+Restent (TODO.md) le son de l'export, les trames de l'écran texte Apple-1, et un
+snapshot chargé en cours d'enregistrement.
+
+Épinglé par `input_movie_smoke` (sections 2b, 5, 6, 7 : règles pures ; sur une
+machine vivante, A, image de rewind, touche fausse, retour sur l'image, B → le
+movie contient A puis B et se rejoue « verified » ; une branche prise sur un
+rejeu se rejoue « verified » ; un movie sur machine GEN2 ramène la carte) et
+`movie_play_cli` (codes de sortie, trames PNG).
+
+Cliquets relevés, pour cette fonctionnalité : `controller_lines` 3 345 → 3 407
+(`followRewind`, l'horloge des touches, la reprise d'un rejeu),
+`mainwindow_lines` 17 391 → 17 393 (l'entrée de menu « Take Over Replay »).
+`controller_public_methods` inchangé (206) : le re-record passe par les méthodes
+de rewind et d'enregistrement existantes.
+
 ### Added — les movies : enregistrer les frappes au cycle près, les rejouer, et vérifier le rejeu
 
 Deuxième brique de l'issue #40 (re-recording pour longplays), après

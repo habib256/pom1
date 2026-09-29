@@ -300,6 +300,8 @@ constexpr CliFlagHelp kCliFlagHelp[] = {
     {'A', "--dump-after-cycles <N>",            "Deterministic settle before a --dump-*-frame capture."},
     {'A', "--dump-settle-ms <N>",               "Wall-clock settle before a --dump-*-frame capture (default 1000)."},
     {'A', "--exit-after-cycles <N>",            "Headless: run exactly N emulated cycles after the deferred verbs, then exit 0."},
+    {'A', "--movie-play <path>",                "Headless: replay an input movie (.p1m); exit 0 verified, 1 diverged."},
+    {'A', "--movie-frames <dir>",               "With --movie-play: one PNG per video frame (TMS9918 or GEN2) into <dir>."},
     {'A', "--tape <path>",                      "Preload a cassette and auto-Play (.aci .wav .aiff .ogg .mp3 .flac)."},
     {'A', "--save-tape <path>",                 "Dump the deck on clean shutdown."},
     {'A', "--save-tape-format <aci|wav>",       "Format for --save-tape."},
@@ -545,6 +547,18 @@ std::optional<CliPlan> parseCli(int argc, char* argv[], bool& cleanExitOut)
                 return std::nullopt;
             }
             plan.dumpAfterCycles = n;
+            continue;
+        }
+        if (arg == "--movie-play") {
+            if (!needArg(i, "--movie-play")) return std::nullopt;
+            plan.moviePlayPath = argv[++i];
+            plan.headless = true;   // a replay is a headless one-shot
+            continue;
+        }
+        if (arg == "--movie-frames") {
+            if (!needArg(i, "--movie-frames")) return std::nullopt;
+            plan.movieFramesDir = argv[++i];
+            plan.headless = true;
             continue;
         }
         if (arg == "--exit-after-cycles") {
@@ -830,6 +844,10 @@ std::optional<CliPlan> parseCli(int argc, char* argv[], bool& cleanExitOut)
         return std::nullopt;
     }
 
+    if (!plan.movieFramesDir.empty() && plan.moviePlayPath.empty()) {
+        logAndFail("--movie-frames needs --movie-play: the frames are the replay's");
+        return std::nullopt;
+    }
     return plan;
 }
 
