@@ -4,8 +4,8 @@
 // and back; no Memory, no controller, no file I/O.
 //
 // WHY THIS EXISTS. Issue #40 asks for re-recording for longplays: play, rewind
-// over a mistake, carry on, and end with a clean run that can be replayed and
-// captured as video. Its foundation is a replay that lands on EXACTLY the same
+// over a mistake, carry on, and end with a clean run that can be replayed
+// (headless: `--movie-play`) and captured as video. Its foundation is a replay that lands on EXACTLY the same
 // machine state, which on a 6502 means the same keys on the same cycles:
 // POM1's programs poll $D011 in tight loops, so a key one cycle late is a key
 // read on a different turn of the loop, and a game that seeds its randomness
@@ -143,80 +143,152 @@ inline bool parse(const uint8_t* data, std::size_t size, Movie& out, std::string
     return true;
 }
 
+/// A position on the emulated timeline: the cycles the CPU has run and the
+/// keys the machine has been handed, both counted since power-on. The key
+/// count is what makes a rewind exact: a key taken at cycle C and a state
+/// captured at cycle C are ordered by it, where the cycle alone cannot say
+/// which came first.
+struct Clock {
+    uint64_t cycles = 0;
+    uint64_t keys = 0;
+};
+
 /// The movie machinery's state, driven by the controller under its state
-/// lock. It only ever sees an absolute emulated-cycle counter (`now`) and keys:
-/// recording notes each key the keyboard hands the machine with its cycle;
-/// playback hands them back when their cycle comes and says how far the CPU may
-/// run before the next one, so the controller stops EXACTLY there. The two agree
-/// because a key is always taken between instructions, and a replay of the same
-/// state runs through the same instruction boundaries.
+/// lock. It only ever sees the timeline clock and keys: recording notes each
+/// key the keyboard hands the machine with its cycle; playback hands them back
+/// when their cycle comes and says how far the CPU may run before the next one,
+/// so the controller stops EXACTLY there. The two agree because a key is always
+/// taken between instructions, and a replay of the same state runs through the
+/// same instruction boundaries.
+///
+/// RE-RECORDING. When the machine is sent back in time (a rewind seek), the
+/// session follows it with rewindTo(): a recording keeps the keys typed before
+/// that point and carries on from there, a replay resumes from there. A
+/// recording keeps the keys it rewound past until a new key is typed, so a
+/// seek back and then forward again (preview, then "resume live") loses
+/// nothing. A replay can be taken over at any point (takeOver()): the keys
+/// already played become the start of a new recording, which is how a run is
+/// branched off an existing movie.
 class Session {
 public:
     enum class State { Idle, Recording, Playing };
     enum class Verdict { None, Verified, Diverged };
+    /// What rewindTo() did.
+    enum class Rewind { Unaffected, Followed, Restarted, Stopped };
 
     State state() const { return state_; }
     Verdict verdict() const { return verdict_; }
-    uint64_t elapsed(uint64_t now) const { return state_ == State::Idle ? 0 : now - base_; }
-    std::size_t keys() const { return movie_.keys.size(); }
+    uint64_t elapsed(Clock now) const
+    {
+        return state_ == State::Idle || now.cycles < base_.cycles ? 0 : now.cycles - base_.cycles;
+    }
+    std::size_t keys() const { return state_ == State::Recording ? live_ : movie_.keys.size(); }
     std::size_t keysPlayed() const { return next_; }
     uint64_t length() const { return movie_.endCycle; }
 
-    void startRecording(std::vector<uint8_t> snapshot, uint64_t now)
+    void startRecording(std::vector<uint8_t> snapshot, Clock now)
     {
         movie_ = Movie{};
         movie_.snapshot = std::move(snapshot);
         base_ = now;
         next_ = 0;
+        live_ = 0;
         verdict_ = Verdict::None;
         state_ = State::Recording;
     }
 
-    void recordKey(uint64_t now, uint8_t key)
+    /// A key handed to the machine at `now` (the clock BEFORE counting it).
+    void recordKey(Clock now, uint8_t key)
     {
-        if (state_ == State::Recording) movie_.keys.push_back({now - base_, key});
+        if (state_ != State::Recording) return;
+        movie_.keys.resize(live_);              // a new key ends the rewound-past future
+        movie_.keys.push_back({now.cycles - base_.cycles, key});
+        ++live_;
     }
 
-    Movie finishRecording(uint64_t now, uint64_t endHash)
+    Movie finishRecording(Clock now, uint64_t endHash)
     {
-        movie_.endCycle = now - base_;
+        movie_.keys.resize(live_);
+        movie_.endCycle = now.cycles - base_.cycles;
         movie_.endHash = endHash;
         state_ = State::Idle;
         return std::move(movie_);
     }
 
-    void startPlaying(Movie m, uint64_t now)
+    void startPlaying(Movie m, Clock now)
     {
         movie_ = std::move(m);
         base_ = now;
         next_ = 0;
+        live_ = 0;
         verdict_ = Verdict::None;
         state_ = State::Playing;
     }
 
+    /// Turn a replay into a recording at `now`: the keys played so far are
+    /// kept, the rest of the movie is dropped, and typing carries on from here.
+    bool takeOver()
+    {
+        if (state_ != State::Playing) return false;
+        movie_.keys.resize(next_);
+        live_ = next_;
+        next_ = 0;
+        verdict_ = Verdict::None;
+        state_ = State::Recording;
+        return true;
+    }
+
+    /// The machine was just put back to a state taken at `at` (a rewind
+    /// frame). `snapshotAt` is that state, used when a recording is sent back
+    /// to before its own start: it then restarts from there, since a movie
+    /// cannot hold what happened before its start snapshot.
+    Rewind rewindTo(Clock at, const std::vector<uint8_t>& snapshotAt)
+    {
+        const bool before = at.cycles < base_.cycles || at.keys < base_.keys;
+        const uint64_t k = before ? 0 : at.keys - base_.keys;
+        switch (state_) {
+        case State::Recording:
+            if (before || k > movie_.keys.size()) {
+                startRecording(snapshotAt, at);
+                return Rewind::Restarted;
+            }
+            live_ = static_cast<std::size_t>(k);
+            return Rewind::Followed;
+        case State::Playing:
+            if (before || k > movie_.keys.size()) {
+                abort();
+                return Rewind::Stopped;
+            }
+            next_ = static_cast<std::size_t>(k);
+            return Rewind::Followed;
+        default:
+            return Rewind::Unaffected;
+        }
+    }
+
     /// Hand every key whose cycle has come to `deliver`, in order.
     template <typename Deliver>
-    void deliverDue(uint64_t now, Deliver&& deliver)
+    void deliverDue(Clock now, Deliver&& deliver)
     {
         if (state_ != State::Playing) return;
-        const uint64_t at = now - base_;
+        const uint64_t at = now.cycles - base_.cycles;
         while (next_ < movie_.keys.size() && movie_.keys[next_].cycle <= at)
             deliver(movie_.keys[next_++].key);
     }
 
     /// How many cycles the CPU may run before the next key or the end.
-    uint64_t cyclesToNextStop(uint64_t now) const
+    uint64_t cyclesToNextStop(Clock now) const
     {
-        const uint64_t at = now - base_;
+        const uint64_t at = now.cycles - base_.cycles;
         const uint64_t stop = next_ < movie_.keys.size() ? movie_.keys[next_].cycle
                                                          : movie_.endCycle;
         return stop > at ? stop - at : 0;
     }
 
-    bool reachedEnd(uint64_t now) const
+    bool reachedEnd(Clock now) const
     {
         return state_ == State::Playing && next_ == movie_.keys.size()
-            && now - base_ >= movie_.endCycle;
+            && now.cycles - base_.cycles >= movie_.endCycle;
     }
 
     /// Close a playback that reached its end, judging the state it reached.
@@ -237,8 +309,9 @@ private:
     State state_ = State::Idle;
     Verdict verdict_ = Verdict::None;
     Movie movie_;
-    uint64_t base_ = 0;
-    std::size_t next_ = 0;
+    Clock base_;
+    std::size_t next_ = 0;   // playing: the next key to hand over
+    std::size_t live_ = 0;   // recording: keys on the current timeline (<= movie_.keys.size())
 };
 
 } // namespace pom1::movie

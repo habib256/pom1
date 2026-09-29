@@ -220,7 +220,8 @@ void EmulationController::setRewindEnabled(bool enabled)
         rewindBuffer.clear();
     } else {
         // Seed with the current state so the timeline isn't empty.
-        rewindBuffer.capture(memory->saveSnapshotToBuffer(cpu.get()));
+        rewindBuffer.capture(memory->saveSnapshotToBuffer(cpu.get()),
+                             {emulatedCycles_, keysDelivered_});
     }
     publishRewindStatusLocked();
 }
@@ -260,18 +261,45 @@ void EmulationController::rewindRestoreFrame(std::size_t pos)
 {
     // REQUIRES stateMutex held by caller.
     std::vector<uint8_t> blob;
+    pom1::TimelineStamp stamp;
     {
         std::lock_guard<pom1::RankedMutex<pom1::LockRank::Rewind>> rlock(rewindMutex);
         blob = rewindBuffer.reconstruct(pos);
+        stamp = rewindBuffer.stampAt(pos);
     }
     if (blob.empty()) return;
     std::string err;
     if (memory->loadSnapshotFromBuffer(blob, err, cpu.get())) {
         // Restored memory: the resident program is whatever the snapshot held.
         programGeneration_.fetch_add(1, std::memory_order_relaxed);
+        followRewind(blob, stamp);
         publisher.publish(*memory, *cpu, runRequested.load());
         rewindPos_.store(pos);
     }
+}
+
+void EmulationController::followRewind(const std::vector<uint8_t>& frame,
+                                       pom1::TimelineStamp stamp)
+{
+    // REQUIRES stateMutex held by caller. The clock goes back with the machine:
+    // the frame's state is the state at that cycle, after that many keys.
+    emulatedCycles_ = stamp.cycles;
+    keysDelivered_ = stamp.keys;
+    using R = pom1::movie::Session::Rewind;
+    switch (movie_.rewindTo(movieClock(), frame)) {
+    case R::Followed:
+        break;
+    case R::Restarted:
+        pom1::log().warn("Movie", "rewound to before the recording started: the "
+                                  "recording restarts from this frame");
+        break;
+    case R::Stopped:
+        pom1::log().warn("Movie", "rewound to before the replay's start: replay stopped");
+        break;
+    case R::Unaffected:
+        return;
+    }
+    publishMovieStatus();
 }
 
 void EmulationController::rewindSeekTo(std::size_t pos)

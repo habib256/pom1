@@ -237,9 +237,10 @@ std::size_t RewindBuffer::frameBytes(const Frame& f) {
     return b;
 }
 
-void RewindBuffer::pushKeyframe(const std::vector<uint8_t>& blob) {
+void RewindBuffer::pushKeyframe(const std::vector<uint8_t>& blob, TimelineStamp stamp) {
     Frame f;
     f.keyframe = true;
+    f.stamp = stamp;
     f.blob = blob;
     f.bytes = blob.size();
     storedBytes_ += f.bytes;
@@ -248,11 +249,11 @@ void RewindBuffer::pushKeyframe(const std::vector<uint8_t>& blob) {
     lastBlob = blob;
 }
 
-void RewindBuffer::capture(const std::vector<uint8_t>& blob) {
+void RewindBuffer::capture(const std::vector<uint8_t>& blob, TimelineStamp stamp) {
     if (blob.size() < kHeaderSize) return;  // not a snapshot
 
     if (frames.empty()) {
-        pushKeyframe(blob);
+        pushKeyframe(blob, stamp);
         evictToBudget();
         return;
     }
@@ -263,8 +264,9 @@ void RewindBuffer::capture(const std::vector<uint8_t>& blob) {
         makeKeyframe = true;
 
     if (makeKeyframe) {
-        pushKeyframe(blob);
+        pushKeyframe(blob, stamp);
     } else {
+        d.stamp = stamp;
         storedBytes_ += d.bytes;
         frames.push_back(std::move(d));
         ++framesSinceKeyframe;

@@ -19,6 +19,7 @@
 #include "CliDispatcher.h"
 #include "CommandPort.h"
 #include "FileBytes.h"
+#include "InputMovie.h"
 #include "PresetFile.h"
 #include "PresetLoader.h"
 #include "ResourceLocator.h"
@@ -122,6 +123,7 @@ double pom1_wasm_measured_cpu_hz()
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -714,6 +716,91 @@ static void runCyclesWithTimedPastes(EmulationController& emu, uint64_t totalCyc
         emu.runCyclesSync(totalCycles - done);
 }
 
+// --movie-play: replay an input movie on a Deterministic controller and judge
+// it. The movie is its own budget -- it ends at its recorded end cycle, where
+// the controller compares the machine against the recording -- so the run is
+// driven one video frame at a time until the replay reports a verdict. With
+// --movie-frames each of those frames is also rendered (TMS9918 if plugged,
+// else GEN2) to DIR/frame_NNNNNN.png: `ffmpeg -framerate 60000/1001 -i
+// DIR/frame_%06d.png` makes the longplay's picture.
+// Returns the process exit code: 0 verified, 1 diverged, 2 unusable.
+static int playMovieHeadless(EmulationController& emu, const pom1::CliPlan& plan)
+{
+    std::vector<uint8_t> bytes;
+    std::string err;
+    pom1::movie::Movie movie;
+    if (!pom1::readFileBounded(plan.moviePlayPath, pom1::movie::kMaxMovieBytes,
+                               "input movie", bytes, err)
+        || !pom1::movie::parse(bytes.data(), bytes.size(), movie, err)
+        || !emu.playInputMovie(bytes, err)) {
+        pom1::log().error("Movie", "--movie-play '" + plan.moviePlayPath + "': " + err);
+        return 2;
+    }
+    pom1::log().info("Movie", "--movie-play: " + std::to_string(movie.keys.size()) +
+                              " keys over " + std::to_string(movie.endCycle) + " cycles");
+
+    // The snapshot is ~260 KB: on the heap, and reused for every frame.
+    auto snap = std::make_unique<EmulationSnapshot>();
+    emu.copySnapshot(*snap);
+    enum class Source { None, Tms, Gen2 } source = Source::None;
+    if (!plan.movieFramesDir.empty()) {
+        if (snap->cards.contains(pom1::CardId::Tms9918)) source = Source::Tms;
+        else if (snap->gen2Enabled) source = Source::Gen2;
+        else {
+            pom1::log().error("Movie", "--movie-frames: the movie's machine has no TMS9918 "
+                                       "or GEN2 card to capture");
+            return 2;
+        }
+        std::error_code ec;
+        std::filesystem::create_directories(plan.movieFramesDir, ec);
+    }
+
+    auto gen2 = std::make_unique<GraphicsCard>();   // ~430 KB of pixel buffers
+    uint64_t frames = 0;
+    uint64_t lastCycles = 0;
+    const uint64_t frameCycles = POM1_CPU_CYCLES_PER_FRAME_1X_60HZ;
+    while (snap->movieState == 2) {
+        emu.runCyclesSync(frameCycles);
+        emu.copySnapshot(*snap);
+        if (snap->movieState == 2 && snap->movieCycles == lastCycles) {
+            pom1::log().error("Movie", "--movie-play: the CPU stopped advancing mid-replay");
+            return 2;
+        }
+        lastCycles = snap->movieCycles;
+        if (source == Source::None) continue;
+        char name[32];
+        std::snprintf(name, sizeof(name), "frame_%06llu.png",
+                      static_cast<unsigned long long>(frames++));
+        const std::string path = (std::filesystem::path(plan.movieFramesDir) / name).string();
+        const uint32_t* rgba = nullptr;
+        int w = 0, h = 0;
+        if (source == Source::Tms) {
+            rgba = snap->tms9918.framebuffer.data();
+            w = TMS9918::kFullWidth;
+            h = TMS9918::kFullHeight;
+        } else {
+            gen2->render(snap->memory.data(), snap->gen2DisplayState, snap->gen2FrameStartState,
+                        snap->gen2VideoEvents,
+                        snap->gen2FiftyHz ? Gen2VideoScanner::kLinesPerFrame50Hz
+                                          : Gen2VideoScanner::kLinesPerFrame);
+            rgba = gen2->pixels();
+            w = GraphicsCard::kHiresWidth;
+            h = GraphicsCard::kHiresHeight;
+        }
+        if (stbi_write_png(path.c_str(), w, h, 4, rgba, w * 4) == 0) {
+            pom1::log().error("Movie", "--movie-frames: cannot write " + path);
+            return 2;
+        }
+    }
+    if (source != Source::None)
+        pom1::log().info("Movie", "--movie-frames: " + std::to_string(frames) +
+                                  " frames written to " + plan.movieFramesDir);
+    const bool verified = snap->movieVerdict == 1;
+    pom1::log().info("Movie", verified ? "--movie-play: VERIFIED"
+                                       : "--movie-play: DIVERGED");
+    return verified ? 0 : 1;
+}
+
 /// Flush --save-tape. On the GUI side this lives in ~MainWindow_ImGui, which
 /// SIGINT/SIGTERM reach by closing the GLFW window; the headless driver has no
 /// window, so every one of its exits calls this instead. Without it
@@ -751,9 +838,9 @@ static int runHeadless(pom1::CliPlan& plan)
     // budget. Not for the two channels that steer a LIVE machine: --cmd-port
     // and the telemetry port's lock-step.
     const bool dumping = !plan.dumpGen2Path.empty() || !plan.dumpTmsPath.empty();
-    const bool cycleBounded = dumping
+    const bool cycleBounded = !plan.moviePlayPath.empty() || (dumping
         ? (plan.dumpAfterCycles > 0 || !plan.timedPastes.empty())
-        : plan.exitAfterCycles > 0;
+        : plan.exitAfterCycles > 0);
     const bool deterministic = cycleBounded && !plan.commandPort && !plan.telemetryPort;
     EmulationController emu(&display, /*initializeAudioHardware=*/true, &audio,
                             deterministic ? EmulationController::ExecutionMode::Deterministic
@@ -921,6 +1008,14 @@ static int runHeadless(pom1::CliPlan& plan)
             pom1::log().error("Cmd", "--cmd-port: " + err);
             return 2;   // a harness that cannot steer must not run blind
         }
+    }
+
+    // Input-movie replay (--movie-play): the movie brings its own machine
+    // state and its own budget, so it runs instead of the captures below.
+    if (!plan.moviePlayPath.empty()) {
+        const int rc = playMovieHeadless(emu, plan);
+        saveTapeOnExit(emu, plan);
+        return rc;
     }
 
     // Graphics-regression capture: let the loaded program render a settled

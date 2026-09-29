@@ -52,6 +52,15 @@ namespace pom1 {
 /// Falls back to the ceiling wherever the host RAM cannot be read.
 std::size_t defaultRewindBudgetBytes();
 
+/// Where on the emulated timeline a frame was taken: the cycles the CPU had
+/// run and the keys the machine had been handed. Opaque to the buffer; the
+/// controller reads it back on a seek so an input movie being recorded or
+/// played can follow the machine back in time (re-recording, issue #40).
+struct TimelineStamp {
+    uint64_t cycles = 0;
+    uint64_t keys = 0;
+};
+
 class RewindBuffer {
 public:
     // Ceiling for the auto-derived default, and the value every host with
@@ -78,7 +87,13 @@ public:
     // Append `blob` (a full snapshot from Memory::saveSnapshotToBuffer) as the
     // newest frame. Stored as a keyframe or a delta automatically. Empty or
     // malformed blobs are ignored. Evicts oldest segments past the budget.
-    void capture(const std::vector<uint8_t>& blob);
+    void capture(const std::vector<uint8_t>& blob, TimelineStamp stamp = {});
+
+    // The stamp captured with frame `pos` ({} when out of range).
+    TimelineStamp stampAt(std::size_t pos) const
+    {
+        return pos < frames.size() ? frames[pos].stamp : TimelineStamp{};
+    }
 
     // Number of frames currently retained (0..). Position indices into the
     // reconstruct()/the UI slider run [0, frameCount).
@@ -120,6 +135,7 @@ private:
         std::vector<uint8_t>      header;  // delta only: 16-byte snapshot header
         std::vector<SectionDelta> deltas;  // delta only: per-section, cur order
         std::size_t bytes = 0;             // accounted contribution to budget
+        TimelineStamp stamp;               // capture()'s timeline position
     };
 
     static bool parseSections(const std::vector<uint8_t>& blob,
@@ -133,7 +149,7 @@ private:
                                            const Frame& delta);
     static std::size_t frameBytes(const Frame& f);
 
-    void pushKeyframe(const std::vector<uint8_t>& blob);
+    void pushKeyframe(const std::vector<uint8_t>& blob, TimelineStamp stamp);
     void evictToBudget();
     void recomputeTailState();
 

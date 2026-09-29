@@ -159,6 +159,16 @@ struct CliPlan {
     // smoke for every preset; see tools/test_headless_presets.py). Implies
     // --headless. 0 = idle until SIGINT/SIGTERM (the historical behaviour).
     int                                exitAfterCycles = 0;
+    // --movie-play PATH: headless replay of an input movie (InputMovie.h,
+    // issue #40). Restores the movie's start snapshot, replays every key on
+    // its cycle on a Deterministic controller, and exits 0 when the machine
+    // reaches the recorded end state, 1 when it diverges, 2 when the movie
+    // cannot be read. Implies --headless.
+    std::string                        moviePlayPath;
+    // --movie-frames DIR: with --movie-play, write one PNG per video frame
+    // (59.94 Hz) of the TMS9918 or GEN2 framebuffer to DIR/frame_NNNNNN.png —
+    // the image half of a longplay, for ffmpeg.
+    std::string                        movieFramesDir;
     std::string                        initialTapePath;
     bool                               initialTapeAutoPlay = false;
     std::string                        saveTapePath;

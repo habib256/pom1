@@ -1885,10 +1885,14 @@ target_link_libraries(test_input_movie PRIVATE libresidfp_static)
 if(WIN32)
     target_link_libraries(test_input_movie PRIVATE ws2_32)
 endif()
+# It also leaves three movies in movie_fixtures/ for movie_play_cli below.
+set(POM1_MOVIE_FIXTURES "${CMAKE_CURRENT_BINARY_DIR}/movie_fixtures")
+file(MAKE_DIRECTORY "${POM1_MOVIE_FIXTURES}")
 add_test(NAME input_movie_smoke
-         COMMAND test_input_movie
+         COMMAND test_input_movie "${POM1_MOVIE_FIXTURES}"
          WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-set_tests_properties(input_movie_smoke PROPERTIES TIMEOUT 60)
+set_tests_properties(input_movie_smoke PROPERTIES TIMEOUT 60
+                     FIXTURES_SETUP input_movies)
 
 # rom_swap_reset_smoke -- a card transaction that rewrites $E000-$FFFF must
 # re-vector through RESET before the CPU resumes. Without it the program counter
@@ -2223,6 +2227,21 @@ if(Python3_FOUND)
              WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     set_tests_properties(headless_preset_matrix PROPERTIES
                          TIMEOUT 300 SKIP_RETURN_CODE 77)
+
+    # ── movie_play_cli — headless replay of an input movie (issue #40) ───────
+    # --movie-play exits 0 on a verified replay, 1 on a divergence, 2 on an
+    # unreadable movie; --movie-frames writes one PNG per video frame. The
+    # movies are input_movie_smoke's (a re-recorded one, a tampered copy, one
+    # on a GEN2 machine), so this runs after it.
+    add_test(NAME movie_play_cli
+             COMMAND ${Python3_EXECUTABLE}
+                     "${CMAKE_SOURCE_DIR}/tools/test_movie_play.py"
+                     --pom1 "$<TARGET_FILE:pom1_imgui>"
+                     --movies "${POM1_MOVIE_FIXTURES}"
+             WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(movie_play_cli PROPERTIES
+                         TIMEOUT 120 SKIP_RETURN_CODE 77
+                         FIXTURES_REQUIRED input_movies)
 
     # ── bbs_autodial — software/NET auto-dial against a local fake BBS ───────
     # Offline end to end: the shipped WOZMON dumps still load at $0280 and still
