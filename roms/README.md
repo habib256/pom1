@@ -2,7 +2,7 @@
 
 *[← Doc map](../doc/README.md) · [Contributing](../CONTRIBUTING.md)*
 
-Sixteen ROM images plus the CodeTank cartridges in [`codetank/`](codetank/).
+Seventeen ROM images plus the CodeTank cartridges in [`codetank/`](codetank/).
 POM1 loads them at boot or when a card is plugged; none is generated at build
 time except where this file says so.
 
@@ -27,6 +27,7 @@ as facts. Everything untagged is verifiable from this repository.
 | `XACI.rom` | 256 | `e7f31b07e485` | Uncle Bernie's **Extended ACI** PROM page at `$C500` |
 | `charmap.rom` | 1024 | `4db029004801` | Apple-1 text glyph set (the Signetics 2513 character generator) |
 | `apple2e_char.rom` | 4096 | `52c3b87900ac` | Apple IIe Enhanced US character generator — see below |
+| `gen2_char.rom` | 2048 | `4be58a9bc754` | Uncle Bernie's GEN2 character generator, built from his template — see below |
 | `krusader-1.3.rom` | 8192 | `b6097331da38` | Krusader 1.3 editor/assembler/debugger at `$E000` |
 | `cffa1.rom` | 8160 | `ada5c4c1a918` | CFFA1 CompactFlash firmware at `$9000` |
 | `sdcard.rom` | 8177 | `6a5e5a9fa926` | P-LAB **SD CARD OS 1.3** at `$8000` |
@@ -57,12 +58,9 @@ replica and emulation community has distributed these 256- and 4096-byte images
 openly for decades. If Apple ever objects, the answer is to remove them — the
 emulator has a built-in Monitor fallback and every other image is optional.
 
-**`apple2e_char.rom` deserves its own note**, and the reason is already in
-`src/GraphicsCard.cpp`: Uncle Bernie's GEN2 release card carries a 2716
-character-generator EPROM on the Apple-1's Signetics 2513 footprint,
-reprogrammed with the Apple IIe full-ASCII glyph set. **That exact 2716 dump is
-not published**, so POM1 ships the Apple IIe Enhanced US 4 KB character ROM
-instead, which carries the same glyphs. It is the same file POM2 uses.
+**`apple2e_char.rom`** is the Apple IIe Enhanced US 4 KB character ROM,
+also used by POM2. It is the fallback for GEN2 when `gen2_char.rom` is absent
+or invalid; its glyph artwork differs from Uncle Bernie's card.
 
 ⟨to confirm⟩ Where each of these six images was originally obtained — which
 archive, which dump, which date. The bytes are stable and hashed above; only the
@@ -83,6 +81,25 @@ Krusader, the CFFA1 and the GEN2 card are all credited by name in
 each *file*.
 
 ## 3. Reproducible from published sources
+
+**`gen2_char.rom` — character artwork by Uncle Bernie.** Generated from
+[`gen2_char.template`](gen2_char.template), his unmodified `a1_G2_chargen`
+template supplied to Arnaud in the Applefritter message of 21 September 2026.
+Bernie explicitly instructed using the first eight of each glyph's nine rows
+and ignoring the ninth, giving the improved set with its blank scanline on top.
+Regenerate with:
+
+```sh
+python3 tools/build_gen2_chargen.py roms/gen2_char.template roms/gen2_char.rom
+```
+
+This is POM1's rendering format, not a hardware EPROM burn image: 256 cells
+of eight bytes, bit 0 at the left, 1 = lit. The eight template columns are
+preserved; the renderer displays the first seven dots of each cell. Redundant
+normal bands are filled from `$40-$7F`; flashing selects `$00-$3F` for the
+inverse phase. `$E0-$FF` retains the exact lowercase, punctuation and checkerboard
+cursor artwork and never flashes. The template was supplied for this integration;
+no separate general redistribution licence was stated in the message.
 
 These are **built, not found** — the tree carries the source and the build
 script, so a successor can regenerate them and verify the bytes.
