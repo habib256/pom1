@@ -226,15 +226,10 @@ inline uint32_t lerpRgba(uint32_t newPix, uint32_t prevPix, float persistence)
     return (uint32_t(0xFFu) << 24) | (bl << 16) | (g << 8) | r;
 }
 
-// ─── GEN2 character ROM (loaded from roms/apple2e_char.rom) ─────────────
-//
-// Bernie's release card carries a 2716 char-gen EPROM with a full-ASCII glyph
-// set (Table 2 of his spec). The exact 2716 dump is not published, so POM1
-// ships the Apple IIe Enhanced US 4 KB char ROM (apple2e_char.rom, the file
-// POM2 uses), whose primary glyphs match. WHICH glyph a screen byte shows --
-// attribute bands, the flashing range, the no-ROM 5x7 fallback -- is decided
-// in Gen2CharGen.h; this file only loads the ROM and paints cells. Loaded
-// lazily on the first TEXT render so the cwd is whatever launched POM1.
+// Uncle Bernie's exact glyphs first, then Apple IIe / built-in 5x7 fallbacks.
+// Loaded lazily on the first TEXT render through the shared resource locator.
+std::array<uint8_t, 2048> gGen2CharRom{};
+bool gGen2CharRomOk = false;
 std::array<uint8_t, 4096> gApple2eCharRom{};
 bool gApple2eCharRomOk      = false;
 bool gApple2eCharRomTried   = false;
@@ -243,6 +238,15 @@ void loadApple2eCharRom()
 {
     if (gApple2eCharRomTried) return;
     gApple2eCharRomTried = true;
+    const auto gen2Path = pom1::ResourceLocator::defaultLocator().find("roms/gen2_char.rom");
+    if (!gen2Path.empty()) {
+        std::ifstream f(gen2Path, std::ios::binary);
+        if (f.read(reinterpret_cast<char*>(gGen2CharRom.data()), gGen2CharRom.size())
+            && f.peek() == std::char_traits<char>::eof()) {
+            gGen2CharRomOk = true;
+            return;
+        }
+    }
     const std::filesystem::path romPath =
         pom1::ResourceLocator::defaultLocator().find("roms/apple2e_char.rom");
     if (!romPath.empty()) {
@@ -264,6 +268,8 @@ void loadApple2eCharRom()
 pom1::gen2char::Rows glyphRows7(uint8_t screenByte, bool flashPhase)
 {
     loadApple2eCharRom();
+    if (gGen2CharRomOk)
+        return pom1::gen2char::gen2GlyphRows(screenByte, flashPhase, gGen2CharRom.data());
     return pom1::gen2char::glyphRows(screenByte, flashPhase,
                                      gApple2eCharRomOk ? gApple2eCharRom.data() : nullptr);
 }

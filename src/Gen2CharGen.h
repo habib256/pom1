@@ -42,10 +42,10 @@
 // Flash semantics are the same on both paths: normal video while `flashPhase`
 // is false, inverse while it is true.
 //
-// NOT MODELLED YET: Bernie's EPROM leaves the BLANK scanline at the TOP of each
-// cell (Apple II / 2513 style); the IIe glyphs used here leave it at the bottom,
-// with lowercase descenders in row 7. Moving it needs his real glyph table, not
-// a shifted guess -- see TODO.md.
+// The preferred ROM is built from Uncle Bernie's own template (21 sept. 2026),
+// taking the FIRST eight of each glyph's nine rows. Its blank scanline is at
+// the top, including the exact lowercase shapes and cursor checkerboard.
+// The IIe and 5x7 paths remain fallbacks when the GEN2 ROM is unavailable.
 
 #include <array>
 #include <cstddef>
@@ -57,6 +57,17 @@ namespace pom1::gen2char {
 using Rows = std::array<uint8_t, 8>;
 
 enum class Attr : uint8_t { Inverse, Flash, Normal };
+
+/// Native GEN2 ROM: 256 cells, eight rows per cell, 1 = lit, bit 0 = left.
+/// Only $40-$7F flash, selecting their pre-drawn inverse cells at $00-$3F.
+inline Rows gen2GlyphRows(uint8_t b, bool flashPhase, const uint8_t* rom)
+{
+    if (b >= 0x40 && b < 0x80 && flashPhase) b &= 0x3F;
+    Rows rows{};
+    for (std::size_t y = 0; y < rows.size(); ++y)
+        rows[y] = static_cast<uint8_t>(rom[static_cast<std::size_t>(b) * 8 + y] & 0x7F);
+    return rows;
+}
 
 /// Bits 7-6 of the screen byte (Table 2).
 constexpr Attr attributeOf(uint8_t b)

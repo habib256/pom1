@@ -156,6 +156,11 @@ int main()
         text.hiRes = false;
         reference.render(page.data(), text, text, {});
     }
+    // Pin the font actually loaded by GraphicsCard, rather than comparing two
+    // renders that could both silently use the old Apple IIe fallback.
+    CHECK((renderedCell(reference, 0, 1) ==
+           pom1::gen2char::Rows{0, 0x08, 0x14, 0x22, 0x22, 0x3E, 0x22, 0x22}),
+          "GraphicsCard must load Bernie's exact A, including its blank top row");
 
     GraphicsCard card;
     int prevP = -1;
