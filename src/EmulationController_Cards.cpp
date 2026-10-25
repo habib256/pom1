@@ -18,6 +18,7 @@
 #include "EmulationController.h"
 #include "POM1Build.h"
 #include "PR40Printer.h"
+#include "JukeBoxRomStaging.h"
 #include "RomLoader.h"
 #include "TMS9918.h"
 #include "TelemetryPort.h"   // complete type for memory->getTelemetryPort()
@@ -141,6 +142,8 @@ void EmulationController::armCassetteRecord()
 pom1::CardConfigurationResult EmulationController::applyCardConfiguration(
     const pom1::CardConfigurationRequest& request)
 {
+    const pom1::StagedJukeBoxRom jukeRom = pom1::stageJukeBoxRom(memory->resources(),
+        memory->getJukeBox(), request.cards.contains(pom1::CardId::JukeBox));
     std::lock_guard<PriorityMutex> lock(stateMutex);
 
     // Reject an invalid target before applying any of the optional machine
@@ -209,6 +212,7 @@ pom1::CardConfigurationResult EmulationController::applyCardConfiguration(
         memory->configureResetVectors(kDefaultResetVector);
         cpu->hardReset();
     }
+    pom1::installStagedJukeBoxRom(memory->getJukeBox(), memory->isJukeBoxEnabled(), jukeRom);
     pom1::CardConfigurationResult result =
         pom1::MachineCoordinator::applyCardConfiguration(*memory, request);
 
@@ -271,7 +275,10 @@ pom1::CardSet EmulationController::getEnabledCards() const
 
 void EmulationController::setCardEnabled(pom1::CardId card, bool enabled)
 {
+    const pom1::StagedJukeBoxRom jukeRom = pom1::stageJukeBoxRom(memory->resources(),
+        memory->getJukeBox(), enabled && card == pom1::CardId::JukeBox);
     std::lock_guard<PriorityMutex> lock(stateMutex);
+    pom1::installStagedJukeBoxRom(memory->getJukeBox(), memory->isJukeBoxEnabled(), jukeRom);
     pom1::MachineCoordinator::setCardEnabled(*memory, card, enabled);
     publisher.publish(*memory, *cpu, runRequested.load());
 }

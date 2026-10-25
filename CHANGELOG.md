@@ -10,6 +10,37 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Fixed — brancher le Juke-Box lisait 256 Ko sur le disque sous `stateMutex`
+
+Rouge intermittent de la CI nocturne Linux (22 et 25 octobre) :
+`concurrent_frontends_smoke`, `maxStateHoldNs` à 208 puis 339 ms pour un seuil
+de 100 ms. Le log du 25 ne montre qu'un seul branchement du Juke-Box dans toute
+la fenêtre de 350 ms : la lecture de `roms/jukebox.rom` sous le verrou, sur un
+runner dont le build parallèle venait de vider le cache disque. À chaud, le même
+branchement coûte 0,1 ms. Le verrou bloquait pendant ce temps le thread
+d'émulation, le rendu et le callback audio.
+
+- **Un rebranchement garde sa puce** (`Memory::setJukeBoxEnabled`) : une flash
+  ou une EEPROM débranchée garde son contenu, donc la ROM déjà chargée n'est
+  plus relue. Un changement de type de puce et `clearRom()` vident `romPath` et
+  rechargent toujours.
+- **Le premier branchement lit avant de prendre le verrou**
+  (`src/JukeBoxRomStaging.h`) : `stageJukeBoxRom()` fait la lecture hors
+  verrou, `installStagedJukeBoxRom()` remet les octets à une puce débranchée et
+  vide, et `setJukeBoxEnabled()` ne trouve alors plus rien à lire. Tout ce qui
+  n'est pas réglé à cette étape (pas de fichier, image refusée) retombe sur
+  l'ancienne lecture. `JukeBox::loadRomFile` passe désormais par
+  `readFileBounded` + `loadRomImage`, et `JukeBox::isRomResident()` est le seul
+  accesseur sûr sans verrou.
+
+Cliquet relevé : `controller_lines` 3 407 → 3 414. Ces sept lignes sont
+l'appel de mise en place avant le verrou et l'installation après, dans
+`applyCardConfiguration` et `setCardEnabled`. La lecture doit précéder le
+verrou, et c'est le contrôleur qui le prend. Épinglé par
+`jukebox_paged_rom_smoke` (une image chargée par octets donne la même puce
+qu'un fichier ; une puce déjà chargée n'est pas relue ; une puce branchée n'est
+jamais remplacée).
+
 ### Fixed — `--rtc-freeze` ne gelait rien : l'horloge A1-IO suivait l'hôte
 
 Le seul rouge restant de la CI nocturne : `lib_micro_tests` sous

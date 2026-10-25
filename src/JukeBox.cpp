@@ -4,6 +4,7 @@
 
 #include "JukeBox.h"
 
+#include "FileBytes.h"
 #include "Logger.h"
 #include "SnapshotIO.h"
 
@@ -36,6 +37,7 @@ void JukeBox::initBlankFlash()
     bankRegister = 0;
     bootPage     = 0;
     romPath.clear();
+    romResident.store(false, std::memory_order_release);
     romSize = 0;
 }
 
@@ -46,6 +48,7 @@ void JukeBox::initBlankEeprom()
     bankRegister = 0;
     bootPage     = 0;
     romPath.clear();
+    romResident.store(false, std::memory_order_release);
     romSize = 0;
 }
 
@@ -71,19 +74,21 @@ void JukeBox::setChipMode(ChipMode m)
 bool JukeBox::loadRomFile(const std::string& path, std::string& error)
 {
     error.clear();
-    std::ifstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        error = "Cannot open Juke-Box ROM: " + path;
+    std::vector<uint8_t> bytes;
+    if (!pom1::readFileBounded(path, kRomReadLimit, "Juke-Box ROM", bytes, error))
         return false;
-    }
-    file.seekg(0, std::ios::end);
-    auto sz = static_cast<std::streamoff>(file.tellg());
-    file.seekg(0, std::ios::beg);
-    if (sz <= 0) {
+    return loadRomImage(bytes, path, error);
+}
+
+bool JukeBox::loadRomImage(const std::vector<uint8_t>& bytes,
+                           const std::string& path, std::string& error)
+{
+    error.clear();
+    if (bytes.empty()) {
         error = "Juke-Box ROM is empty: " + path;
         return false;
     }
-    const size_t rawSize = static_cast<size_t>(sz);
+    const size_t rawSize = bytes.size();
 
     if (chipMode == ChipMode::EEPROM28C256) {
         if (rawSize != kEepromFileSize) {
@@ -91,9 +96,7 @@ bool JukeBox::loadRomFile(const std::string& path, std::string& error)
                     std::to_string(rawSize) + " bytes provided)";
             return false;
         }
-        rom.assign(kEepromFileSize, 0xFF);
-        file.read(reinterpret_cast<char*>(rom.data()),
-                  static_cast<std::streamsize>(kEepromFileSize));
+        rom.assign(bytes.begin(), bytes.end());
         pageCount = 1;
     } else {
         if (rawSize < kMinRomFileSize || rawSize > kMaxRomFileSize) {
@@ -117,12 +120,12 @@ bool JukeBox::loadRomFile(const std::string& path, std::string& error)
             paddedSize = pages * kPageSize;
         }
         rom.assign(paddedSize, 0xFF);
-        file.read(reinterpret_cast<char*>(rom.data()),
-                  static_cast<std::streamsize>(rawSize));
+        std::memcpy(rom.data(), bytes.data(), rawSize);
         pageCount = static_cast<uint8_t>(paddedSize / kPageSize);
     }
 
     romPath = path;
+    romResident.store(true, std::memory_order_release);
     romSize = rawSize;
     bankRegister = 0;
     pickDefaultBootPage();
@@ -364,4 +367,5 @@ void JukeBox::deserialize(pom1::SnapshotReader& r)
     // is owned by Memory's preset / UI loader — we keep the saved value
     // visible via copySnapshot but don't reopen the file.
     romPath       = r.readString();
+    romResident.store(!romPath.empty(), std::memory_order_release);
 }
