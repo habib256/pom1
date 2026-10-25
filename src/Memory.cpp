@@ -1978,7 +1978,7 @@ void Memory::setJukeBoxEnabled(bool b)
     if (b) {
         // A1-AUDIO SE at $CC00-$CC1F is disjoint from the Juke-Box bank
         // latch ($CA00) — do NOT evict; the two can coexist.
-        loadJukeBoxRom();
+        if (jukeBox->getRomPath().empty()) loadJukeBoxRom();  // re-plug keeps its chip: no disk I/O under stateMutex
         const bool use32 = (jukeBox->getJumper() == JukeBox::Jumper::RAM16_ROM32);
         const bool use16 = (jukeBox->getJumper() == JukeBox::Jumper::RAM32_ROM16);
         bus.setEnabled(jukeBox32BusHandle, use32);
