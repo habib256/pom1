@@ -6,12 +6,14 @@
 // tests/gt6144_smoke_test.cpp.
 
 #include "JukeBox.h"
+#include "JukeBoxRomStaging.h"
 
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace {
 void mustBeTrue(bool cond, const char* msg)
@@ -31,6 +33,35 @@ int main(int argc, char** argv)
     std::string error;
     mustBeTrue(jb.loadRomFile(romPath, error),
                ("loadRomFile failed: " + error).c_str());
+
+    // Staged load (the disk read done BEFORE stateMutex) must land the same
+    // chip as loadRomFile, and isRomResident — read unlocked to decide whether
+    // to stage at all — must track the buffer through clearRom().
+    {
+        JukeBox blank;
+        mustBeTrue(!blank.isRomResident(), "a fresh chip must not report a resident ROM");
+        std::vector<uint8_t> bytes;
+        std::string readError;
+        mustBeTrue(pom1::readFileBounded(romPath, JukeBox::kRomReadLimit, "Juke-Box ROM",
+                                         bytes, readError), readError.c_str());
+        pom1::installStagedJukeBoxRom(blank, /*plugged=*/false,
+                                      {romPath, bytes});
+        mustBeTrue(blank.isRomResident() && blank.getRomPath() == romPath,
+                   "installStagedJukeBoxRom must load an unplugged blank chip");
+        mustBeTrue(blank.getRomBufferSize() == jb.getRomBufferSize() &&
+                   std::memcmp(blank.getRomPointer(), jb.getRomPointer(),
+                               jb.getRomBufferSize()) == 0 &&
+                   blank.getBootPage() == jb.getBootPage(),
+                   "loadRomImage must build the same chip as loadRomFile");
+        mustBeTrue(pom1::stageJukeBoxRom(pom1::ResourceLocator::defaultLocator(),
+                                         blank, true).path.empty(),
+                   "a resident ROM must stage nothing (no disk read)");
+        blank.clearRom();
+        mustBeTrue(!blank.isRomResident(), "clearRom must drop residency");
+        JukeBox plugged;
+        pom1::installStagedJukeBoxRom(plugged, /*plugged=*/true, {romPath, bytes});
+        mustBeTrue(!plugged.isRomResident(), "a plugged chip's ROM is live; never swap it");
+    }
 
     // The shipped roms/jukebox.rom is 256 kB == 8 pages of 32 kB.
     mustBeTrue(jb.getPageCount() == 8,

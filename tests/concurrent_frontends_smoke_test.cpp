@@ -4,8 +4,6 @@
 // the real registered audio sources while topology changes underneath both.
 
 #include "EmulationController.h"
-#include "FileBytes.h"
-#include "ResourceLocator.h"
 
 #include <array>
 #include <atomic>
@@ -14,8 +12,6 @@
 #include <cstdlib>
 #include <cstdint>
 #include <cstdio>
-#include <filesystem>
-#include <string>
 #include <thread>
 #include <vector>
 
@@ -50,23 +46,6 @@ constexpr uint64_t kMaxAudioCallbackNs  =   50000000ULL * kSanitizerSlack;
 
 int main()
 {
-    // Prime the OS page cache with the Juke-Box ROM before any lock exists.
-    // The first Juke-Box plug reads 256 KB from disk under stateMutex; on a
-    // GitHub Linux runner whose cache the parallel build had just evicted,
-    // that single read held the lock 208-339 ms (nightlies of 2026-10-22 and
-    // 10-25, one plug in the whole window) against 1.5-12 ms here. Disk latency
-    // is the runner's, not something POM1 controls — the same family as the
-    // maxStateWaitNs note below — so the gate must not measure it.
-    {
-        const std::filesystem::path rom =
-            pom1::ResourceLocator::defaultLocator().find("roms/jukebox.rom");
-        std::vector<std::uint8_t> bytes;
-        std::string error;
-        if (!rom.empty())
-            (void)pom1::readFileBounded(rom.string(), 1u << 20, "Juke-Box ROM",
-                                        bytes, error);
-    }
-
     EmulationController emu(nullptr, /*initializeAudioHardware=*/false);
     emu.setExecutionSpeedCyclesPerFrame(1000000);
 

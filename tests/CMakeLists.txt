@@ -1330,6 +1330,7 @@ add_executable(test_jukebox_paged_rom
     jukebox_paged_rom_smoke_test.cpp
     ${CMAKE_SOURCE_DIR}/src/JukeBox.cpp
     ${CMAKE_SOURCE_DIR}/src/Logger.cpp
+    ${CMAKE_SOURCE_DIR}/src/ResourceLocator.cpp
     ${CMAKE_SOURCE_DIR}/src/SnapshotIO.cpp
 )
 target_include_directories(test_jukebox_paged_rom PRIVATE ${CMAKE_SOURCE_DIR}/src)

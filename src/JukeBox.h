@@ -47,6 +47,7 @@
 #include "Peripheral.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -74,6 +75,11 @@ public:
     static constexpr size_t   kMinRomFileSize        = 0x4000;   // 16 kB
     static constexpr size_t   kMaxRomFileSize        = 0x80000;  // 512 kB
     static constexpr size_t   kEepromFileSize        = 0x8000;   // 32 kB
+    // Read cap for readFileBounded: generous, so a slightly-oversize file
+    // still gets the precise "out of range" message from loadRomImage().
+    static constexpr size_t   kRomReadLimit          = 64u << 20;
+    // Where Memory::loadJukeBoxRom looks, in order (via ResourceLocator).
+    static constexpr const char* kDefaultRomNames[]  = {"roms/jukebox.rom", "jukebox.rom"};
 
     static constexpr uint16_t kRom32Base             = 0x4000;
     static constexpr uint16_t kRom32End              = 0xBFFF;
@@ -129,6 +135,15 @@ public:
     // the nearest page boundary. `error` is populated on failure; previous
     // contents are preserved on error. Picks default boot page on success.
     bool loadRomFile(const std::string& path, std::string& error);
+    // Same, from bytes already in memory — lets a caller do the disk read
+    // BEFORE taking stateMutex (pom1::stageJukeBoxRom). `path` is recorded
+    // as romPath exactly as loadRomFile would.
+    bool loadRomImage(const std::vector<uint8_t>& bytes, const std::string& path,
+                      std::string& error);
+    // True once a ROM image is in the buffer (romPath non-empty). The one
+    // accessor safe WITHOUT stateMutex: it only decides whether a disk read
+    // is worth staging, and a stale answer costs a read, never correctness.
+    bool isRomResident() const { return romResident.load(std::memory_order_acquire); }
 
     // Empty the ROM buffer. Drops romPath and pageCount. For EEPROM mode
     // this prepares an empty 32 kB slate; for Flash mode we start with a
@@ -249,6 +264,7 @@ private:
     uint8_t     pageCount     = 0;    // rom.size() / kPageSize
     uint8_t     bootPage      = 0;    // chosen by pickDefaultBootPage
     std::string romPath;
+    std::atomic<bool> romResident{false};  // mirrors !romPath.empty(), see isRomResident()
     size_t      romSize       = 0;    // original loaded file size (pre-pad)
 
     // EEPROM 28c256 write-cycle timing state. See setSiliconStrictMode().

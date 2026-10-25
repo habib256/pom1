@@ -2058,7 +2058,7 @@ void Memory::setJukeBoxChipMode(JukeBox::ChipMode m)
 int Memory::loadJukeBoxRom(void)
 {
     lastError.clear();
-    for (const char* rel : {"roms/jukebox.rom", "jukebox.rom"}) {
+    for (const char* rel : JukeBox::kDefaultRomNames) {
         const std::filesystem::path found = resources().find(rel);
         if (found.empty()) continue;
         std::string error;
