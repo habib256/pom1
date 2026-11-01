@@ -109,6 +109,41 @@ One `.cpp/.h` pair per card under `src/`. Bus windows + priorities → the [Memo
 
 ## Invariants & gotchas
 
+### Evidence grades — written into the code
+
+**The silicon is the reference.** Every claim about hardware carries **its
+grade and its source**, in one bracket at the head of the comment, so a reader
+and a `grep` agree on what backs the code:
+
+| Grade | Evidence |
+|---|---|
+| **A** | Measured on **real hardware** — scope, capture, run on the iron. |
+| **B** | **Primary document** — chip datasheet, the machine's hardware/firmware reference, a technical note, a specification, a patent. |
+| **C** | **ROM disassembly** — proof of what the software *expects*: the contract, not the silicon. |
+| **D** | **Another emulator**, whichever it is. A reading of the hardware by someone else: useful, fallible. |
+| **E** | **Asserted with no source.** |
+| **F** | **Admitted unknown** — guessed, tuned, approximate, unverified. |
+
+Three rules follow. **A grade-D citation names its revision** (tag or commit):
+upstream line numbers move on every commit, so a bare `file.cpp:248-253`
+designates nothing and cannot be re-verified. **A lower grade never overrules a
+higher one** — where this emulator diverges from another because a datasheet, a
+ROM or a measurement says otherwise, that is correct, and the comment says so;
+it protects the code from a future "alignment" that would be a regression.
+**An F is kept, not hidden**: state what would settle it.
+
+```
+// [B] W65C816S datasheet (WDC) § 3.1 — the bank register holds across the op.
+// [D] MAME foo.cpp:237-252 @ mame0287 — same, as MAME reads it.
+// [C] ROM 03 $FE1A40 — the firmware expects the opposite order.
+// [A] Measured on a real unit: 1.0153 MHz.
+// [F] Unknown: tuned until the demo passed. Settled by: a scope capture.
+```
+
+This hierarchy is shared by every emulator from the same author (POM2, POM1,
+POMIIGS, POM68K, POMPPC, NeoST, RasterSystemGG).
+
+
 ### Presets
 
 **Full preset / layout reference → [`doc/PRESETS.md`](doc/PRESETS.md).** The rules:
