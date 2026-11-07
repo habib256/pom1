@@ -46,7 +46,7 @@
 ;
 ; Keys: ESC → Woz Monitor.
 ; DevBench flashes CODETANKDEV lower bank and starts at 4000R.
-; The shipped TMS_Plasma.txt is a stock 4 KB memory load and starts at 0280R.
+; Ships on the Codetank_DEMOS cartridge (menu at 4000R).
 ; =============================================
 
         .import init_vdp_g1, disable_sprites

@@ -610,7 +610,7 @@ void MainWindow_ImGui::renderTutorialTMS9918Window()
             "File > Load Memory from software/Graphic TMS9918/ — POM1 "
             "auto-plugs the card when a file comes from that directory "
             "(see MainWindow_FileDialogs heuristics).");
-        tutCode("software/Graphic TMS9918/TMS_Life.txt  -> 280R");
+        tutCode("software/Graphic TMS9918/TMS_Split.txt  -> 280R");
 
         tutStep(4, "Write VRAM");
         ImGui::TextWrapped(

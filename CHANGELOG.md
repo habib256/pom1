@@ -95,7 +95,12 @@ GEN2 après 30 M cycles, avec frappes, et l'écran texte par `--cmd-port`) :
 même rendu partout, sauf GEN2Snake, dont le serpent avance un peu plus vite,
 et HGR_Maze, qui tire un autre labyrinthe. Les `.txt` TMS9918 en `$0280` ne
 correspondent plus à leurs sketches, devenus des banques CodeTank en `$4000`,
-et restent tels quels.
+et sont supprimés : Life, Mandel, Plasma, Vague (cartouche DEMOS), Snake et
+Sokoban (cartouche ARCADE). Le tutoriel TMS9918 et l'entraînement PGO du
+Raspberry Pi pointent désormais sur `TMS_Split.txt`. Restent dans
+`software/Graphic TMS9918/` : Split (sur aucune cartouche), Stars et
+Nyan_Fantasy (sans source dans l'arbre) et Logo_16k (chargé par
+`tools/test_logo_telnet.py`).
 
 ### Fixed — TMS9918 : la VRAM 4K, un accès en attente, le scan des sprites en mode texte
 

@@ -34,12 +34,9 @@
 ;   Build: make
 ;        -o build/TMS_Life.bin build/TMS_Life.o
 ;
-; Or just:
-;   python3 software/tms9918/emit_TMS_Life_txt.py
-;
-; Run in POM1: plug the TMS9918 card (auto-enabled when loading from
-; software/tms9918/), File > Load Memory TMS_Life.txt, then 280R in
-; the Woz Monitor. Tap any key to change pattern, ESC to exit.
+; Ships on the Codetank_DEMOS cartridge (menu at 4000R). From the DevBench:
+; open this file, flash the CODETANKDEV bank, 4000R. Tap any key to change
+; pattern, ESC to exit.
 ;
 ; Memory footprint (Parmigiani dual-bank 8 KB + TMS9918):
 ;   $0280-~$08E6  code + pattern tables + HUD strings (output file)
