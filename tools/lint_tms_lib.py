@@ -136,13 +136,39 @@ KNOWN_ZP = {"tmp", "tmp2", "print_ptr_lo", "print_ptr_hi", "mul_tmp",
 #   inline: pseudo-instruction stream executed at the call site
 #           (cost, is_data_access) — JSR cost itself is prepended.
 HELPER_INLINE = {
-    # vdp_write_a (tms9918_helpers.asm): STA VDP_DATA / NOP / NOP / RTS
-    "vdp_write_a": [(4, True), (2, False), (2, False), (6, False)],
-    # print_at_rc (tms9918m1.asm) *ends* STA VDP_DATA / RTS: model the exit
-    # hazard (a DATA store 10c before control returns). Entry side is safe
+    # tms9918_xfer.asm primitives (exported by tms9918_helpers.asm, private
+    # copies in tms9918m1/m2/_text/text_bitmap):
+    #   vdp_write_a: STA VDP_DATA / NOP / NOP / NOP / RTS — 22c chained, but
+    #   only 16c spent after its store when it returns (mixed-style hazard).
+    "vdp_write_a": [(4, True), (2, False), (2, False), (2, False),
+                    (6, False)],
+    #   vdp_ctrl_a: STA VDP_CTRL / NOP x3 / RTS — no data access, but its
+    #   16c count toward the gap around it (control store tracked below).
+    "vdp_ctrl_a": [(4, False), (6, False), (6, False)],
+    #   Fills/copies: entry = cycles before the FIRST store (after the
+    #   caller's JSR), exit = cycles after the LAST store until return.
+    #   vdp_fill: CPY/BEQ/JSR vdp_write_a ... vdp_write_a tail + DEY/BNE/
+    #   DEX/BPL/RTS.
+    "vdp_fill": [(10, False), (4, True), (26, False)],
+    #   vdp_fill_blank: CPY/BEQ ... STA / DEY/BNE/DEX/BPL/RTS (blanked only).
+    "vdp_fill_blank": [(4, False), (4, True), (14, False)],
+    #   vdp_copy: STA tmp/LDY/TXA/BEQ/LDA (ind),Y/JSR ... write_a tail +
+    #   INY/CPY tmp/BNE/RTS.
+    "vdp_copy": [(20, False), (4, True), (25, False)],
+    "vdp_copy_short": [(16, False), (4, True), (25, False)],
+    #   vdp_copy_blank: ... LDA (ind),Y / STA / INY/DEX/BNE/RTS (blanked).
+    "vdp_copy_blank": [(14, False), (4, True), (12, False)],
+    # print_at_rc (tms9918m1.asm) *ends* JMP vdp_write_a: model the exit
+    # hazard (a DATA store 16c before control returns). Entry side is safe
     # (PHA + JSR name_at_rc ~50c before its store).
-    "print_at_rc": [(999, False), (4, True), (6, False)],
+    "print_at_rc": [(999, False), (4, True), (12, False)],
 }
+# Helpers that store A to VDP_CTRL (display-state tracking, like STA VDP_CTRL)
+HELPER_CTRL_STORE = {"vdp_ctrl_a"}
+# Helpers that leave A untouched (the immediate-A tracker survives them)
+HELPER_KEEPS_A = {"vdp_write_a", "vdp_ctrl_a", "vdp_fill", "vdp_fill_blank"}
+# Helpers that make ONE store (bounded cost: a VBlank gate survives them)
+HELPER_PER_STORE = {"vdp_write_a", "vdp_ctrl_a", "print_at_rc"}
 
 MNEMONIC_RE = re.compile(r"^[A-Za-z]{3}$")
 LABEL_RE = re.compile(r"^(@?[A-Za-z_][A-Za-z0-9_]*):")
@@ -221,6 +247,10 @@ BUILTIN_MACROS = {
     # tms9918.inc — treated as their documented expansion.
     "WRT_DATA_REG": (0, ["STA VDP_DATA", "JSR tms9918_pad18"]),
     "WRT_DATA_VAL": (1, ["LDA #{0}", "STA VDP_DATA", "JSR tms9918_pad18"]),
+    # TMS_PAIR_SEI wrappers: empty by default (PHP/SEI/PLP only add cycles,
+    # and the lint checks the minimum gap).
+    "TMS_PAIR_BEGIN": (0, []),
+    "TMS_PAIR_END": (0, []),
     # WAIT_VBLANK / WAIT_5S handled specially (gate / spin events).
 }
 
@@ -668,7 +698,15 @@ class FileLinter:
                     pending = None
                     last_imm_a = None
                     continue
+                if tgt in HELPER_CTRL_STORE:
+                    self.stats.ctrl_accesses += 1
+                    cur = last_imm_a
+                    if cur is not None and cur == 0x81 and \
+                            prev_ctrl_imm is not None:
+                        display_off = (prev_ctrl_imm & 0x40) == 0
+                    prev_ctrl_imm = cur
                 if tgt in HELPER_INLINE:
+                    keep_a = last_imm_a if tgt in HELPER_KEEPS_A else None
                     cyc = 6
                     for cost, is_data in HELPER_INLINE[tgt]:
                         if is_data:
@@ -688,8 +726,11 @@ class FileLinter:
                             if pending is not None:
                                 pending = (pending[0], pending[1] + cost)
                     if gate is not None:
-                        gate = min(gate + 40, VBLANK_BUDGET + 1)
-                    last_imm_a = None
+                        # a fill/copy runs for a caller-chosen count: the
+                        # VBlank budget cannot be proved across it
+                        gate = (min(gate + 40, VBLANK_BUDGET + 1)
+                                if tgt in HELPER_PER_STORE else None)
+                    last_imm_a = keep_a
                     continue
                 # unknown callee: gap unknown -> safe; gate expires
                 pending = None
@@ -802,32 +843,34 @@ class FileLinter:
             if tsi is None or tsi >= si:
                 continue    # forward branch or unknown target
             body = st[tsi + 1:si + 1]
-            accesses = [k for k, b in enumerate(body)
-                        if b.kind == "insn" and b.is_data]
-            if not accesses:
-                continue
-            self.stats.loops_checked += 1
+            # Expanded cost stream: (cycles, is_data_access, body index). A
+            # modelled single-store helper (JSR vdp_write_a, ...) expands to
+            # its JSR + pseudo-instructions, so a loop that stores only
+            # through helpers -- or mixes helper and inline stores -- is
+            # checked like an inline one.
+            items: list[tuple[int, bool, int]] = []
             # a barrier / unknown JSR / RTS / JMP inside the slice means the
             # linear wrap path is not provable — skip (assumed safe).
             broken = False
-            costs = []
             for k, b in enumerate(body):
                 if b.kind == "gate":
                     broken = True
                     break
                 if b.kind == "label":
-                    costs.append(0)
                     continue
                 if b.kind == "barrier":
                     if b.note == "comment":
-                        costs.append(0)
                         continue
                     broken = True
                     break
                 if b.mnem == "JSR":
                     t = b.operand.strip()
                     if t in PAD_CYCLES:
-                        costs.append(PAD_CYCLES[t])
+                        items.append((PAD_CYCLES[t], False, k))
+                        continue
+                    if t in HELPER_PER_STORE and t in HELPER_INLINE:
+                        items.append((6, False, k))
+                        items.extend((c, d, k) for c, d in HELPER_INLINE[t])
                         continue
                     broken = True
                     break
@@ -835,20 +878,26 @@ class FileLinter:
                     broken = True
                     break
                 if b.kind == "insn" and b.is_branch and k != len(body) - 1:
-                    costs.append(2)     # interior branch: fall-through
+                    items.append((2, False, k))  # interior branch: fall-through
                     continue
-                costs.append(b.cost)
+                items.append((b.cost, b.kind == "insn" and b.is_data, k))
+            accesses = [i for i, it in enumerate(items) if it[1]]
+            if not accesses:
+                continue
+            self.stats.loops_checked += 1
             if broken:
                 continue
+            costs = [it[0] for it in items]
             # wrap gap: last access -> (branch taken) -> first access
             last, first = accesses[-1], accesses[0]
             wrap = sum(costs[last:-1]) + 3 + sum(costs[:first])
             self.stats.gaps_checked += 1
             if wrap >= CONTRACT_GAP:
                 continue
-            acc_ev = body[first]
+            first_k = items[first][2]
+            acc_ev = body[first_k]
             # exemptions at loop scope --------------------------------------
-            prag = self.find_pragma(tsi, tsi + 1 + first, si)
+            prag = self.find_pragma(tsi, tsi + 1 + first_k, si)
             if prag:
                 kind, why, ln = prag
                 if why:

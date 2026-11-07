@@ -180,7 +180,36 @@ VDP_CTRL = $CC01        ; VDP register / address port (write twice = setup)
 ; control pair in SEI/CLI (and the handler must read $CC01 FIRST to reset
 ; the flip-flop, then restore nothing — it cannot know the main line's
 ; phase).
+;
+; Rule (b) as an assembly option: assemble the lib modules with
+; `-D TMS_PAIR_SEI=1` and their control-pair routines (vdp_set_write /
+; vdp_set_read in tms9918m1/m2/_text, vdp_set_write_xy in tms9918_helpers)
+; wrap the two bytes in PHP / SEI ... PLP (+3 bytes, +9 cycles each; the I
+; flag is restored, not forced). Default 0: no code. Port of pom2games
+; dev/lib/apple2/ezcolor.asm's EZ_PAIR_SEI. Use the same macros around your
+; own inline pairs:
+;
+;       TMS_PAIR_BEGIN
+;       LDA lo / STA VDP_CTRL / ... / STA VDP_CTRL
+;       TMS_PAIR_END
 ; ---------------------------------------------------------------------------
+
+.ifndef TMS_PAIR_SEI
+TMS_PAIR_SEI = 0
+.endif
+
+.macro TMS_PAIR_BEGIN
+.if TMS_PAIR_SEI
+        PHP                     ; keep the caller's I flag
+        SEI                     ; no IRQ between the two control bytes
+.endif
+.endmacro
+
+.macro TMS_PAIR_END
+.if TMS_PAIR_SEI
+        PLP                     ; I flag back as it was
+.endif
+.endmacro
 
 ; ---------------------------------------------------------------------------
 ; Mid-frame raster trap via 5th-sprite-overflow flag (bit 6 of $CC01).

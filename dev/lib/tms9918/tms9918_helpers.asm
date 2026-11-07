@@ -2,52 +2,44 @@
 ; tms9918_helpers.asm -- silicon-strict mutualised VDP-store helpers
 ; ============================================================================
 ; Standalone tiny module (no zero-page imports, no other lib dependencies)
-; that every TMS9918 project links to dodge the 200+ inline NOPs that the
-; pure inline silicon-strict patcher would otherwise insert.
+; that a TMS9918 project links to dodge the inline `STA port / JSR pad18`
+; pairs the silicon-strict patcher would otherwise insert.
 ;
-; Mutualises:
-;   vdp_write_a      -- caller does `LDA #imm` then `JSR vdp_write_a`,
-;                       saving 2 bytes per site vs. inline `LDA #imm /
-;                       STA VDP_DATA / NOP / NOP`.
+; Exports:
+;   vdp_write_a      -- A -> VDP_DATA, then pad. `JSR vdp_write_a` (3 bytes)
+;                       replaces `STA VDP_DATA / JSR tms9918_pad18` (6 bytes)
+;                       at the same 22 cycles store-to-store when chained.
+;   vdp_ctrl_a       -- A -> VDP_CTRL, same pad (the control-port twin).
 ;   vdp_set_write_xy -- caller does `LDX #lo / LDY #hi / JSR vdp_set_write_xy`,
 ;                       saving 4 bytes per site vs. inline 2-byte address
-;                       write with NOP padding.
+;                       write with padding.
 ;
-; Both helpers integrate the silicon-strict NOP padding so callers don't
-; have to. Contract (pad18 era): the helper's internal NOPs + the JSR/RTS
-; round-trips of the canonical caller pattern give a ≥ 20c STA→STA gap —
-; above the ~16c active-display floor validated on real silicon (cf.
-; sketchs/doc/Programming_TMS9918.md §17, §25 and tms9918_pad.asm).
+; vdp_write_a / vdp_ctrl_a are assembled from tms9918_xfer.asm (one source;
+; the library's own modules include the same fragment privately). Body:
+; STA port / NOP x3 / RTS = 16 cycles, + the caller's 6-cycle JSR = 22 cycles
+; between two chained calls -- the pad18 contract, above the ~16c active-
+; display floor measured on real silicon ([A] Replica-1, see tms9918.inc).
+; A/X/Y and flags preserved.
 ;
-; Sized to ~12 bytes total in ROM. ~204 sites across all TMS9918 projects
-; refactor through these two entries (tools/silicon_strict_refactor.py).
+; History: vdp_write_a used to carry two NOPs (20 cycles chained: above the
+; silicon floor, below the repo's 22-cycle contract). The third NOP is a port
+; of pom2games dev/lib/apple2/ezcolor.asm's ez_data_w / ez_ctrl_w shape.
+;
+; CAVEAT (mixed styles): when a helper returns, only 16 cycles have passed
+; since its store began. An INLINE `STA VDP_DATA` right after the call needs
+; >= 6 more cycles of other work first; tools/lint_tms_lib.py models the
+; helpers and flags the short gap.
+;
+; Option: assemble with `-D TMS_PAIR_SEI=1` to mask IRQs around the two
+; control bytes of vdp_set_write_xy (rule (b) of the IRQ caveat in
+; tms9918.inc): +3 bytes, +9 cycles (PHP 3 + SEI 2 + PLP 4).
 ; ============================================================================
 
-        .import tms9918_pad18  ; silicon-strict pad18-v4 (helper from tms9918_pad.asm)
 .include "tms9918.inc"
 
-.export vdp_write_a, vdp_set_write_xy
+.export vdp_write_a, vdp_ctrl_a, vdp_set_write_xy
 
 .segment "CODE"
-
-; ----------------------------------------------------------------------------
-; vdp_write_a: write A to VDP_DATA with silicon-strict NOP padding.
-;   Caller pattern:
-;       LDA #imm           (2c, 2 bytes)
-;       JSR vdp_write_a    (6c, 3 bytes)  ← 5 bytes total, vs 7 inline.
-;   Inputs:  A = byte to push to VDP_DATA.
-;   Output:  A preserved (STA doesn't change it). X, Y preserved.
-;   Cycle accounting: STA (4c) + NOP×2 (4c) + RTS (6c) = 14c; with the
-;   canonical caller pattern (LDA #imm + JSR) the next VDP store sees a
-;   22c STA→STA gap — the pad18 contract, clearing the ~16c silicon floor
-;   with margin. (Was a single NOP = 20c gap, above the floor but below
-;   the repo contract.)
-; ----------------------------------------------------------------------------
-vdp_write_a:
-        STA     VDP_DATA
-        NOP
-        NOP
-        RTS
 
 ; ----------------------------------------------------------------------------
 ; vdp_set_write_xy: prep VRAM auto-incrementing write at address (X=lo, Y=hi).
@@ -56,17 +48,18 @@ vdp_write_a:
 ;       LDX #lo                 (2c, 2 bytes)
 ;       LDY #hi                 (2c, 2 bytes)
 ;       JSR vdp_set_write_xy    (6c, 3 bytes)  ← 7 bytes, vs 11 inline.
-;   The two STA VDP_CTRL writes are spaced ≥ 8c apart by the TYA + ORA
-;   bridge plus a NOP. Trailing RTS gives ≥ 8c before the caller's next
-;   VDP store.
+;   The two STA VDP_CTRL writes are 22c apart (helper + TYA/ORA bridge), and
+;   the helper's tail pad leaves >= 22c before the caller's next VDP store.
 ;   Clobbers: A. X, Y consumed.
 ; ----------------------------------------------------------------------------
 vdp_set_write_xy:
+        TMS_PAIR_BEGIN
         TXA
-        STA     VDP_CTRL
-        NOP
+        JSR     vdp_ctrl_a      ; address low
         TYA
         ORA     #$40            ; bit 6 = write
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        STA     VDP_CTRL
+        JSR     vdp_ctrl_a      ; address high + write flag
+        TMS_PAIR_END
         RTS
+
+.include "tms9918_xfer.asm"
