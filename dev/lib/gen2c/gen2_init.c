@@ -15,7 +15,7 @@
  * (BSS, zeroed by zerobss at EVERY entry) and encodes its default as zero:
  * flags default clear, gen2_draw_page2 zero = page 1, and the page bases
  * (for which 0 is never a legal value) are lazily defaulted at their read
- * sites (gen2_hgr_row / gen2_build_tables here, gen2_lores.c for LORES, and
+ * sites (gen2_hgr_row / gen2_build_tables here, gen2_lores_tab.s/_clr.s for LORES, and
  * _gen2_hgr_clear in gen2_blit.s — the one asm reader of gen2_hgr_base). */
 
 #include "gen2.h"
@@ -87,13 +87,13 @@ unsigned char gen2_mask7[280];
 unsigned char gen2_phase7[280];   /* x % 7 (sub-byte phase 0..6) — no runtime divide */
 
 /* LORES tables + state live here so gen2_set_draw_page can shift them in
- * place without forcing gen2_lores.c to link. A HIRES-only program pays the
+ * place without forcing the LORES modules (gen2_lores_*.s) to link. A HIRES-only program pays the
  * 50 bytes (gen2_lo_rowlo[24] + gen2_lo_rowhi[24] + 2 flags) but does NOT
  * pull in the 8 LORES drawing functions (~200 bytes). gen2_lo_ready stays 0
- * until gen2_lores.c's first build call, so the shift below is a harmless
+ * until gen2_lores_tab.s's first build call, so the shift below is a harmless
  * no-op for HIRES-only programs (the zero array stays zero).
  * gen2_lo_base is BSS like gen2_hgr_base: 0 = unset, lazily defaulted to $04
- * (page 1) by its readers in gen2_lores.c (build + clear). */
+ * (page 1) by its readers in gen2_lores_tab.s / gen2_lores_clr.s. */
 unsigned char gen2_lo_rowlo[24];
 unsigned char gen2_lo_rowhi[24];
 unsigned char gen2_lo_base;
@@ -144,7 +144,7 @@ void gen2_build_tables(void)
  * hidden page, then show it. Both pages share the same mode — pick it once
  * (gen2_hgr_init / gen2_lores_init, which also display PAGE1). The LORES branch
  * below is LAZY (guarded by gen2_lo_ready) so a HIRES-only program does not pull
- * gen2_lores.c into the link; gen2_lores_build() will pick up the right
+ * the LORES modules into the link; gen2_lores_build will pick up the right
  * gen2_lo_base on first lores use anyway.
  *
  * INVERTED ENCODING (BSS-zero-default rule, see the header): the flag stores
@@ -160,7 +160,7 @@ void gen2_set_draw_page(unsigned char page)
     newl = (page == 2u) ? 0x08u : 0x04u;            /* LORES $0800 / $0400 */
     /* Ensure the HIRES tables exist (first call builds col7/mask7 + the row
      * tables; later calls are guarded no-ops). LORES tables are built lazily
-     * by gen2_lores.c — see the conditional shift below. */
+     * by gen2_lores_tab.s — see the conditional shift below. */
     gen2_build_tables();
     gen2_draw_page2 = (unsigned char)(page == 2u);
     /* Flip HIRES pages by SHIFTING the existing scanline-base HIGH bytes by the
@@ -175,7 +175,7 @@ void gen2_set_draw_page(unsigned char page)
     }
     /* LORES: only shift the existing tables if gen2_lores_build has run. A
      * HIRES-only program will leave gen2_lo_ready = 0 forever and never pull
-     * gen2_lores.c into the link. When LORES IS used later, gen2_lores_build
+     * the LORES modules into the link. When LORES IS used later, gen2_lores_build
      * sees gen2_lo_base = newl (set unconditionally below) and computes the
      * right values for the current page. */
     if (gen2_lo_ready && newl != gen2_lo_base) {

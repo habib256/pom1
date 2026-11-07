@@ -44,7 +44,11 @@ GEN2C_PRESHIFT_SRCS:= $(GEN2C)/gen2_preshift.c  # hgr_sprite (Buzzard-Bait 7-pha
 GEN2C_SPRMASK_SRCS := $(GEN2C)/gen2_sprmask.s   # masked pre-shifted blit + save-under/restore kernels (needs only CORE)
 GEN2C_SPRENGINE_SRCS:= $(GEN2C)/gen2_sprengine.c # gen2_spr_* sprite engine (needs SPRMASK + CORE; owns a 1.5 KB BSS under-buffer pool)
 GEN2C_GEOM_SRCS    := $(GEN2C)/gen2_geom.c      # hline / vline / line / rect / circle / ellipse (uses dev/lib/gfx)
-GEN2C_LORES_SRCS   := $(GEN2C)/gen2_lores.c     # 40x48 colour-block runtime
+# LORES 40x48 colour blocks, all asm: row-table builder / clear / set+get one
+# block / hlin+vlin+fill_rect (one clipped kernel). Separate members so a
+# DevBench archive link takes only what a program calls.
+GEN2C_LORES_SRCS   := $(addprefix $(GEN2C)/,gen2_lores_tab.s gen2_lores_clr.s \
+                      gen2_lores_dot.s gen2_lores_run.s)
 
 # Umbrella — every family at once (existing demos). Order is link-order
 # irrelevant for ld65 but kept stable for readability.

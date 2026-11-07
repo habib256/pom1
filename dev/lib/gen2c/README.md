@@ -106,7 +106,7 @@ through a zero-page block (`#pragma zpsym`), so no cc65 stack juggling.
 
 The runtime is split into small per-family `.c` modules (`gen2_init.c`,
 `gen2_pixel.c`, `gen2_rect.c`, `gen2_text.c` + `gen2_text_num.c`,
-`gen2_sprites.c`, `gen2_geom.c`, `gen2_lores.c`) plus a private
+`gen2_sprites.c`, `gen2_geom.c`, and the asm LORES family `gen2_lores_tab/clr/dot/run.s`) plus a private
 `gen2_internal.h`. cc65's ld65 strips at the `.o`-file granularity, not per
 function — splitting per family lets a text-only demo skip the pixel + sprite +
 lores code. TEXT is itself two modules (glyph core vs number formatters): a
@@ -174,7 +174,8 @@ make -C ../gfx gen2          # builds ../gfx/gfx-gen2.lib (once)
 
 cl65 -t none -Oirs -C ../../cc65/apple1_gen2_c.cfg -I . -I ../apple1c -I ../gfx \
      hello.c gen2_init.c gen2_pixel.c gen2_rect.c gen2_text.c gen2_sprites.c \
-     gen2_geom.c gen2_lores.c gen2_blit.s \
+     gen2_geom.c gen2_blit.s gen2_lores_tab.s gen2_lores_clr.s \
+     gen2_lores_dot.s gen2_lores_run.s \
      ../apple1c/apple1io.c ../apple1c/apple1io_asm.s ../gfx/gfx-gen2.lib -o hello.bin
 ```
 

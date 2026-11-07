@@ -354,7 +354,6 @@ const char* kBenchCSpecGen2c = R"json({
     { "path": "/dev/lib/gen2c/gen2_preshift.c", "name": "gen2_preshift.c" },
     { "path": "/dev/lib/gen2c/gen2_sprengine.c", "name": "gen2_sprengine.c" },
     { "path": "/dev/lib/gen2c/gen2_geom.c", "name": "gen2_geom.c" },
-    { "path": "/dev/lib/gen2c/gen2_lores.c", "name": "gen2_lores.c" },
     { "path": "/dev/lib/apple1c/apple1io.c", "name": "apple1io.c" },
     { "path": "/dev/lib/gfx/gfx_rect.c", "name": "gfx_rect.c" },
     { "path": "/dev/lib/gfx/gfx_circle.c", "name": "gfx_circle.c" },
@@ -371,6 +370,10 @@ const char* kBenchCSpecGen2c = R"json({
     { "path": "/dev/lib/gen2c/gen2_hgr_x2.s", "name": "gen2_hgr_x2.s" },
     { "path": "/dev/lib/gen2c/gen2_sprmask.s", "name": "gen2_sprmask.s" },
     { "path": "/dev/lib/gfx/gfx_line_gen2.s", "name": "gfx_line_gen2.s" },
+    { "path": "/dev/lib/gen2c/gen2_lores_tab.s", "name": "gen2_lores_tab.s" },
+    { "path": "/dev/lib/gen2c/gen2_lores_clr.s", "name": "gen2_lores_clr.s" },
+    { "path": "/dev/lib/gen2c/gen2_lores_dot.s", "name": "gen2_lores_dot.s" },
+    { "path": "/dev/lib/gen2c/gen2_lores_run.s", "name": "gen2_lores_run.s" },
     { "path": "/dev/lib/apple1c/apple1io_asm.s", "name": "apple1io_asm.s" }
   ]
 }

@@ -1,6 +1,6 @@
 /* gen2_internal.h — private declarations shared by the per-family gen2c
  * modules (gen2_init.c, gen2_pixel.c, gen2_rect.c, gen2_text.c,
- * gen2_sprites.c, gen2_geom.c, gen2_lores.c). NOT included by gen2.h, NOT
+ * gen2_sprites.c, gen2_geom.c, the gen2_lores_*.s LORES family). NOT included by gen2.h, NOT
  * intended for consumer code.
  *
  * The gen2c runtime was historically one ~5 KB `gen2.c`. cc65's ld65 links a

@@ -181,7 +181,7 @@ void main(void)
    in the old monolithic `gen2.c` used to pull pixel + blit + lores.
    That runtime is now split into per-family modules — `gen2_init.c`,
    `gen2_pixel.c`, `gen2_rect.c`, `gen2_text.c`, `gen2_sprites.c`,
-   `gen2_geom.c`, `gen2_lores.c`, plus the hot `gen2_blit.s` (see
+   `gen2_geom.c`, the asm LORES family `gen2_lores_*.s`, plus the hot `gen2_blit.s` (see
    `dev/lib/gen2c/gen2c.mk`) — so you link only the families you use.
    Use the per-family Makefile variables.
 5. **Soft-switch reads must STORE, not (void)-cast.** cc65 `-Oirs`

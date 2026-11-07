@@ -463,9 +463,11 @@ void gen2_hgr_colorize(unsigned x, unsigned char y, unsigned char w,
 /* graphics + LORES + page 1 + full screen (call before drawing). */
 void gen2_lores_init(void);
 
-/* Fill the whole 40×48 LORES screen with one colour (0..15). Fast: writes the
- * text page ($0400-$07FF) a page at a time with an 8-bit index — NOT a naïve
- * 16-bit pointer loop (see gen2_hgr_clear's note). */
+/* Fill the whole 40×48 LORES screen with one colour (0..15). Fast (asm, ~5 400
+ * cycles): writes the 960 VISIBLE bytes of the draw page ($0400 / $0800) and
+ * leaves the 64 undisplayed "screen hole" bytes alone. The LORES family
+ * (setblock/getblock/hlin/vlin/fill_rect) is asm too: a full-screen fill_rect
+ * is ~12 400 cycles. */
 void gen2_lores_clear(unsigned char color);
 
 /* Set / read one block. x:0..39, y:0..47, color:0..15 (a GEN2_LO_* index).
