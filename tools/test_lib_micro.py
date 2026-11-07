@@ -278,7 +278,10 @@ def build_c_gen2(spec: TestSpec, workdir: Path) -> Path:
     binf = workdir / "test.bin"
     r = run_cmd(["cl65", "-t", "none", "-Oirs", "-C", cfg,
                  "-I", LIB_DIR / "gen2c", "-I", LIB_DIR / "apple1c",
-                 "-I", LIB_DIR / "gfx", *staged, "-o", binf],
+                 "-I", LIB_DIR / "gfx",
+                 # gen2_blit.s .includes "../gen2/…" relative to its own dir;
+                 # the staged copy is elsewhere, so give ca65 that anchor.
+                 "--asm-include-dir", LIB_DIR / "gen2c", *staged, "-o", binf],
                 cwd=workdir)
     if r.returncode != 0:
         raise RuntimeError(f"cl65 {spec.path.name} failed:\n{r.stderr}{r.stdout}")

@@ -20,20 +20,25 @@
 ;                     top-left corner; the routine masks low 3 bits to
 ;                     guarantee cell alignment, so callers can pass
 ;                     unaligned values. Tints the cell with pen_color.
-;                     Clobbers A, X, Y, mptr_lo/hi, tmp, tmp2,
-;                     pix_addr_lo/hi.
+;                     Clobbers A, X, Y, mptr_lo/hi, tmp2, pix_addr_lo/hi
+;                     (and tmp through calc_pix_addr).
 ;
 ; Caller-provided ZP (must be .exportzp'd by the caller):
 ;   tmp, tmp2         scratch (1 byte each)
-;   mptr_lo, mptr_hi  16-bit cursor into charmap_table (1 byte each)
+;   mptr_lo, mptr_hi  16-bit cursor into tms_charmap (1 byte each)
 ;
 ; Lib-provided ZP (already exported by tms9918m2.asm):
 ;   pix_x, pix_y                 input position (cell-aligned on entry/exit)
 ;   pix_addr_lo/hi               clobbered, holds VRAM cursor
 ;   pen_color                    foreground colour for the colour cell
+;
+; Font: charmap_tms.inc = roms/charmap.rom bit-reversed at build time by
+; tools/build_charmap_tms.py (bit 7 = leftmost pixel, as the TMS9918 reads
+; it), so each glyph row goes to VRAM as is -- the per-row 8-round LSR/ROL
+; reversal (~95 cycles a row) is gone. Port pacing goes through the private
+; vdp_write_a / vdp_ctrl_a of tms9918_xfer.asm (included at the end).
 ; ============================================================================
 
-        .import tms9918_pad18  ; silicon-strict pad18-v4 (helper from tms9918_pad.asm)
 .ifdef CODETANK_BUILD
 
 .include "tms9918.inc"          ; VDP_DATA / VDP_CTRL
@@ -51,22 +56,19 @@
 ;   the full register / ZP contract.
 ; ----------------------------------------------------------------------------
 text_blit_glyph:
-        AND #$7F                  ; clamp to printable range
-        STA tmp                   ; tmp:tmp2 = A * 8 (16-bit shift)
-        LDA #0
-        STA tmp2
-        ASL tmp
+        AND #$7F                  ; 128 glyphs: codes $00-$7F all valid
+        LDX #0                    ; A:tmp2 = A * 8 -- the low byte stays in
+        STX tmp2                  ; A, only the high byte needs memory
+        ASL A                     ; (index trick ported from pom2games
+        ROL tmp2                  ; dev/lib/tms9918/text_bitmap.asm @ c0c66fd)
+        ASL A
         ROL tmp2
-        ASL tmp
-        ROL tmp2
-        ASL tmp
-        ROL tmp2
-        CLC
-        LDA tmp
-        ADC #<charmap_table
+        ASL A
+        ROL tmp2                  ; C = old tmp2 bit 7 = 0 (tmp2 <= 3): no CLC
+        ADC #<tms_charmap
         STA mptr_lo
         LDA tmp2
-        ADC #>charmap_table
+        ADC #>tms_charmap
         STA mptr_hi
         ; force cell-aligned write addr (low 3 bits of pix_y = 0)
         LDA pix_x
@@ -78,39 +80,23 @@ text_blit_glyph:
         JSR calc_pix_addr
         JSR vdp_set_write
         LDY #0
-@row:   LDA (mptr_lo),Y
-        ; Reverse byte: charmap.rom is encoded LSB-toward-left (the
-        ; Apple-1 character display reads bits 1..5 as columns 0..4).
-        ; TMS9918 bitmap mode reads bit 7 = leftmost pixel, so we need
-        ; bit-reverse before writing or every glyph appears mirrored.
-        ; Pattern: LSR src (bit 0 -> C), ROL dst (C -> bit 0, shift dst
-        ; left). After 8 iters: dst[i] = src[7-i].
-        STA tmp
-        LDA #0
-        LDX #8
-@bitrev:
-        LSR tmp
-        ROL
-        DEX
-        BNE @bitrev
-        STA VDP_DATA
+@row:   LDA (mptr_lo),Y           ; already bit 7 = leftmost pixel
+        JSR vdp_write_a           ; 5 + 22 + 2 + 2 + 3 = 34c a row
         INY
         CPY #8
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
         BNE @row
         ; --- paint the cell's 8 colour-table bytes with pen_color so callers
         ;     also tint LABEL/SAY text. The colour table mirrors the
         ;     pattern table layout at base $2000, so we can re-prime the
         ;     VDP cursor with the same pix_addr but the $2000 base bit set.
         LDA pix_addr_lo
-        STA VDP_CTRL
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA zp/abs bridge)
+        JSR vdp_ctrl_a
         LDA pix_addr_hi
         ORA #$60                  ; $20 (colour base) | $40 (write enable)
-        STA VDP_CTRL
-        JSR     tms9918_pad18   ; MANUAL: cmd-byte → first @col STA. Natural
-                                ; bridge LDA+ASL×4+ORA+LDX = 15c gives gap=19c
-                                ; (LOGO LABEL/SAY drop site, May 2026).
+        JSR vdp_ctrl_a            ; cmd byte -> first @col store: 12c + the
+                                  ; 15c LDA/ASLx4/ORA/LDX bridge + 6c JSR =
+                                  ; 37c (LOGO LABEL/SAY drop site, May 2026,
+                                  ; needed >= 22c)
         LDA pen_color
         ASL
         ASL
@@ -118,22 +104,19 @@ text_blit_glyph:
         ASL                       ; pen_color in high nibble
         ORA #$01                  ; transparent background ($x1)
         LDX #8
-@col:   STA VDP_DATA
-        JSR tms9918_pad18       ; silicon-strict 18c (loop-back inner @col)
+@col:   JSR vdp_write_a           ; 22 + 2 + 3 = 27c a byte
         DEX
         BNE @col
         RTS
 
 ; ============================================================================
-; charmap_table: 1024-byte 8x8 monochrome ASCII font, lifted verbatim
-;   from roms/charmap.rom. Format: 1 byte per row, LSB = leftmost pixel
-;   (Apple-1 native order; the upload bit-reverses on the fly because the
-;   TMS9918 reads bit 7 = leftmost), 8 rows per glyph, 128 glyphs (codes
-;   0..127). Local label (not
-;   exported) -- callers blit through the API, not through direct font
-;   reads.
+; tms_charmap: 1024-byte 8x8 monochrome font = roms/charmap.rom (the Apple-1
+;   character set, 128 glyphs, codes $00-$7F, 8 rows a glyph) bit-reversed
+;   at build time (charmap_tms.inc). Local label -- callers blit through the
+;   API, not through direct font reads.
 ; ============================================================================
-charmap_table:
-        .incbin "../../../roms/charmap.rom"
+.include "charmap_tms.inc"
+
+.include "tms9918_xfer.asm"       ; private vdp_write_a / vdp_ctrl_a
 
 .endif  ; CODETANK_BUILD

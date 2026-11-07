@@ -20,8 +20,14 @@
 void gfx_filled_rect(unsigned x0, unsigned char y0,
                      unsigned x1, unsigned char y1)
 {
-    /* screen2_filled_rect already sorts the bounds; cast x0/x1 down to the
-     * TMS 256-pixel address space. */
+    /* Sort and clip here: screen2_filled_rect sorts but never clips, so an
+     * x past 255 wrapped through the byte cast and a y past 191 wrote
+     * beyond the pattern table. */
+    if (x1 < x0) { unsigned t = x0; x0 = x1; x1 = t; }
+    if (y1 < y0) { unsigned char t = y0; y0 = y1; y1 = t; }
+    if (x0 > 255u || y0 > 191u) return;
+    if (x1 > 255u) x1 = 255u;
+    if (y1 > 191u) y1 = 191u;
     screen2_filled_rect((unsigned char)x0, y0, (unsigned char)x1, y1);
 }
 

@@ -1,5 +1,11 @@
 ; ============================================================================
 ; subbyte_fill.asm -- 4-pixel sub-byte block fill via 7-phase mask LUTs
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"):
+; subbyte_fill_4 is emitted only when referenced EARLIER in the program and
+; not yet defined, so .include this file after the last call. Included too
+; early, the build stops with "Symbol '<routine>' is undefined" -- never a
+; silent drop.
 ; ============================================================================
 ;   subbyte_fill_4 -- OR a 4-pixel-wide block over 4 scanlines into the
 ;                     HGR framebuffer. Used for thin walls, narrow tiles,
@@ -42,6 +48,7 @@ sb_ptr_hi:      .res 1
 
 .segment "CODE"
 
+.if .referenced(subbyte_fill_4) .and (.not .defined(subbyte_fill_4))
 subbyte_fill_4:
         ; Decode the 3 LUTs for this gx into tmp / tmp2 / Y.
         LDA     sb4_mask1,X
@@ -76,3 +83,4 @@ subbyte_fill_4:
         DEX
         BNE     @row
         RTS
+.endif

@@ -10,6 +10,80 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Changed — dev/lib : ce que la bibliothèque de pom2games avait de mieux, reporté
+
+Une comparaison de `dev/lib` avec la bibliothèque Apple II de pom2games (même
+auteur, en partie la même ascendance) a trouvé sept défauts chez nous et une
+série d'optimisations déjà mesurées là-bas. Chaque routine réécrite a son
+micro-test (`dev/lib/test/micro/`, 16 → 47 pilotes) ; un correctif de bug est
+épinglé par un test qui échoue sur l'ancien code. Les programmes dont le
+binaire change ont été comparés image par image, ancienne contre nouvelle
+version, en headless.
+
+**Corrigé.**
+- `gen2/hgr_text8` : un glyphe commencé aux lignes 185..191 lisait
+  `hgr_lo/hgr_hi` au-delà de leurs 192 entrées et écrivait 8 octets à des
+  adresses arbitraires ; un curseur hors écran revenait en ligne 0. Boucle de
+  ligne ~51 cycles au lieu de 85, `hgr_puts8_at` (7 octets par appel).
+- `gen2/hgr_sprite16` : pas de coupure en colonne 40, et un x4 sous l'écran
+  repartait en haut.
+- gfx GEN2 : `gfx_filled_rect(0,0,279,191)` dessinait une bande de 24 px (largeur
+  sur un octet) — nouveau `gen2_hgr_fill_box`. gfx TMS : aucun point d'entrée
+  ne coupait à 256×192 (`x ≥ 256` repliait, `y ≥ 192` écrivait hors de la table
+  des motifs).
+- `gfx_rect` / `gfx_circle` dessinaient des pixels deux fois (effacés en XOR),
+  `gfx_ellipse` débordait de sa boîte.
+- `apple1/delay.asm` : les asserts de changement de page testaient la mauvaise
+  adresse ; `beep_sfx.asm` n'en avait pas.
+- `rand_mod` (les trois Rogue) rendait toujours Z=0 : le drop d'objet à 25 %
+  après un combat et le pile-ou-face d'`ai_death` ne se déclenchaient jamais.
+  **Change le jeu**, comme les commentaires le disaient.
+- `gen2_hgr_inflate_x2` avec `wbytes` = 0 écrivait 256 octets par ligne hors du
+  tampon.
+
+**Plus petit, plus rapide.**
+- gen2c : `gen2_blit.s` (1 853 o, toujours lié) découpé en membres d'archive
+  `gen2c.lib` ; GEN2Bounces 19 295 → 13 867 o, hello_gfx_text GEN2
+  15 361 → 3 682 o, page zéro 99–134 → 26–61 octets. Ligne asm (`gfx_line`
+  plein écran 269 866 → 20 655 cycles), LORES asm (rectangle 40×48
+  293 800 → 12 367), tables 236 939 → 17 248, flip de page ~14 970 → 2 344,
+  sprites masqués, inflate x2 (36 633 → 10 345, 0 octet de page zéro).
+- Un seul convertisseur décimal en asm (`gfx_utoa`, −31 % de cycles, plus de
+  division cc65), hexa 168 → 64 o, `putu/puti/putx` sortis de `gfx_text`.
+- Effacement HGR déroulé (asm et C) : ~90 000 → ~46 000 cycles.
+- TMS9918 : police Apple-1 inversée au build (`tools/build_charmap_tms.py`) —
+  init du mode texte ~165 000 → ~14 500 cycles ; `vdp_write_a` corrigé (3 NOP,
+  22 cycles) et `vdp_ctrl_a` ; remplissage/copie 16 bits ; `clear_bitmap`
+  289 000 → 166 000 cycles ; option `TMS_PAIR_SEI`. Banque LOGO : 8 → 66 octets
+  libres.
+- apple1 : `kbd` −6 o, `print_num` −5 o, `apple1io.c` réécrit en asm par
+  famille (125 → 67 o), `math.asm` −25 o, lecteur SID à table de 12 notes
+  (309 → 169 o ; 5 notes sur 96 à 1 LSB, < 0,1 cent).
+
+**Nouveau, dans `gen2/` (asm).** `hgr_flip` / `hgr_pages` (double tampon),
+`hgr_xor`, `hgr_clear_rows` (efface en gardant le HUD), `hgr_plot16` /
+`hgr_line16`, `hgr_plot_hist` (historique effaçable), `hgr_hud8` (HUD qui ne
+redessine que ce qui change), tables générées et variantes construites en RAM
+(fichier chargé −328 à −512 o).
+
+**Assemblé à la demande.** Les bibliothèques incluses textuellement gardent
+chaque routine publique par `.if .referenced(x) .and (.not .defined(x))` :
+une routine sans appelant n'est plus assemblée (`umul8` était partout). Il
+faut inclure la bibliothèque APRÈS ses appelants ; dans le mauvais ordre,
+l'assemblage échoue sur un symbole indéfini, jamais en silence
+(`dev/lib/README.md`, « Assembled on demand »). HGR_Sokoban −214 o,
+HGR_BBFontShow −206, HGR_RogueX2 −150.
+
+**Garde-fou.** `make -C dev/lib check` refuse un `.c` qui partage son nom avec
+un `.s` du même dossier : `cl65 -c x.c` écrit `x.s` à côté de la source et
+écrase l'asm écrit à la main. C'est ainsi que pom2games a perdu
+`gfx_ellipse.s` pendant l'audit ; la seule paire de POM1 est devenue
+`gen2c/gen2_hgr_x2_ref.c`.
+
+Programmes livrés reconstruits : les cartouches CodeTank (`verify_codetank_roms.py` :
+14 scénarios propres) et les sketches à Makefile. Les binaires produits par le
+seul DevBench (`software/` sans Makefile) n'ont pas été régénérés.
+
 ### Fixed — TMS9918 : la VRAM 4K, un accès en attente, le scan des sprites en mode texte
 
 Report des correctifs de la chasse aux bugs POM2 du 2026-11-07 (la carte E-Z

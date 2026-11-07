@@ -105,7 +105,7 @@ def main():
         r = run([sys.executable, SIZE_REPORT, mapfile, "--cfg", cfg, "--json"])
         rep = json.loads(r.stdout)
         linked = {m["module"].split(" ")[0] for m in rep["modules"]}
-        for absent in ("gen2_lores.o", "gen2_sprengine.o", "gen2_preshift.o"):
+        for absent in ("gen2_lores_run.o", "gen2_sprengine.o", "gen2_preshift.o"):
             assert absent not in linked, f"{absent} linked despite being unused (dead-strip broken)"
         assert "gen2_text.o" in linked, "gen2_text.o missing (gen2_hgr_puts is called)"
         ram = next((x for x in rep["regions"] if x["region"] == "RAM"), None)

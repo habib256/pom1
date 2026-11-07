@@ -104,3 +104,8 @@ main:
         LDA     #$A5
         STA     MB
 @spin:  JMP     @spin
+
+; Second include: a1io_read_reg, emitted now that main has referenced it
+; (dev/lib/README.md, "Assembled on demand"). The first one, above, brought
+; the equates and the ZP slot.
+.include "a1io.asm"

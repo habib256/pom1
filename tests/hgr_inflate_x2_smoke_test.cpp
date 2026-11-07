@@ -1,6 +1,6 @@
 // gen2_hgr_inflate_x2 vs HgrSpriteBlit::magnifyColor2x — the ×2-colour mirror pin.
 //
-// The GEN2-C runtime's mono-×1 → ×2-colour inflate (dev/lib/gen2c/gen2_hgr_x2.c,
+// The GEN2-C runtime's mono-×1 → ×2-colour inflate (dev/lib/gen2c/gen2_hgr_x2_ref.c,
 // compiled here on the host as plain C) must produce byte-identical output to the
 // POM1 HGR Sprite editor's HgrSpriteBlit::magnifyColor2x, so a sprite exported ×2
 // from the editor and one inflated at runtime from its mono ×1 master match. Same

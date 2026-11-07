@@ -15,6 +15,12 @@ mutually exclusive (you pick one per project — links the matching `.o`).
   Mutualises the init + upload + name-table writes that 4+ games
   (TMS_Sokoban, TMS_Connect4, TMS_Snake, TMS_Galaga) currently re-derive.
 - **`tms9918m2.asm`** — Mode 2 (bitmap, 256×192) driver. Used by TMS_Logo.
+- **`tms9918_text.asm`** — Text Mode F1 (40×24) driver + the Apple-1 font
+  (`upload_charmap`); `tms9918_console.asm` sits on top of it.
+- **`tms9918_helpers.asm`** — exports `vdp_write_a`, `vdp_ctrl_a`,
+  `vdp_set_write_xy` to application code.
+- **`tms9918_xfer.asm`** — *include-style* fragment: the store-and-pad helpers
+  and the 16-bit fill/copy loops (see [Port helpers](#port-helpers-and-16-bit-fillcopy-tms9918_xferasm)).
 
 ### Fonts (shared with the GEN2 HGR card — Axe 2 of the lib factoring)
 
@@ -30,6 +36,13 @@ emitted per format by `tools/build_shared_font.py` (`--check` to verify no drift
   separate hand-tuned font). Same on-ROM order/codes, so the games are
   unchanged; rebuild them to refresh the shipped artifacts.
 - **`font_quale.asm`** — Quale's display font (independent, not from the master).
+- **`charmap_tms.inc`** — *generated* by `tools/build_charmap_tms.py` (`--check`
+  wired into `make -C dev/lib check`) from `roms/charmap.rom`: the Apple-1's own
+  128-glyph character set, every byte **bit-reversed at build time** (the ROM
+  keeps bit 0 = leftmost pixel, the TMS9918 reads bit 7). `upload_charmap`
+  (`tms9918_text.asm`) and `text_blit_glyph` (`text_bitmap.asm`) copy it as is;
+  they used to reverse each byte at run time (8 LSR/ROL rounds), which cost
+  `upload_charmap` ~165 000 cycles against ~14 500 now.
 - **`c64font_tms.inc`** — *generated* by `tools/build_c64font_tms.py` (`--check`
   wired into `make -C dev/lib check`) from `tms9918c/c64font.c` (the C runtime's
   C64-style font master): the same 96 glyphs as a ca65 inline fragment, for asm
@@ -46,6 +59,7 @@ emitted per format by `tools/build_shared_font.py` (`--check` to verify no drift
 | `vdp_set_write`   | prep VRAM auto-increment write at `vdp_lo:hi`            |
 | `vdp_set_read`    | prep VRAM read at `vdp_lo:hi`                            |
 | `vdp_upload_a`    | A = count, copy from `(vdp_src_lo:hi)` to `VDP_DATA`     |
+| `vdp_upload`      | same, 16-bit count in X:A (X = high byte); `vdp_src_hi` advances by X |
 | `name_at_rc`      | `(vdp_row, vdp_col)` → `vdp_lo:hi` (no write yet)        |
 | `print_at_rc`     | A = char, write at `(vdp_row, vdp_col)` — full sequence  |
 
@@ -333,6 +347,43 @@ loop (`STA VDP_DATA / INY / BNE` ≈ 9-10c STA-to-STA) can therefore pass
 in POM1 yet drop bytes on the real card. If a hot loop genuinely cannot
 afford the pad, move the burst into a free zone (blank the display, or
 confine it to VBlank) instead of dropping the pad.
+
+## Port helpers and 16-bit fill/copy (`tms9918_xfer.asm`)
+
+An **include-style** fragment, not an object: `.include` it at the END of a
+module. Every routine is `.ifref`-guarded, so a module pays only for what it
+calls, and the labels stay private to that object — `tms9918m1/m2/_text`,
+`text_bitmap` and `tms9918_5strigger` each carry their own copy, so no new
+object enters any consumer's link. `tms9918_helpers.asm` includes it to export
+`vdp_write_a` / `vdp_ctrl_a`. No self-modifying code (ROM-safe). Port of
+`pom2games/dev/lib/apple2/ezcolor.asm` (`ez_data_w`, `ez_ctrl_w`, `ez_fill*`,
+`ez_copy*`).
+
+| Routine | In | Pacing |
+|---|---|---|
+| `vdp_write_a` | A → `VDP_DATA` | `STA` / `NOP`×3 / `RTS`: 22c store-to-store when chained. A/X/Y/flags kept. 3-byte call site for the 6-byte `STA VDP_DATA` + `JSR tms9918_pad18`, same cycles. |
+| `vdp_ctrl_a` | A → `VDP_CTRL` | same |
+| `vdp_fill` | A = byte, X:Y = count (X high, ≤ `$7F`) | 27c/byte (display may be on) |
+| `vdp_fill_blank` | same | 9c/byte — display blanked / VBlank only |
+| `vdp_copy` | X:A = count, source `(VDP_XFER_PTR)` | 35c/byte; pointer high byte += X |
+| `vdp_copy_short` | A = count (0 = 256) | 35c/byte, X kept (= `vdp_upload_a`) |
+| `vdp_copy_blank` | X:A = count | 14c/byte — display blanked only |
+
+The including module defines `VDP_XFER_PTR` (a ZP pointer) and imports `tmp`
+for the copies. **Mixed-style caveat:** when `vdp_write_a` / `vdp_ctrl_a`
+return, only 16 cycles have passed since their store, so an inline
+`STA VDP_DATA` right after the call needs ≥ 6 more cycles first (a second
+helper call needs nothing). `tools/lint_tms_lib.py` models the helpers (also
+inside loops) and flags that gap.
+
+`vdp_write_a` used to carry two NOPs (20c chained: above the ~16c silicon floor,
+under the 22c contract) and had no caller; it now matches the contract.
+
+**IRQ option** (rule (b) of the IRQ caveat in `tms9918.inc`): assemble with
+`-D TMS_PAIR_SEI=1` and `vdp_set_write` / `vdp_set_read` (m1, m2, text) and
+`vdp_set_write_xy` wrap their control pair in `PHP`/`SEI` … `PLP` (+3 bytes,
++9 cycles). The `TMS_PAIR_BEGIN` / `TMS_PAIR_END` macros do the same around
+your own inline pairs. Default off: no code.
 
 ## Migration path for existing Mode-1 games
 

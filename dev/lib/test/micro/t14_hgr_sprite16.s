@@ -21,6 +21,16 @@
 ;   cols 6/8) leaves $05 $20 $05 $00 $04 at $2105.. (y=16) and $2505..
 ;   (y=17, the vertical double of the same source row).
 ;
+;   Blit 3 — x4 WHITE at (248, 56): byte columns 35..44, clipped at 40.
+;   Column 35 holds $7F (the first 7 of $C3's quadbits). Columns 40..44
+;   of scanline 56 ($2380+40 = $23A8) are really the start of scanline
+;   120, which the sprite never covers: they must stay $00 (before the
+;   2026-11-07 fix the blitter stored there).
+;
+;   Blit 4 — x4 WHITE at (128, 248): entirely below the screen. Nothing
+;   may be drawn; before the fix sp_yy wrapped 255 -> 0 and the sprite
+;   reappeared at the top, byte columns 20.. of scanline 0 ($2014).
+;
 ;   Expected values independently derived by tools-side simulation of
 ;   the pack + rev7 + mask pipeline.
 ;
@@ -30,12 +40,13 @@
 ; PRESET: 11
 ; LOAD: 0300
 ; RUN: 0300
-; STEPS: 60000
+; STEPS: 250000
 ; EXPECT: 0F00 A5
 ; EXPECT: 0F01 43 03 02
 ; EXPECT: 0F04 43 03 02
 ; EXPECT: 0F07 05 20 05 00 04
 ; EXPECT: 0F0C 05 20 05 00 04
+; EXPECT: 0F11 7F 00 00 00 00 00 00
 ; ============================================================================
 
 MB = $0F00
@@ -64,6 +75,22 @@ start:
         LDA #16
         STA sp_y
         JSR hgr_spr16_x2
+
+        ; --- Blit 3: x4 WHITE at (248, 56) -- right-edge clip -----------
+        LDA #HSPR_WHITE
+        JSR hgr_spr16_color_a
+        LDA #248
+        STA sp_x
+        LDA #56
+        STA sp_y
+        JSR hgr_spr16_x4
+
+        ; --- Blit 4: x4 WHITE at (128, 248) -- fully off-screen ---------
+        LDA #128
+        STA sp_x
+        LDA #248
+        STA sp_y
+        JSR hgr_spr16_x4
 
         ; --- Mailbox: framebuffer probes -------------------------------
         ; x1: scanline 0 = $2000, scanline 1 = $2400; byte cols 5..7.
@@ -100,6 +127,19 @@ start:
         STA MB+15
         LDA $2509
         STA MB+16
+
+        ; x4 right edge: scanline 56 = $2380, byte column 35 drawn,
+        ; columns 40..44 ($23A8.., scanline 120) untouched.
+        LDA $23A3
+        STA MB+17
+        LDX #4
+@edge:  LDA $23A8,X
+        STA MB+18,X
+        DEX
+        BPL @edge
+        ; x4 off-screen: scanline 0, byte column 20.
+        LDA $2014
+        STA MB+23
 
         LDA #$A5                ; magic written LAST
         STA MB

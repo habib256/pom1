@@ -1,5 +1,10 @@
 ; ============================================================================
 ; prng8.asm -- 8-bit shift LFSR ($2D tap), shared by maze generators
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): random is
+; emitted only when referenced EARLIER in the program and not yet defined, so
+; .include this file after the last call. Included too early, the build stops
+; with "Symbol '<routine>' is undefined" -- never a silent drop.
 ; ============================================================================
 ; Promoted from inline copies in 3 projects (mutualization Tier 2.2). Reserves
 ; its own ZP slot pair (prng_lo / prng_hi) via `.ifndef` guard so a ZP-tight
@@ -24,6 +29,7 @@ prng_hi:        .res 1
 
 .segment "CODE"
 
+.if .referenced(random) .and (.not .defined(random))
 random:
         LDA     prng_lo
         ASL     A
@@ -32,3 +38,4 @@ random:
         EOR     #$2D
 @nf:    STA     prng_lo
         RTS
+.endif

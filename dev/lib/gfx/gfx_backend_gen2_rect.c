@@ -3,22 +3,20 @@
  * GEN2 HGR backend.
  *
  * Split from gfx_backend_gen2.c so a GEN2 program that only draws
- * lines/circles/ellipses never references gen2_hgr_fill_pixrect or
+ * lines/circles/ellipses never references gen2_hgr_fill_box or
  * gen2_hgr_clear, keeping ld65 dead-strip symmetric with the TMS side.
  */
 #include "gfx.h"
 #define GEN2_NO_APPLE1
 #include "gen2.h"          /* -I dev/lib/gen2c */
 
+/* Both x edges go to the asm core as 16-bit values. The width used to be
+ * squeezed into gen2_hgr_fill_pixrect's single byte, so
+ * gfx_filled_rect(0,0,279,191) drew a 24-px band (280 mod 256). */
 void gfx_filled_rect(unsigned x0, unsigned char y0,
                      unsigned x1, unsigned char y1)
 {
-    unsigned char w, h;
-    if (x1 < x0) { unsigned t = x0; x0 = x1; x1 = t; }
-    if (y1 < y0) { unsigned char t = y0; y0 = y1; y1 = t; }
-    w = (unsigned char)(x1 - x0 + 1u);
-    h = (unsigned char)(y1 - y0 + 1u);
-    gen2_hgr_fill_pixrect(x0, y0, w, h);
+    gen2_hgr_fill_box(x0, y0, x1, y1);
 }
 
 void gfx_clear(unsigned char color) { gen2_hgr_clear(color); }

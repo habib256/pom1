@@ -28,17 +28,24 @@
 const unsigned      gfx_width  = 256u;
 const unsigned char gfx_height = 192u;
 
+/* Every entry point clips to 256x192 before it reaches screen2: screen2_plot
+ * does no bounds check, so x >= 256 used to wrap to the left of the screen
+ * (the cast to a byte) and y >= 192 wrote past the 6 KB pattern table
+ * (fixed 2026-11-07; gfx.h promises both backends bounds-check). */
 void gfx_plot(unsigned x, unsigned char y)
 {
+    if (x > 255u || y > 191u) return;
     screen2_plot((unsigned char)x, y);
 }
 
-/* Inclusive horizontal run. x0/x1 are 0..255; the `break after plot` form
+/* Inclusive horizontal run, clipped to x 0..255. The `break after plot` form
  * terminates cleanly even when x1 == 255 (a `++xx` past 255 would wrap). */
 void gfx_hline(unsigned x0, unsigned x1, unsigned char y)
 {
     unsigned char xx;
     if (x1 < x0) { unsigned t = x0; x0 = x1; x1 = t; }
+    if (x0 > 255u || y > 191u) return;
+    if (x1 > 255u) x1 = 255u;
     xx = (unsigned char)x0;
     for (;;) {
         screen2_plot(xx, y);
@@ -53,6 +60,8 @@ void gfx_vline(unsigned x, unsigned char y0, unsigned char y1)
     unsigned char xx = (unsigned char)x;
     unsigned char yy;
     if (y1 < y0) { unsigned char t = y0; y0 = y1; y1 = t; }
+    if (x > 255u || y0 > 191u) return;
+    if (y1 > 191u) y1 = 191u;
     yy = y0;
     for (;;) {
         screen2_plot(xx, yy);

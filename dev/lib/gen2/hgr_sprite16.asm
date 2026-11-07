@@ -15,13 +15,15 @@
 ; pixel column per source byte; at x2 the resulting seams skew the art
 ; visibly (proven on TMS_Maze3D's goblin). Byte-column mapping stays fine
 ; for 8-px-grid text and line work -- never for sprite art. Cost of the
-; repack: ~130 cycles per output byte (a x4 blit = 64 rows x 10 B ~ 80k
-; cycles, fine for screen builds).
+; repack: ~390 cycles per output byte (7 bits x ~50 cycles of 9 shifts; a
+; x4 blit = 64 rows x 10 B ~ 250k cycles, fine for screen builds).
 ;
 ; API (all coordinates in pixels, sp_x / sp_y MULTIPLES OF 8):
 ;   hgr_spr16_x1 / _x2 / _x4  blit sp_ptr's pattern at (sp_x, sp_y).
 ;                             Output is ceil(w/7) bytes wide (3/5/10) --
 ;                             one byte wider than the sprite, zero-padded.
+;                             Clips at scanline 192 / byte column 40; a
+;                             fully off-screen Y never wraps back to row 0.
 ;                             Clobbers A, X, Y and the sp_* ZP.
 ;   hgr_spr16_color_a         A = HSPR_* colour code -> arms the artifact
 ;                             colour attributes (sp_cm_ev / sp_cm_od /
@@ -99,7 +101,11 @@ hspr_cbit:      .byte $00, $00, $80, $00, $80
 ; ----------------------------------------------------------------------------
 ; sp_pack_row: emit sp_wout HGR bytes from the sp_rb bit-stream at
 ; scanline sp_yy, byte columns sp_col0.. ; advances sp_yy one line.
-; Bottom-clipped at y=192. Consumes (shifts out) sp_rb.
+; Clipped at y=192 and byte column 40 (fixed 2026-11-07, from the pom2games
+; edition: a sprite at the right edge stored into column 40+, i.e. into the
+; next interleaved scanline group, and a clipped row still advanced sp_yy,
+; so an x4 blit near the bottom wrapped 255 -> 0 and drew at the top).
+; Consumes (shifts out) sp_rb.
 ; ----------------------------------------------------------------------------
 sp_pack_row:
         LDY sp_yy
@@ -140,12 +146,16 @@ sp_pack_row:
 @msk:   AND sp_px
         ORA sp_cbit
         LDY sp_col
+        CPY #40
+        BCS @skip_store
         STA (sp_lin_lo),Y
+@skip_store:
         INC sp_col
         INX
         CPX sp_wout
         BNE @ob
-@clip:  INC sp_yy
+        INC sp_yy
+@clip:
         RTS
 
 ; sp_col_base: sp_col0 := 4 + sp_x/8 (the 32-byte-column window at byte

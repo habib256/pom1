@@ -1,5 +1,11 @@
 ; ============================================================================
 ; prng16.asm -- 16-bit Galois LFSR ($B400 tap), shared by arcade games
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): prng16 is
+; emitted only when referenced EARLIER in the program and not yet defined, so
+; .include this file after the last call. Included too early, the build stops
+; with "Symbol '<routine>' is undefined" -- never a silent drop. dungeon.asm's
+; rand_mod calls prng16: include dungeon.asm first.
 ; ============================================================================
 ; Promoted from inline copies in 2 projects (mutualization Tier 2.2). State
 ; lives in `prng_lo / prng_hi` — same canonical name as `prng8.asm`, so a
@@ -38,12 +44,19 @@ prng_hi:        .res 1
 
 .segment "CODE"
 
+; The high byte stays in A from the shift to the feedback store (pattern of
+; the pom2games edition's apple2c/apple2rand.s): 14 bytes instead of 15, and
+; 19/20 cycles (no tap / tap) instead of 16/23 -- the same mean, a flatter
+; worst case. Same state transition, same return: A = new prng_lo, N/Z from
+; it, C = the bit shifted out, X/Y preserved.
+.if .referenced(prng16) .and (.not .defined(prng16))
 prng16:
-        LSR     prng_hi
-        ROR     prng_lo
-        BCC     @done
         LDA     prng_hi
-        EOR     #$B4
-        STA     prng_hi
-@done:  LDA     prng_lo
+        LSR     A               ; bit 0 of prng_hi -> C
+        ROR     prng_lo         ; C -> bit 7, bit 0 -> C (the shifted-out bit)
+        BCC     @store          ; shifted-out bit 0: no feedback
+        EOR     #$B4            ; taps 16, 14, 13, 11
+@store: STA     prng_hi
+        LDA     prng_lo
         RTS
+.endif

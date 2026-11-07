@@ -66,8 +66,11 @@ start:
         JMP SOKOBAN_ENTRY
 
 ; --- Shared library routines (dev/lib) ---
-.include "kbd.asm"              ; wait_key (lib/apple1)
+; Each emits only what was referenced above it (dev/lib/README.md,
+; "Assembled on demand"), so a caller comes before its library: menu.asm
+; (called here) before kbd.asm (called by menu_select).
 .include "menu.asm"             ; menu_select (lib/text40)
+.include "kbd.asm"              ; wait_key (lib/apple1)
 
 ; --- Prompt string. NUL-terminated; print loop ORs in bit 7 for the
 ;     Apple-1 display. $0D = CR (Apple-1 wraps + line-feeds on its own).

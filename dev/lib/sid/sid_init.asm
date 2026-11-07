@@ -1,5 +1,10 @@
 ; ============================================================================
 ; sid_init.asm -- silence the SID and set sane defaults for voice 1
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): sid_init is
+; emitted only when referenced EARLIER in the program and not yet defined, so
+; .include this file after the last call. Included too early, the build stops
+; with "Symbol '<routine>' is undefined" -- never a silent drop.
 ; ============================================================================
 ;   sid_init -- write zeros to all 29 visible registers (silences any
 ;               leftover state from a prior program), then set master
@@ -16,6 +21,7 @@
 
 .segment "CODE"
 
+.if .referenced(sid_init) .and (.not .defined(sid_init))
 sid_init:
         ; Zero $C800..$C81C (29 visible registers). The chip mirrors past
         ; offset $1F, so 29 writes cover everything user code can reach.
@@ -36,3 +42,4 @@ sid_init:
         LDA     #$F8
         STA     SID_V1_SR       ; S=$F, R=8
         RTS
+.endif

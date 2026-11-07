@@ -2,7 +2,7 @@
  * t13_c_inflate_x2.c — micro-test: gen2c gen2_hgr_inflate_x2 ON-TARGET
  * ===========================================================================
  * GUARDS the cc65 `-Oirs` miscompile of gen2_hgr_inflate_x2. The C form
- * (gen2_hgr_x2.c) miscompiles under -Oirs — the optimiser drops the whole pixel-
+ * (gen2_hgr_x2_ref.c) miscompiles under -Oirs — the optimiser drops the whole pixel-
  * setting body, so every x2 colour sprite inflated to ALL ZERO on the 6502 while
  * the host build (and thus hgr_inflate_x2_smoke) stayed correct. The target now
  * uses a hand-asm implementation (gen2_hgr_x2.s); this pin runs the REAL compiled
@@ -15,7 +15,7 @@
  *
  * POM1-LIB-MICRO-TEST
  * MODE: gen2
- * LIBS: gen2c/gen2_hgr_x2.s apple1c/apple1io.c apple1c/apple1io_asm.s
+ * LIBS: gen2c/gen2_hgr_x2.s apple1c/apple1io_asm.s apple1c/apple1io_str.s apple1c/apple1io_key.s
  * CFG: ../cc65/apple1_gen2_c.cfg
  * PRESET: 11
  * LOAD: 6000

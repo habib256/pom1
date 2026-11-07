@@ -69,7 +69,6 @@
 ;   sprite #0 attribute, the chip stops the chain at that entry.
 ; ============================================================================
 
-        .import tms9918_pad18
 .include "tms9918.inc"
 
 .export arm_5s_trigger, wait_5s_trigger
@@ -96,14 +95,9 @@ arm_5s_trigger:
 
         ; Address VDP for write at $1B00 (sprite attribute table base).
         LDA #$00
-        STA VDP_CTRL
-        JSR tms9918_pad18       ; pad18 between back-to-back CTRL stores.
-                                ; Optional for CTRL pairs (the control port
-                                ; is an internal latch — never dropped), kept
-                                ; for datasheet-spacing prudence.
+        JSR vdp_ctrl_a          ; = STA VDP_CTRL + 18c pad, 3 bytes
         LDA #$5B                ; $1B | $40 = write-mode address $1B00
-        STA VDP_CTRL
-        JSR tms9918_pad18       ; cushion before first STA VDP_DATA
+        JSR vdp_ctrl_a          ; cushion before first data store
 
         ; Five SAT entries × 4 bytes each:
         ;   byte 0: Y = scan_line - 1 (cached in _y_attr)
@@ -112,25 +106,20 @@ arm_5s_trigger:
         ;   byte 3: $80 = early clock + colour 0 (fully invisible)
         LDX #5
 @s_lp:  LDA _y_attr             ; byte 0
-        STA VDP_DATA
-        JSR tms9918_pad18
+        JSR vdp_write_a         ; = STA VDP_DATA + 18c pad (same 22c)
         LDA #0                  ; byte 1
-        STA VDP_DATA
-        JSR tms9918_pad18
-        LDA #0                  ; byte 2
-        STA VDP_DATA
-        JSR tms9918_pad18
+        JSR vdp_write_a
+        LDA #0                  ; byte 2 (A is kept: reload only keeps
+        JSR vdp_write_a         ; the per-frame cycle count unchanged)
         LDA #$80                ; byte 3
-        STA VDP_DATA
-        JSR tms9918_pad18
+        JSR vdp_write_a
         DEX
         BNE @s_lp
 
         ; Sprite #5 = chain terminator (Y = $D0 stops the SAT scan).
         LDA #$D0
-        STA VDP_DATA
-        JSR tms9918_pad18
-        RTS
+        JSR vdp_write_a         ; JSR + RTS (not a JMP tail call): keeps the
+        RTS                     ; routine's per-frame cycle count unchanged
 
 ; ----------------------------------------------------------------------------
 ; wait_5s_trigger -- spin until 5S flag (status register bit 6) is set.
@@ -146,3 +135,8 @@ wait_5s_trigger:
 @w:     BIT VDP_CTRL            ; N=bit7(F), V=bit6(5S)
         BVC @w                  ; loop while 5S still 0
         RTS
+
+; ----------------------------------------------------------------------------
+; Private port helpers (tms9918_xfer.asm; only the referenced ones assemble).
+; ----------------------------------------------------------------------------
+.include "tms9918_xfer.asm"

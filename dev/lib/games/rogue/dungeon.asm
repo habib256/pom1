@@ -1,5 +1,11 @@
 ; ============================================================================
 ; dungeon.asm -- procedural-generation primitives for grid-based 6502 games
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): rand_mod is
+; emitted only when referenced EARLIER in the program and not yet defined, so
+; .include this file after the last call. Included too early, the build stops
+; with "Symbol '<routine>' is undefined" -- never a silent drop. rand_mod
+; calls prng16: include prng16.asm AFTER this file.
 ; ============================================================================
 ;
 ; Today this file holds the smallest, truly grid-agnostic helper from the
@@ -37,12 +43,16 @@
 ; ----------------------------------------------------------------------------
 ; rand_mod -- uniform pseudorandom integer in [0, A).
 ;   In:  A = max (must be > 0; A=0 is undefined behaviour)
-;   Out: A = result in [0, max)
+;   Out: A = result in [0, max), N/Z from A (so BEQ tests for 0), C = 1.
+;        (Before 2026-11 the flags came from a CMP against max: Z was always
+;        0, and a caller's `JSR rand_mod / BEQ` never branched.)
 ;   Clobbers: tmp; advances prng_lo / prng_hi via prng16.
 ;
 ; Implementation: pull a fresh 16-bit LFSR sample (low byte → A) then
-; reduce by repeated subtraction.  Fast for our typical ranges (max
-; ≤ 16) — averaging ~8 iterations.  For larger ranges or higher
+; reduce by repeated subtraction: SBC until it borrows, ADC the last one
+; back -- 6 cycles an iteration, 8 bytes in all (the CMP/BCC/SEC/SBC/JMP
+; form was 13 cycles an iteration, 11 bytes). Fast for our typical ranges
+; (max ≤ 16) — averaging ~8 iterations.  For larger ranges or higher
 ; throughput, swap in a divmod-style reducer.
 ;
 ; The repeated-subtract form has a small bias when 256 mod max ≠ 0
@@ -52,12 +62,13 @@
 
 .segment "CODE"
 
+.if .referenced(rand_mod) .and (.not .defined(rand_mod))
 rand_mod:
         STA     tmp
         JSR     prng16
-@lp:    CMP     tmp
-        BCC     @done
         SEC
-        SBC     tmp
-        JMP     @lp
-@done:  RTS
+@lp:    SBC     tmp             ; subtract until it borrows...
+        BCS     @lp
+        ADC     tmp             ; ...then take the last one back (C = 0 here)
+        RTS
+.endif

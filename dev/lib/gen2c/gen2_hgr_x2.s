@@ -1,277 +1,207 @@
 ; gen2_hgr_x2.s — hand-asm gen2_hgr_inflate_x2 (mono x1 -> x2 single-colour).
 ; -----------------------------------------------------------------------------
-; The C form of this function (gen2_hgr_x2.c, kept as the HOST reference for the
+; The C form of this function (gen2_hgr_x2_ref.c, kept as the HOST reference for the
 ; hgr_inflate_x2_smoke cross-check) is MISCOMPILED by cc65 2.18 -Oirs: the
 ; optimiser drops the whole pixel-setting body, so every x2 sprite inflates to
 ; all-zero on the 6502. Rather than fight the optimiser with #pragma optimize
 ; (correct but slow naive codegen), the target build uses this hand-asm: fast,
 ; and immune to the miscompile. Pinned on-target by dev/lib/test/micro/
-; t13_c_inflate_x2.c (ctest lib_micro_tests) and cross-checked against the host
-; C / the editor's magnifyColor2x by hgr_inflate_x2_smoke.
+; t13_c_inflate_x2.c and t44_c_inflate_x2_all.c (ctest lib_micro_tests) and
+; cross-checked against the host C / the editor's magnifyColor2x by
+; hgr_inflate_x2_smoke.
 ;
 ; void gen2_hgr_inflate_x2(const unsigned char *mono, unsigned char wbytes,
 ;                          unsigned char h, unsigned char color,
 ;                          unsigned char *out);
+; cc65 fastcall: A/X = out; C stack = color, h, wbytes, mono lo, mono hi.
 ;
-; cc65 __near__ ABI (verified by disassembling a probe): the last arg `out`
-; arrives in A/X; after `jsr pushax` the C stack holds, from (sp):
-;   0-1 out   2 color   3 h   4 wbytes   5-6 mono
+; BYTE-WISE: one source byte (7 pixels, bit 0 leftmost, bit 7 ignored) is
+; exactly two output bytes (14 dots). Its low nibble and its three high pixels
+; go through a 16-entry spread table (bit i -> bit 2i), giving the 7 LEFT dots
+; of a 16-bit dot word; the right dots are that word << 1, white is both. The
+; word's bits 0..6 and 7..13 are the two output bytes, stored on BOTH doubled
+; rows. The palette bit (blue/orange) is ORed into an output byte only when
+; that byte is non-zero — exactly the C's rule, which ORs it with every lit
+; dot and leaves an unlit byte at zero. Colours: BLACK and anything >= 6
+; light nothing, WHITE both dots, VIOLET/BLUE the left (even) dot, GREEN/
+; ORANGE the right (odd) one, BLUE/ORANGE with bit 7. The old kernel walked
+; every source pixel with 21 zero-page bytes of state; this needs none of its
+; own (cc65 scratch only).
 ;
-; Algorithm (byte-identical to the C / magnifyColor2x): each lit mono pixel at
-; source column sx lights the two doubled dots at columns 2*sx (if litLeft) and
-; 2*sx+1 (if litRight) on BOTH doubled rows, OR'ing in the palette bit. No
-; divides: source (byte sb, mask sm) and dest-left (byte db, bit dbit) positions
-; are stepped incrementally; the two dest rows share one pointer (bot[b] is
-; top[b+dW] since dW+b < 256). Each row-pair is zeroed just before it is filled.
+; Output layout as before: row-pairs of 2*wbytes bytes, contiguous
+; (2*wbytes x 2*h bytes in all). wbytes or h of 0 writes nothing (the old
+; kernel wrote 256 bytes per row for wbytes 0); so does an output that would
+; not fit a 16-bit pointer (wbytes*h > 16383).
+;
+; Ported from pom2games dev/lib/hgrc/hgr_x2_target.s + hgr_inflate_x2_asm.s
+; (same author, GPL-3.0). No self-modification.
 
-.export     _gen2_hgr_inflate_x2
-.import     pushax, incsp7
-.importzp   sp
-.macpack    longbranch          ; jeq/jne/jcs/jcc for the long cross-body branches
+        .export   _gen2_hgr_inflate_x2
+        .importzp sp, ptr1, ptr2, ptr3, ptr4, tmp1, tmp2, tmp3, tmp4
 
-; GEN2_X2_* colour ids (must match gen2.h)
-X2_WHITE  = 1
-X2_VIOLET = 2
-X2_GREEN  = 3
-X2_BLUE   = 4
-X2_ORANGE = 5
+        .rodata
+spread: .byte 0, 1, 4, 5, 16, 17, 20, 21, 64, 65, 68, 69, 80, 81, 84, 85
 
-.segment "ZEROPAGE"
-gx2_m:    .res 2          ; current mono row pointer
-gx2_top:  .res 2          ; current top doubled-row pointer (bot = top + dW)
-gx2_col:  .res 1          ; colour id
-gx2_pal:  .res 1          ; palette bit ($00 or $80)
-gx2_litL: .res 1          ; light the left dot?  (0/1)
-gx2_litR: .res 1          ; light the right dot? (0/1)
-gx2_wb:   .res 1          ; wbytes
-gx2_h:    .res 1          ; rows
-gx2_dW:   .res 1          ; wbytes*2 (doubled byte width)
-gx2_tdw:  .res 1          ; wbytes*4 (= 2*dW, bytes per row-pair)
-gx2_wpx:  .res 1          ; wbytes*7 (source columns)
-gx2_sy:   .res 1          ; source row counter
-gx2_sx:   .res 1          ; source column counter
-gx2_sb:   .res 1          ; source byte index within row
-gx2_sm:   .res 1          ; source bit mask (1<<sbit)
-gx2_db:   .res 1          ; dest left byte index
-gx2_dbit: .res 1          ; dest left bit index (0..6)
-gx2_rb:   .res 1          ; dest right byte index (scratch)
-gx2_orv:  .res 1          ; OR value for the current dot (mask|pal)
-
-.segment "RODATA"
-gx2_pow2: .byte 1,2,4,8,16,32,64,128
-
-.segment "CODE"
+        .code
+; --- entry: decode the C arguments -----------------------------------------
+; Kernel ABI: ptr1 = source, ptr2 = out, tmp1 = wbytes, tmp2 = h, tmp3 = colour;
+; the mono slots at (sp)+3/+4 are reused for the 16-bit doubled-row stride.
 _gen2_hgr_inflate_x2:
-        jsr     pushax                  ; out -> (sp),0-1
-
-        ; --- read args off the C stack ---
-        ldy     #0
-        lda     (sp),y
-        sta     gx2_top                 ; top = out (low)
-        ldy     #1
-        lda     (sp),y
-        sta     gx2_top+1
-        ldy     #2
-        lda     (sp),y
-        sta     gx2_col
-        ldy     #3
-        lda     (sp),y
-        sta     gx2_h
-        ldy     #4
-        lda     (sp),y
-        sta     gx2_wb
-        ldy     #5
-        lda     (sp),y
-        sta     gx2_m                   ; mono (low)
-        ldy     #6
-        lda     (sp),y
-        sta     gx2_m+1
-
-        ; --- derived widths ---
-        lda     gx2_wb
-        asl     a
-        sta     gx2_dW                  ; dW  = wb*2
-        asl     a
-        sta     gx2_tdw                 ; tdw = wb*4 (= 2*dW)
-        lda     gx2_wb                  ; wpx = wb*7 = wb*8 - wb
-        asl     a
-        asl     a
-        asl     a
-        sec
-        sbc     gx2_wb
-        sta     gx2_wpx
-
-        ; --- decode colour -> litL / litR / pal ---
-        lda     #0
-        sta     gx2_litL
-        sta     gx2_litR
-        sta     gx2_pal
-        lda     gx2_col
-        cmp     #X2_WHITE
-        bne     @c_nw
-        lda     #1
-        sta     gx2_litL
-        sta     gx2_litR
-        jmp     @c_done
-@c_nw:  cmp     #X2_VIOLET
-        bne     @c_ng
-        lda     #1
-        sta     gx2_litL
-        jmp     @c_done
-@c_ng:  cmp     #X2_GREEN
-        bne     @c_nb
-        lda     #1
-        sta     gx2_litR
-        jmp     @c_done
-@c_nb:  cmp     #X2_BLUE
-        bne     @c_no
-        lda     #1
-        sta     gx2_litL
-        lda     #$80
-        sta     gx2_pal
-        jmp     @c_done
-@c_no:  cmp     #X2_ORANGE
-        bne     @c_done
-        lda     #1
-        sta     gx2_litR
-        lda     #$80
-        sta     gx2_pal
-@c_done:
-
-        ; --- rows ---
-        lda     #0
-        sta     gx2_sy
-@row:
-        lda     gx2_sy
-        cmp     gx2_h
-        jcs     @finish                 ; sy >= h -> done
-
-        ; zero this row-pair: (top),0 .. (top),tdw-1
-        ldy     #0
-        lda     #0
-@zero:  sta     (gx2_top),y
+        sta ptr2
+        stx ptr2+1
+        ldy #0
+        lda (sp),y              ; colour
+        sta tmp3
         iny
-        cpy     gx2_tdw
-        bne     @zero
-
-        ; init source & dest bit positions
-        lda     #0
-        sta     gx2_sb
-        sta     gx2_db
-        sta     gx2_dbit
-        sta     gx2_sx
-        lda     #1
-        sta     gx2_sm                  ; source bit 0
-
-@col:
-        lda     gx2_sx
-        cmp     gx2_wpx
-        jcs     @rowadv                 ; sx >= wpx -> next row
-
-        ; lit = mono[sb] & sm ?
-        ldy     gx2_sb
-        lda     (gx2_m),y
-        and     gx2_sm
-        jeq     @advance                ; not lit
-
-        ; --- LEFT dot: byte db, bit dbit ---
-        lda     gx2_litL
-        jeq     @noleft
-        ldx     gx2_dbit
-        lda     gx2_pow2,x
-        ora     gx2_pal
-        sta     gx2_orv
-        ldy     gx2_db
-        lda     (gx2_top),y
-        ora     gx2_orv
-        sta     (gx2_top),y             ; top[db]
-        tya
+        lda (sp),y              ; h
+        beq @done
+        sta tmp2
+        sta tmp4
+        iny
+        lda (sp),y              ; wbytes
+        beq @done
+        sta tmp1
+        lda #0                  ; high byte of wbytes * h, 8 add/rotate steps
+        ldx #8
+@mul:   lsr tmp4
+        bcc @rot
         clc
-        adc     gx2_dW
-        tay                             ; y = db + dW
-        lda     (gx2_top),y
-        ora     gx2_orv
-        sta     (gx2_top),y             ; bot[db]
-@noleft:
+        adc tmp1
+@rot:   ror a
+        dex
+        bne @mul
+        cmp #64                 ; 4 * wbytes * h must fit 16 bits
+        bcs @done
+        ldy #3
+        lda (sp),y
+        sta ptr1
+        iny
+        lda (sp),y
+        sta ptr1+1
+        lda tmp1                ; stride = 2 * wbytes, into the mono slots
+        asl a
+        ldy #3
+        sta (sp),y
+        iny
+        lda #0
+        rol a
+        sta (sp),y
+        jsr inflate
+@done:  clc                     ; drop the 5 argument bytes
+        lda sp
+        adc #5
+        sta sp
+        bcc :+
+        inc sp+1
+:       rts
 
-        ; --- RIGHT dot: column dc+1 ---
-        lda     gx2_litR
-        jeq     @noright
-        lda     gx2_dbit
-        cmp     #6
-        bne     @r_same
-        ; dbit == 6: right dot is bit 0 of the next byte
-        ldx     #0
-        lda     gx2_db
+; --- the kernel ---------------------------------------------------------------
+inflate:
+        lda tmp3
+        cmp #6
+        bcc @valid
+        lda #0                  ; unknown colour: black, like the C
+@valid: cmp #4
+        bcc @cready
         clc
-        adc     #1
-        sta     gx2_rb
-        jmp     @r_mask
-@r_same:
-        ; right dot is bit dbit+1 of the same byte
-        ldx     gx2_dbit
-        inx
-        lda     gx2_db
-        sta     gx2_rb
-@r_mask:
-        lda     gx2_pow2,x
-        ora     gx2_pal
-        sta     gx2_orv
-        ldy     gx2_rb
-        lda     (gx2_top),y
-        ora     gx2_orv
-        sta     (gx2_top),y             ; top[rb]
-        tya
+        adc #126                ; blue/orange -> left/right code + bit 7
+@cready:
+        sta tmp3                ; bits 0-1: 0 black 1 white 2 left 3 right
+@row:   ldy #3                  ; ptr3 = ptr2 + stride: the second row
         clc
-        adc     gx2_dW
-        tay
-        lda     (gx2_top),y
-        ora     gx2_orv
-        sta     (gx2_top),y             ; bot[rb]
-@noright:
-
-@advance:
-        ; source bit: 1,2,4,...,64 then wrap to next byte (7 bits/byte)
-        asl     gx2_sm
-        lda     gx2_sm
-        cmp     #$80
-        bne     @no_sbwrap
-        lda     #1
-        sta     gx2_sm
-        inc     gx2_sb
-@no_sbwrap:
-        ; dest left bit: += 2, wrap at 7 into next byte
-        lda     gx2_dbit
-        clc
-        adc     #2
-        cmp     #7
-        bcc     @no_dbwrap
-        sbc     #7                      ; carry set here -> subtract 7
-        inc     gx2_db
-@no_dbwrap:
-        sta     gx2_dbit
-        inc     gx2_sx
-        jmp     @col
-
-@rowadv:
-        ; m += wbytes
-        lda     gx2_m
-        clc
-        adc     gx2_wb
-        sta     gx2_m
-        bcc     @m_nc
-        inc     gx2_m+1
-@m_nc:
-        ; top += tdw (2*dW)
-        lda     gx2_top
-        clc
-        adc     gx2_tdw
-        sta     gx2_top
-        bcc     @t_nc
-        inc     gx2_top+1
-@t_nc:
-        inc     gx2_sy
-        jmp     @row
-
-@finish:
-        jmp     incsp7                  ; drop 7 arg bytes + rts
+        lda (sp),y
+        adc ptr2
+        sta ptr3
+        iny
+        lda (sp),y
+        adc ptr2+1
+        sta ptr3+1
+        lda tmp1
+        sta tmp4                ; source bytes left in this row
+@byte:  ldy #0
+        lda (ptr1),y
+        and #15
+        tax
+        lda spread,x
+        sta ptr4                ; left dots of pixels 0-3
+        lda (ptr1),y
+        lsr a
+        lsr a
+        lsr a
+        lsr a
+        and #7                  ; source bit 7 is never a pixel
+        tax
+        lda spread,x
+        sta ptr4+1              ; left dots of pixels 4-6
+        lda tmp3
+        and #3
+        cmp #2
+        beq @split              ; left dots as they are
+        cmp #3
+        beq @right
+        cmp #1
+        beq @white
+        lda #0                  ; black
+        sta ptr4
+        sta ptr4+1
+        jmp @split
+@white: lda ptr4                ; both dots: word | word << 1
+        asl a
+        ora ptr4
+        sta ptr4
+        lda ptr4+1
+        rol a
+        ora ptr4+1
+        sta ptr4+1
+        jmp @split
+@right: asl ptr4                ; right dots: word << 1
+        rol ptr4+1
+@split: lda ptr4                ; byte 0 = dots 0..6
+        and #$7F
+        tax
+        asl ptr4                ; byte 1 = dots 7..13
+        lda ptr4+1
+        rol a
+        sta ptr4+1
+        txa
+        beq @lo
+        bit tmp3
+        bpl @lo
+        ora #$80                ; palette bit on a lit byte only
+@lo:    sta (ptr2),y
+        sta (ptr3),y
+        iny
+        lda ptr4+1
+        beq @hi
+        bit tmp3
+        bpl @hi
+        ora #$80
+@hi:    sta (ptr2),y
+        sta (ptr3),y
+        inc ptr1
+        bne :+
+        inc ptr1+1
+:       clc
+        lda ptr2
+        adc #2
+        sta ptr2
+        bcc :+
+        inc ptr2+1
+:       clc
+        lda ptr3
+        adc #2
+        sta ptr3
+        bcc :+
+        inc ptr3+1
+:       dec tmp4
+        beq @rowend
+        jmp @byte
+@rowend:
+        lda ptr3                ; the next row-pair starts after the second row
+        sta ptr2
+        lda ptr3+1
+        sta ptr2+1
+        dec tmp2
+        beq @end
+        jmp @row
+@end:   rts

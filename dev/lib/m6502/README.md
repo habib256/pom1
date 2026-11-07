@@ -21,8 +21,8 @@ Fixed-point trig, 16-bit Galois LFSR, decimal output, modulo-360.
 | Symbol                 | Description                                              |
 |------------------------|----------------------------------------------------------|
 | `roll_lfsr`            | advance 16-bit Galois LFSR (taps `$B400`)                |
-| `print_decimal`        | print `arg_lo:arg_hi` as unsigned decimal (1..5 digits)  |
-| `div_arg_by_10`        | `arg_lo:hi /= 10` unsigned, returns remainder in A       |
+| `print_decimal`        | print `arg_lo:arg_hi` as unsigned decimal (1..5 digits); 0 prints "0" through the same loop |
+| `div_arg_by_10`        | `arg_lo:hi /= 10` unsigned, returns remainder in A; X = 0, Y and `tmp` untouched (remainder kept in A: 21 bytes, 22/28 cycles a bit) |
 | `mod360_arg`           | `arg_lo:hi mod 360`                                      |
 | `mod360_tmp`           | `tmp:tmp2 mod 360`                                       |
 | `norm360`              | `th_lo:th_hi mod 360`                                    |
@@ -101,7 +101,7 @@ Tiny PRNG used by arcade games. `.include "prng16.asm"` exposes:
 
 | Symbol   | Description                                                      |
 |----------|------------------------------------------------------------------|
-| `prng16` | 16-bit Galois LFSR (taps 16, 14, 13, 11). Returns A = new `prng_lo`. |
+| `prng16` | 16-bit Galois LFSR (taps 16, 14, 13, 11). Returns A = new `prng_lo` (N/Z from it, C = the bit shifted out); X, Y preserved. 14 bytes, 19/20 cycles + RTS (high byte kept in A, as in the pom2games edition). |
 
 Reserves its own ZP slots `prng_lo / prng_hi` via `.ifndef` guard with the
 same alias-on-tight-ZP convention as `prng8.asm`. **Same canonical names
@@ -127,9 +127,6 @@ squares it, and prints the result as decimal:
 .include "apple1.inc"          ; ECHO
 .include "zp.inc"              ; declares mul_tmp/mul_res0 ($04/$05),
                               ;          prng_lo/prng_hi ($06/$07)
-.include "multiply.asm"        ; umul8 / umul4
-.include "prng16.asm"          ; prng16
-.include "print_num.asm"       ; print_byte_dec (from lib/apple1)
 
 reset:  LDA #$A5               ; seed the LFSR — must be nonzero
         STA prng_lo
@@ -141,7 +138,17 @@ reset:  LDA #$A5               ; seed the LFSR — must be nonzero
         JSR umul8              ; A = product low, X = product high
         JSR print_byte_dec     ; print the low byte as "DDD"
         JMP WOZMON
+
+; After the callers: assembled on demand, so this emits umul8 but not umul4.
+.include "multiply.asm"        ; umul8 / umul4
+.include "prng16.asm"          ; prng16
+.include "print_num.asm"       ; print_byte_dec (from lib/apple1)
 ```
+
+The `.include`-style libs are **assembled on demand** (dev/lib/README.md,
+"Assembled on demand"): each routine is emitted only if it was referenced
+before the include, so they go after the last call. Too early fails the build
+(`Error: Symbol 'umul8' is undefined`), it never drops a routine silently.
 
 `math.asm` is the exception — it carries a CODE segment and `.export`s, so it is
 **separately compiled** to `math.o` and put on the linker line (via the project's

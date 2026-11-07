@@ -1,5 +1,11 @@
 ; ============================================================================
 ; menu.asm -- numbered menu selector with bounds + echo
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): menu_select
+; is emitted only when referenced EARLIER in the program and not yet defined,
+; so .include this file after the last call. Included too early, the build
+; stops with "Symbol '<routine>' is undefined" -- never a silent drop.
+; menu_select calls wait_key: include kbd.asm AFTER this file.
 ; ============================================================================
 ; Promoted from the inline wait/dispatch loops of the CodeTank menus,
 ; which now .include this file (dev/codetank/game1_menu/ +
@@ -29,6 +35,7 @@
 
 .segment "CODE"
 
+.if .referenced(menu_select) .and (.not .defined(menu_select))
 menu_select:
         STA     tmp                     ; tmp  = min digit
         STX     tmp2                    ; tmp2 = max digit
@@ -43,3 +50,4 @@ menu_select:
         JSR     ECHO
         PLA
         RTS
+.endif

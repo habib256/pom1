@@ -22,8 +22,13 @@ build, so the level encoding is deliberately neutral.
 ## Use
 
     .include "apple1.inc"
+    ...  your variant's code  ...
     .include "sokoban_common.inc"
     .include "sokoban_levels.inc"
+
+`sokoban_common.inc` pulls `kbd.asm` / `print.asm`, which are assembled on
+demand ([`../../README.md`](../../README.md#assembled-on-demand-include-after-the-callers)):
+include it after the variant's code, as all three variants do.
 
 In your project Makefile:
 

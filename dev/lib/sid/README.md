@@ -18,6 +18,12 @@ jingles + SFX in any future game.
   `NOTE_<NAME><OCTAVE>` equates. Re-emit via
   `python3 tools/build_sid_notes.py > dev/lib/sid/sid_notes.inc` if the
   CPU clock changes (locked to 1.022727 MHz today).
+- **`sid_notes12.inc`** — the 12 notes of octave 7 only (24 bytes), what
+  `sid_player.asm` links by default: a lower note is the octave-7 value
+  shifted right once per octave down, rounded on the last bit out. Generated
+  by `python3 tools/build_sid_notes.py --top-octave`, with a ca65 `.assert`
+  per (note, shift) proving the rounding never carries into the high byte;
+  `tools/build_sid_notes.py --check` says whether both tables are current.
 - **`sid_play.asm`** — `sid_v1_note` (A = note index → set V1 freq),
   `sid_v1_gate` (A = waveform mask → trigger ADSR), `sid_v1_off`
   (release). The low-level "poke one note" primitives.
@@ -27,7 +33,18 @@ jingles + SFX in any future game.
   `sid_play_tick` (advance one frame, non-blocking) / `sid_play_active` /
   `sid_play_stop`. Song = 3-byte rows `[note, ctrl, frames]` (note `$FE`=gate
   off, `$FF`=tie; `frames`=0 ends). Self-contained (bundles the note table).
-  Pinned by [`../test/micro/t12_sid_player.s`](../test/micro/t12_sid_player.s).
+  Pinned by [`../test/micro/t12_sid_player.s`](../test/micro/t12_sid_player.s)
+  (row walk) and [`t29_sid_player_notes.s`](../test/micro/t29_sid_player_notes.s)
+  (the frequency of all 96 notes).
+  **Note table option** (`ca65 -D SID_PLAYER_FAST_NOTES=1`): the default `0`
+  bundles `sid_notes12.inc` and derives the octave (169 bytes for the whole
+  player, ~130 cycles at worst once per new note); `1` bundles the 96-note
+  `sid_notes.inc` and looks the value up (309 bytes, 18 cycles). Five notes
+  of the 96 (G4, D#6, E6, G#6, B6) come out 1 LSB above the 96-note table in
+  the default build — under 0.1 cent; the worst error against equal
+  temperament is 1.58 cents either way. Same pattern as the pom2games
+  edition's AYS player (12-note table + octave shifts by default,
+  `AYSONG_FAST_PERIODS` for the full table).
 
 ## Public symbols
 
@@ -76,6 +93,12 @@ main:
         LDA #250
         JSR delay_ms_a
         JSR sid_v1_off
+
+; Again after the last call: the routines are assembled on demand
+; (dev/lib/README.md, "Assembled on demand"); the include above
+; brought the equates and ZP only.
+.include "sid_init.asm"
+.include "sid_play.asm"
 ```
 
 In your project Makefile:

@@ -26,14 +26,20 @@ is plain text, GEN2 HGR colour, or TMS9918 sprites.
 | File | Role |
 |---|---|
 | `apple1io.h`     | the public API (include this, or `apple1c.h`) |
-| `apple1io_asm.s` | asm shim — the four ROM-calling routines (`woz_putc`, `woz_print_hex`, `woz_mon`, `apple1_getkey`) |
-| `apple1io.c`     | the small C layer on top (`woz_puts` / `woz_print_hexword` / `apple1_iskeypressed` / `apple1_readkey`) |
+| `apple1io_asm.s` | asm shim — the four ROM-calling routines (`woz_putc`, `woz_print_hex`, `woz_mon`, `apple1_getkey`); 16 bytes (was 24), two of the four are bare aliases of the ROM entries |
+| `apple1io_str.s` | `woz_puts` / `woz_print_hexword` (32 bytes) |
+| `apple1io_key.s` | `apple1_iskeypressed` / `apple1_readkey` (19 bytes) |
 | `apple1c.h`      | umbrella header — currently just re-includes `apple1io.h`; the one name to grow as the base gains tape/RTC/SD helpers |
 | `apple1c.mk`     | Makefile fragment — set `APPLE1C` then `include` it; exports `$(APPLE1C_SRCS)` / `$(APPLE1C_INCS)` |
 
-> **Why `apple1io_asm.s`, not `apple1io.s`?** cc65 compiles `apple1io.c`
-> through an intermediate `apple1io.s`; a hand-written `apple1io.s` would be
-> overwritten. The `_asm.s` suffix mirrors Nino's `apple1.c` + `apple1_asm.s`.
+> **No C in this runtime.** The four helpers used to be C (`apple1io.c`), and
+> cc65 put all four in ONE 101-byte object: printing a string linked the key
+> readers too. They are now hand-written and split by family (67 bytes for the
+> whole runtime, was 125), so an archive link — the DevBench's — pulls only
+> what a program calls. Model: the pom2games edition's `pom2games/dev/lib/apple2c/apple2io_str.s`.
+> The `_asm.s` suffix of the shim mirrors Nino's `apple1.c` + `apple1_asm.s`
+> (a hand-written `apple1io.s` would be clobbered by cc65's intermediate file
+> of any `apple1io.c`).
 
 ## API (`apple1io.h`)
 
@@ -69,7 +75,7 @@ Build (plain text Apple-1, run `0300R`):
 
 ```bash
 cl65 -t none -Oirs -C ../../cc65/apple1_c.cfg -I . \
-     hello.c apple1io.c apple1io_asm.s -o hello.bin
+     hello.c apple1io_asm.s apple1io_str.s apple1io_key.s -o hello.bin
 ```
 
 The **POM1 Bench** (*DevBench → POM1 Bench*) links this automatically for the
@@ -80,8 +86,9 @@ The **POM1 Bench** (*DevBench → POM1 Bench*) links this automatically for the
 
 `dev/lib/tms9918c/` (Nino Porcino's TMS9918 C library, vendored from
 nippur72/apple1-videocard-lib) ships its **own** copy of this text base —
-`apple1_asm.s` (byte-identical to `apple1io_asm.s`) plus the woz_* / keyboard
-helpers inside `apple1.c`/`apple1.h` (which also add `apple1_input_line*`).
+`apple1_asm.s` (instruction-identical to `apple1io_asm.s`) plus the woz_* /
+keyboard helpers as C inside `apple1.c`/`apple1.h` (which also add
+`apple1_input_line*`).
 That duplication is **intentional and left in place**: `tms9918c/` is kept
 close to its upstream attribution chain (its own demos, Makefiles, tools), so
 we don't entangle it with `apple1c`. The split is:
@@ -92,7 +99,9 @@ we don't entangle it with `apple1c`. The split is:
 
 Both expose the same `woz_*` API, so code reads the same either way. A future
 single-source merge (parameterised by `WOZMON_ENTRY`) is on the audit backlog;
-until then the two copies are pinned byte-for-byte by `check_lib_equates.py`.
+until then the two shims are pinned instruction-for-instruction by
+`tools/check_wozmon_shims.py` (an alias such as `_woz_print_hex = PRBYTE` must
+name the same ROM entry in both).
 
 ## Source of truth (asm ↔ C)
 

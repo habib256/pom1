@@ -29,17 +29,15 @@
  * itself burns before returning -- gen2_wait_vbl returns ~3 lines in). Cost
  * of one sprite of stride S x H rows through this engine, per frame:
  *
- *     draw    (gen2_msu_run)        35 cyc/byte  (save-under fused in)
- *     restore (gen2_ms_restore_run) 19 cyc/byte
- *     + per-row overhead  ~200 cyc  (2 passes x rowbase + 3-pointer advance)
- *     + per-call overhead ~1200 cyc (2 x setup: deref, clip, h*stride
- *       loop-add, phase offset)
+ *     draw    (gen2_msu_run)        32 cyc/byte  (save-under fused in)
+ *     restore (gen2_ms_restore_run) 16 cyc/byte  (widths 2 and 4 unrolled)
+ *     + per-row overhead  ~100 cyc  (2 passes x rowbase + pointer advance)
+ *     + per-call setup    ~300-600 cyc (deref, clip; the draw adds the
+ *       h*stride loop-add + phase offset, skipped at phase 0)
  *
- *     T(S,H) ~= 54*S*H + 204*H + 1200
- *
- * So a 3x8 sprite costs ~4.1k cycles (JUST fits one V-blank window), a 3x16
- * ~7.1k (does NOT -- ~0.6 of one fits 4200 cycles), a 16x16 creature (stride
- * 4, 64 bytes) ~7.9k. Hence the TWO modes:
+ * Measured kernel cost (restore + save/draw, headless, cycle-exact): a 3x8
+ * sprite ~3.0k cycles (fits one V-blank window), a 4x16 creature at phase 3
+ * ~6.2k (does NOT -- ~0.7 of it fits 4200 cycles). Hence the TWO modes:
  *
  *   double-buffered (the default to reach 8 sprites): all restore+draw work
  *     happens on the HIDDEN page while the beam scans the other -- the budget

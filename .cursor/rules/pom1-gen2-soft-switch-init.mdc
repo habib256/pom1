@@ -11,7 +11,7 @@ The `$C250-$C257` latch is **indeterminate at power-on** and **not cleared by Ap
 **Before any GEN2 graphics:**
 
 - **Asm:** `.include "gen2_init.asm"` then `JSR gen2_hgr_init` (or `gen2_lores_init`) at `main` entry.
-- **C:** `gen2_hgr_init()` / `gen2_lores_init()` from `gen2.h` (implemented in `gen2_init.asm` via `gen2_blit.s`).
+- **C:** `gen2_hgr_init()` / `gen2_lores_init()` from `gen2.h` (implemented in `gen2_init.asm` via the gen2c members `gen2_mode_asm.s` / `gen2_lores_init_asm.s` / `gen2_mode_clear_asm.s`).
 
 Touches all four switch pairs: graphics (TEXT off), RES, PAGE1, MIXED off. Read-only toggles — use `LDA`/`BIT`, never `STA`.
 

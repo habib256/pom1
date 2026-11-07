@@ -77,7 +77,7 @@ Build and run (plain text):
 ```bash
 cd dev/lib/apple1c
 cl65 -t none -Oirs -C ../../cc65/apple1_c.cfg -I . \
-     first.c apple1io.c apple1io_asm.s -o first.bin
+     first.c apple1io_asm.s apple1io_str.s apple1io_key.s -o first.bin
 # In POM1: File > Load Memory > first.bin, then 0300R
 ```
 

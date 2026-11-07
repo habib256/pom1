@@ -128,11 +128,13 @@ void gen2_hgr_init_clear(void);
  *     woz_mon();                                   /- no-return -/           */
 void gen2_text_restore(void);
 
-/* Fill the HIRES page-1 framebuffer ($2000-$3FFF) with `fill` (0 = black). */
+/* Fill the current HIRES draw page ($2000-$3FFF, or $4000-$5FFF after
+ * gen2_set_draw_page(2)) with `fill` (0 = black). Unrolled asm, ~46 000
+ * cycles; self-modifying, so it runs from RAM only (gen2_hgr_clear_asm.s). */
 void gen2_hgr_clear(unsigned char fill);
 
 /* Fast byte-aligned rectangle fill of HIRES page 1, via a hand-written 6502
- * inner loop (gen2_blit.s). Fills `rows` scanlines from y0, byte columns
+ * inner loop (gen2_fill_rect_asm.s). Fills `rows` scanlines from y0, byte columns
  * [col0, col0+ncols), with `val` (0 = erase). Horizontally byte-granular
  * (7px/byte, so col = x/7, ncols = how many 7px-wide bytes). This is the fast
  * way to erase the area behind text / a sprite without clearing the whole
@@ -147,7 +149,7 @@ void gen2_hgr_fill_rect(unsigned char y0, unsigned char rows,
 unsigned char *gen2_hgr_row(unsigned char y);
 
 /* Fill / erase a PIXEL-aligned rectangle [x, x+w) × [y, y+h) via a hand-written
- * 6502 inner loop (gen2_blit.s) — unlike gen2_hgr_fill_rect these take pixel x/w,
+ * 6502 inner loop (gen2_pixrect_asm.s) — unlike gen2_hgr_fill_rect these take pixel x/w,
  * not byte columns, so partial edge bytes are handled. fill = white, clear =
  * black. This is the fast way to draw/erase solid blocks (game tiles, sprites,
  * bars): one call replaces a per-pixel gen2_hgr_plot double loop (e.g. a 6×6
@@ -156,6 +158,10 @@ unsigned char *gen2_hgr_row(unsigned char y);
  * (byte-aligned) or gen2_hgr_clear. */
 void gen2_hgr_fill_pixrect(unsigned x, unsigned char y, unsigned char w, unsigned char h);
 void gen2_hgr_clear_pixrect(unsigned x, unsigned char y, unsigned char w, unsigned char h);
+/* Fill (white) the inclusive box (x0,y0)-(x1,y1), corners in any order,
+ * clipped to the screen. Same asm core as gen2_hgr_fill_pixrect, but both x
+ * edges are 16-bit: one call covers any width up to the full 280 px. */
+void gen2_hgr_fill_box(unsigned x0, unsigned char y0, unsigned x1, unsigned char y1);
 /* Fill (set=1) / erase (set=0) a 6x6 block in the 8x8 grid cell (cx, cy).
  * cx*8/cy*8 done in asm, no clip — for 8px-grid games drawing one cell/call. */
 void gen2_hgr_cell(unsigned char cx, unsigned char cy, unsigned char set);
@@ -381,8 +387,9 @@ void gen2_hgr_putx(unsigned x, unsigned char y, unsigned value);
 
 /* --- Vector primitives (white, HIRES) -------------------------------------
  * Inclusive pixel endpoints (x:0..279, y:0..191), clipped to the screen. The
- * straight runs use the fast pixel-rectangle path; line/circle walk the LUT
- * plot. The Light Corridor demo hand-rolled all of these in raw asm — here they
+ * straight runs use the fast pixel-rectangle path; a diagonal line is an asm
+ * incremental Bresenham (gfx/gfx_line_gen2.s, ~74 cycles a pixel), and a
+ * circle walks the LUT plot. The Light Corridor demo hand-rolled all of these in raw asm — here they
  * are once, in the lib. */
 
 /* Horizontal / vertical runs (inclusive). Fast: one STA run per scanline. */
@@ -405,7 +412,7 @@ void gen2_hgr_circle(unsigned xc, unsigned char yc, unsigned char r);
 void gen2_hgr_ellipse(unsigned x0, unsigned char y0, unsigned x1, unsigned char y1);
 
 /* Draw a string in one of the four NTSC artifact COLOURS the GEN2 HIRES screen
- * can show (it has no per-pixel colour). Drawn in ONE tinted pass (gen2_blit.s
+ * can show (it has no per-pixel colour). Drawn in ONE tinted pass (gen2_text16_asm.s
  * gen2_blit_glyph_color ORs the colour's carrier bit per pixel directly — no
  * white-then-recolorize round trip), and only the glyph itself is touched, so a
  * coloured label can sit right next to other content without bleeding a tint
@@ -458,9 +465,11 @@ void gen2_hgr_colorize(unsigned x, unsigned char y, unsigned char w,
 /* graphics + LORES + page 1 + full screen (call before drawing). */
 void gen2_lores_init(void);
 
-/* Fill the whole 40×48 LORES screen with one colour (0..15). Fast: writes the
- * text page ($0400-$07FF) a page at a time with an 8-bit index — NOT a naïve
- * 16-bit pointer loop (see gen2_hgr_clear's note). */
+/* Fill the whole 40×48 LORES screen with one colour (0..15). Fast (asm, ~5 400
+ * cycles): writes the 960 VISIBLE bytes of the draw page ($0400 / $0800) and
+ * leaves the 64 undisplayed "screen hole" bytes alone. The LORES family
+ * (setblock/getblock/hlin/vlin/fill_rect) is asm too: a full-screen fill_rect
+ * is ~12 400 cycles. */
 void gen2_lores_clear(unsigned char color);
 
 /* Set / read one block. x:0..39, y:0..47, color:0..15 (a GEN2_LO_* index).
@@ -496,8 +505,9 @@ void gen2_wait_vbl(void);
  *
  *   gen2_set_draw_page(page)  picks where EVERY drawing primitive writes (HIRES
  *                             and LORES alike); page is 1 or 2. Cheap but not
- *                             free — it re-derives the scanline tables, so set it
- *                             ONCE per frame, not per primitive. The per-pixel
+ *                             free (~2 300 cycles: it moves the scanline tables
+ *                             to the other page), so set it ONCE per frame, not
+ *                             per primitive. The per-pixel
  *                             plot/blit/fill hot paths are unchanged.
  *   gen2_show_page()          flips the card to display the CURRENT draw page
  *                             (the $C254/$C255 soft switch).

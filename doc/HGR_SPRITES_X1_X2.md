@@ -220,7 +220,7 @@ le choix du groupe se fait dans l'éditeur (§4), pas dans le générateur.
    du régime, label `_x2` + note couleur/parité/mode, indicateur UI, test ×2.
    Plus : sélecteur **bit 7 ×1** (§4/décision 5) et **aperçu de parité honnête**
    (l'aperçu suit la parité de Byte X ; placement impair permis + flaggé).
-2. **A — runtime** — ✅ fait. `gen2_hgr_inflate_x2` (`dev/lib/gen2c/gen2_hgr_x2.c`,
+2. **A — runtime** — ✅ fait. `gen2_hgr_inflate_x2` (`dev/lib/gen2c/gen2_hgr_x2_ref.c`,
    miroir exact de `magnifyColor2x`) + `gen2_hgr_blit_x2` (au-vol,
    `gen2_hgr_blit_x2.c`) + enum `GEN2_X2_*` (ordre `HgrColor`) dans `gen2.h` +
    split `gen2c.mk` (`GEN2C_X2_SRCS` / `GEN2C_X2BLIT_SRCS`). Pin :
