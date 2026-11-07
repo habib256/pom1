@@ -121,7 +121,10 @@ GFX_NEUTRAL_OBJS := $(call gfx_objs,$(GFX_NEUTRAL_SRCS))
 gfx-gen2.lib: $(GFX_NEUTRAL_OBJS) $(call gfx_objs,$(GFX_GEN2_SRCS))
 	rm -f $@
 	$(AR65) a $@ $^
-gfx-tms.lib: $(GFX_NEUTRAL_OBJS) $(call gfx_objs,$(GFX_TMS_SRCS))
+# gfx_line.o first: the member order the TMS archive always had (gfx.mk moved
+# the line to the per-card lists), so TMS binaries keep their exact layout.
+# $^ drops the repeat.
+gfx-tms.lib: gfx_line.o $(GFX_NEUTRAL_OBJS) $(call gfx_objs,$(GFX_TMS_SRCS))
 	rm -f $@
 	$(AR65) a $@ $^
 
