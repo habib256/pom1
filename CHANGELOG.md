@@ -82,7 +82,20 @@ un `.s` du même dossier : `cl65 -c x.c` écrit `x.s` à côté de la source et
 
 Programmes livrés reconstruits : les cartouches CodeTank (`verify_codetank_roms.py` :
 14 scénarios propres) et les sketches à Makefile. Les binaires produits par le
-seul DevBench (`software/` sans Makefile) n'ont pas été régénérés.
+seul DevBench (sketches sans Makefile) l'ont été ensuite, reconstruits hors de
+l'application avec la recette de `Pom1BenchHost` (`ca65 -g`, chaque dossier de
+`dev/lib` en `-I`, le manifeste `.sketch.json`) : Connect4, Sokoban,
+HGR_Bestiary, HGR_BBFontShow, HGR_Life, HGR_Sokoban, plus GEN2Lores et
+GEN2Snake liés contre l'archive gen2c (GEN2Lores 4 210 → 1 186 o, GEN2Snake
+9 094 → 7 430). Avant le report, chacun de ces sketches redonnait octet pour
+octet son `.txt` livré : l'écart vient donc des seules bibliothèques.
+HGR_Sierpinski, HGR_Maze et GEN2Logo, en retard sur leur source depuis juin,
+sont régénérés au passage. Ancienne contre nouvelle version en headless (images
+GEN2 après 30 M cycles, avec frappes, et l'écran texte par `--cmd-port`) :
+même rendu partout, sauf GEN2Snake, dont le serpent avance un peu plus vite,
+et HGR_Maze, qui tire un autre labyrinthe. Les `.txt` TMS9918 en `$0280` ne
+correspondent plus à leurs sketches, devenus des banques CodeTank en `$4000`,
+et restent tels quels.
 
 ### Fixed — TMS9918 : la VRAM 4K, un accès en attente, le scan des sprites en mode texte
 
