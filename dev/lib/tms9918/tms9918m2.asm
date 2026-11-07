@@ -23,6 +23,11 @@
 ;                          line_xy 2*err computation).
 ;   tmp2                -- 1 ZP scratch byte (line_xy 2*err high byte).
 ;   plot_mode           -- 1 BSS byte: 0 = OR, 1 = XOR.
+;
+; Port access goes through the private vdp_write_a / vdp_ctrl_a / vdp_fill /
+; vdp_fill_blank helpers of tms9918_xfer.asm (included at the end of this
+; file; 3-byte call sites, same 22c pacing as STA + JSR pad18).
+; `-D TMS_PAIR_SEI=1` masks IRQs around vdp_set_write/read's control pair.
 ; ============================================================================
 
         .import tms9918_pad18  ; silicon-strict pad18-v4 (helper from tms9918_pad.asm)
@@ -94,34 +99,27 @@ init_vdp_g2:
         BNE @rg_store
         AND #$BF                ; R1 display OFF during loop
 @rg_store:
-        STA VDP_CTRL
+        JSR vdp_ctrl_a          ; value (22c to the command byte)
         TXA
         ORA #$80
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        STA VDP_CTRL
+        JSR vdp_ctrl_a          ; command: register X
         INX
         CPX #8
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
         BNE @rg
         ; --- wipe ALL 16 KB of VRAM ($0000-$3FFF) while display is OFF ---
         ; Self-sufficient init: nothing relies on power-on VRAM (CLAUDE.md
         ; gotcha). Display is blanked (R1 bit6 cleared in @rg) -> dense ScreenOff
-        ; slots (drain ~2c), so the inner STA/INY/BNE burst (>=9c) needs NO pad.
+        ; slots (drain ~2c), so the 9c/byte vdp_fill_blank burst needs NO pad.
         ; The mode-2 name + colour tables below overwrite their regions; the SAT
         ; is parked by disable_sprites before the display is re-enabled.
         LDA #$00
-        STA VDP_CTRL
-        JSR     tms9918_pad18   ; addr lo -> hi cushion
+        JSR vdp_ctrl_a
         LDA #$40                ; $00 | $40 = auto-inc write from $0000
-        STA VDP_CTRL
+        JSR vdp_ctrl_a
         LDA #$00
         LDX #64                 ; 64 * 256 = 16384 bytes
-@wz:    LDY #0
-@wb:    STA VDP_DATA            ; no pad: ScreenOff drain ~2c << 9c inner gap
-        INY
-        BNE @wb
-        DEX
-        BNE @wz
+        LDY #0
+        JSR vdp_fill_blank      ; no pad: display blanked (ScreenOff)
         ; --- write linear name table at $3800 (display still OFF) ---
         ; Display is blanked here (R1 bit6 cleared in @rg), so the chip serves
         ; the dense ScreenOff access slots (drain ~2c). The inner burst gap
@@ -129,10 +127,9 @@ init_vdp_g2:
         ; is needed -- only the address-setup control writes keep the cushion.
         ; ~3x faster than the old padded loop (see doc/TMS9918_TRANSFER_WINDOWS.md).
         LDA #$00
-        STA VDP_CTRL
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA #imm bridge)
+        JSR vdp_ctrl_a
         LDA #$78
-        STA VDP_CTRL
+        JSR vdp_ctrl_a
         LDX #3
 @th:    LDY #0
 @nm:    TYA
@@ -143,18 +140,13 @@ init_vdp_g2:
         BNE @th
         ; --- color table: $F1 everywhere ($2000-$37FF, 6144 bytes, no pad) ---
         LDA #$00
-        STA VDP_CTRL
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA #imm bridge)
+        JSR vdp_ctrl_a
         LDA #$60
-        STA VDP_CTRL
+        JSR vdp_ctrl_a
+        LDA #$F1
         LDX #24
         LDY #0
-        LDA #$F1
-@cl:    STA VDP_DATA            ; no pad: display OFF -> ScreenOff slots
-        INY
-        BNE @cl
-        DEX
-        BNE @cl
+        JSR vdp_fill_blank      ; no pad: display OFF -> ScreenOff slots
         ; default pen colour = white (15). plot_set picks this up in OR
         ; mode to recolour the cell it just touched. SETPC overrides.
         LDA #$0F
@@ -168,40 +160,27 @@ init_vdp_g2:
         ; --- Final: re-arm R1 with table value (display ON). Display stays
         ;     OFF until the cmd byte commits, so threshold remains 2c.
         LDA vdp2_regs+1
-        STA VDP_CTRL
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA #imm bridge)
+        JSR vdp_ctrl_a
         LDA #$81
-        STA VDP_CTRL
-        RTS
+        JMP vdp_ctrl_a          ; tail call: returns 16c after the store
 
 vdp2_regs:
         .byte $02, $C0, $0E, $FF, $03, $76, $03, $F1
 
 ; clear_bitmap: zero the 6144-byte pattern table at $0000.
-;   Note: runs with display ON when called immediately after init_vdp_g2;
-;   strict-mode Gfx2 slot density may drop bytes from the tight burst, but
-;   any subsequent bitmap paint (text_bitmap, line_xy, plot_set) rewrites
-;   the affected cells, so visible drops are masked. Callers that need a
-;   guaranteed-clean clear should blank display explicitly before the
-;   call (Mandel does this via its own clear_pattern_table inline).
+;   Runs with display ON when called after init_vdp_g2, so every store is
+;   padded (vdp_fill: 27c/byte, the 22c contract + loop). Was a doubly
+;   padded 47c/byte loop: ~289 000 -> ~166 000 cycles for the 6 KB.
 clear_bitmap:
         JSR     tms9918_pad18   ; MANUAL caller-gap cushion (18c)
         LDA #$00
-        STA VDP_CTRL
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA #imm bridge)
+        JSR vdp_ctrl_a
         LDA #$40
-        STA VDP_CTRL
+        JSR vdp_ctrl_a
+        LDA #$00
         LDX #24
         LDY #0
-@lp:    LDA #$00
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        STA VDP_DATA
-        INY
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        BNE @lp
-        DEX
-        BNE @lp
-        RTS
+        JMP vdp_fill            ; padded, 27c/byte
 
 ; disable_sprites: defensive SAT.Y init — fill every Y attribute with
 ;   $D1 (= displayed row 210, off-screen, NOT a chain terminator), then
@@ -216,42 +195,39 @@ clear_bitmap:
 disable_sprites:
         JSR     tms9918_pad18   ; MANUAL caller-gap cushion
         LDA     #$00
-        STA     VDP_CTRL
-        JSR     tms9918_pad18
+        JSR     vdp_ctrl_a
         LDA     #$3B | $40      ; $7B = write at $3B00 (Mode II SAT base)
-        STA     VDP_CTRL
-        JSR     tms9918_pad18
+        JSR     vdp_ctrl_a
         LDA     #$D0            ; SAT[0].Y = chain terminator
-        STA     VDP_DATA
-        JSR     tms9918_pad18
-        LDX     #127            ; SAT[1..127] = off-screen Y via auto-inc
-        LDA     #$D1
-@sat:   STA     VDP_DATA
-        JSR     tms9918_pad18
-        DEX
-        BNE     @sat
-        RTS
+        JSR     vdp_write_a
+        LDA     #$D1            ; SAT[1..127] = off-screen Y via auto-inc
+        LDX     #0
+        LDY     #127
+        JMP     vdp_fill        ; padded, 27c/byte
 
 vdp_set_write:
         JSR     tms9918_pad18   ; MANUAL caller-gap cushion (18c)
+        TMS_PAIR_BEGIN
         LDA pix_addr_lo
-        STA VDP_CTRL
-        JSR tms9918_pad18       ; silicon-strict 18c (LDA zp + ORA bridge)
+        JSR vdp_ctrl_a
         LDA pix_addr_hi
         ORA #$40
-        STA VDP_CTRL
-        JSR tms9918_pad18       ; cushion: caller's first STA VDP_DATA lands
-        RTS                     ; ≥30c after cmd (18c+6c+6c=30c gap)
+        JSR vdp_ctrl_a          ; cmd byte: returns here 16c after it
+        TMS_PAIR_END
+        RTS                     ; caller's first STA VDP_DATA lands >= 22c
+                                ; after cmd. Same 76c a call as the old
+                                ; STA / JSR pad18 / RTS tail.
 
 vdp_set_read:
         JSR     tms9918_pad18   ; MANUAL caller-gap cushion (18c)
+        TMS_PAIR_BEGIN
         LDA pix_addr_lo
-        STA VDP_CTRL
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA zp/abs bridge)
+        JSR vdp_ctrl_a
         LDA pix_addr_hi
-        STA VDP_CTRL
-        JSR tms9918_pad18       ; cushion: caller's first LDA VDP_DATA lands
-        RTS                     ; ≥30c after cmd
+        JSR vdp_ctrl_a          ; cmd byte: returns here 16c after it
+        TMS_PAIR_END
+        RTS                     ; caller's first LDA VDP_DATA lands >= 22c
+                                ; after cmd (read prefetch window)
 
 calc_pix_addr:
         LDA pix_x
@@ -290,24 +266,21 @@ plot_set:
         JSR vdp_set_write
         JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA zp/abs bridge)
         LDA pix_byte
-        STA VDP_DATA
+        JSR vdp_write_a         ; = STA VDP_DATA + 18c pad, 3 bytes
         ; --- colour cell (only on OR draws). XOR is the turtle-erase
         ;     path which must leave the trail's colour alone.
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA zp/abs bridge)
         LDA plot_mode
         BNE @done
         ; address = $2000 + pix_addr (same offset as pattern cell). The
         ; auto-increment from the data-port write above advanced VRAM
         ; address by 1, so re-prime the control port now.
         LDA pix_addr_lo
-        STA VDP_CTRL
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA zp/abs bridge)
+        JSR vdp_ctrl_a
         LDA pix_addr_hi
         ORA #$60                ; $60 = $20 (table base) | $40 (write enable)
-        STA VDP_CTRL
-        JSR     tms9918_pad18   ; MANUAL: cmd-byte → first colour STA. Natural
-                                ; bridge LDA(3c)+ASL×4(8c)+ORA(2c) = 13c gives
-                                ; gap=17c < 22c contract (LOGO drop site, May 2026).
+        JSR vdp_ctrl_a          ; cmd byte -> first colour STA: 12c + the
+                                ; 13c LDA/ASLx4/ORA bridge = 29c (LOGO drop
+                                ; site, May 2026, needed >= 22c)
         LDA pen_color
         ASL
         ASL
@@ -435,3 +408,8 @@ line_xy:
         STA pix_y
 @no_y:  JMP @step
 @end:   RTS
+
+; ----------------------------------------------------------------------------
+; Private port helpers + fills (only the referenced ones assemble).
+; ----------------------------------------------------------------------------
+.include "tms9918_xfer.asm"

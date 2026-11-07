@@ -66,6 +66,8 @@ equates:
 	@$(PYTHON) $(REPO)/tools/build_shared_font.py --check
 	@echo "[lib] C64-font drift check (tms9918c/c64font.c master) ..."
 	@$(PYTHON) $(REPO)/tools/build_c64font_tms.py --check
+	@echo "[lib] Apple-1 charmap drift check (roms/charmap.rom -> charmap_tms.inc) ..."
+	@$(PYTHON) $(REPO)/tools/build_charmap_tms.py --check
 	@echo "[lib] sprite-catalogue drift check (TMS masters -> HGR) ..."
 	@$(PYTHON) $(REPO)/tools/build_hgr_sprites.py --check
 	@echo "[lib] wozmon-shim drift check (apple1c <-> tms9918c) ..."
