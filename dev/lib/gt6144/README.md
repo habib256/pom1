@@ -65,6 +65,11 @@ main:
         BNE @d
 
         JMP WOZMON
+
+; Again after the last call: the routines are assembled on demand
+; (dev/lib/README.md, "Assembled on demand"); the include above
+; brought the equates and ZP only.
+.include "gt6144.asm"
 ```
 
 In your project Makefile:

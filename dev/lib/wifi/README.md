@@ -72,6 +72,13 @@ main:
 
 cmd_z:      .byte "Z", 0
 reply_buf:  .res  64
+
+; Again after the last call: the routines are assembled on demand
+; (dev/lib/README.md, "Assembled on demand"); the include above
+; brought the equates and ZP only.
+; at.asm first: it calls acia_send_byte / acia_send_str / acia_recv_byte.
+.include "at.asm"
+.include "acia.asm"
 ```
 
 Wire output:

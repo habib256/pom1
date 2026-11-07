@@ -35,12 +35,20 @@ multiply helpers) to the include search path:
 
     LIB := -I ../../lib/apple1 -I ../../lib/m6502 -I ../../lib/games/rogue
 
-Then, respecting the include order (PRNG / multiply before the consumers):
+Then, after your own code, respecting the include order — each library is
+assembled on demand (dev/lib/README.md, "Assembled on demand"), so a caller
+comes before the routine it calls (dungeon calls prng16, shadowcast calls
+umul4):
 
-    .include "prng16.asm"
-    .include "multiply.asm"
     .include "dungeon.asm"
     .include "shadowcast.asm"
+    .include "prng16.asm"
+    .include "multiply.asm"
+
+The other order fails the build (`shadowcast.asm(173): Error: Symbol 'umul4'
+is undefined`). If your code reads `cur_x` / `cur_y` or the PRNG state before
+these lines, declare those ZP slots yourself near the top (the Rogue builds
+do), or include the files once at the top for their ZP and again at the end.
 
 See `sketchs/tms9918/game_rogue/TMS_Rogue.asm` for the canonical caller
 (`compute_fov` wrapper, `gen_dungeon` / `finalize_doors`).

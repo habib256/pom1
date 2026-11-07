@@ -110,6 +110,11 @@ main:
         JMP WOZMON
 
 filename:   .byte "MYFILE", 0
+
+; Again after the last call: the routines are assembled on demand
+; (dev/lib/README.md, "Assembled on demand"); the include above
+; brought the equates and ZP only.
+.include "sd.asm"
 ```
 
 In your project Makefile:

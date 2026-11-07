@@ -115,6 +115,9 @@ EXPECT: ADDR B0 B1 ...       hex bytes expected at ADDR (repeatable)
 | `t36_gfx_utoa.s` | `gfx/gfx_num_dec.s` + `gfx_num_signed.s` — the one decimal converter, wide sweep vs an ASCII-counter oracle |
 | `t37_gfx_hexstr.s` | `gfx/gfx_num_hex.s` — `gfx_hexstr`, wide sweep vs a nibble-counter oracle |
 | `t38_c_hgr_clear.c` | `gen2c/gen2_hgr_clear_asm.s` (C) — unrolled self-modifying clear: lazy page-1 default, page 2, re-patch, window bounds |
+| `t50_ondemand_kbd_wait_late.s` | `apple1/kbd` assembled on demand across two includes — `wait_key` emitted after its tail (`JMP kbd_take`); `multiply.asm` with no caller emits nothing |
+| `t51_ondemand_kbd_poll_late.s` | `apple1/kbd` — `poll_key` emitted after its tail (`BPL` / `JMP kbd_take`); `multiply.asm` emits `umul4` alone |
+| `t52_ondemand_gen2_late.s` | `gen2/hgr_clear` + `gen2/gen2_init` across two includes — `clear_hgr` → `JMP hgr_fill_page`, `gen2_hgr_init_clear` → the earlier `gen2_hgr_init`; unused entries not emitted |
 `t18`–`t25` link with [`micro/micro_gen2.cfg`](micro/micro_gen2.cfg) (code at
 `$6000`, `BSS` at `$9000`, preset 11): the GEN2 modules and their tables do not
 fit `micro.cfg`'s `$0300-$0DFF` + 256-byte `BSS`.

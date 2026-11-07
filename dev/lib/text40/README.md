@@ -40,10 +40,6 @@ under *Use* is all it takes to drop one into a new project.
 ```asm
 .include "apple1.inc"
 .include "zp.inc"
-.include "print.asm"
-.include "kbd.asm"
-.include "menu.asm"
-.include "repeat.asm"
 
 main:
         ; --- Banner ---
@@ -63,6 +59,13 @@ main:
         LDA #'-'
         LDX #40
         JSR repeat_char_ax          ; "----------------------------------------"
+
+; Libraries after the callers (assembled on demand, dev/lib/README.md):
+; menu.asm before kbd.asm, because menu_select calls wait_key.
+.include "menu.asm"
+.include "repeat.asm"
+.include "print.asm"
+.include "kbd.asm"
 ```
 
 In your project Makefile:
