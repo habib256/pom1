@@ -10,6 +10,26 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Fixed — TMS9918 : la VRAM 4K, un accès en attente, le scan des sprites en mode texte
+
+Report des correctifs de la chasse aux bugs POM2 du 2026-11-07 (la carte E-Z
+Color de POM2 partage `TMS9918.cpp`).
+
+- **R1 bit 7 à 0 ne replie plus la VRAM sur 4 Ko** (mode strict). Le bit choisit
+  le câblage des DRAM (4027 ou 4108/4116), pas une VRAM de 4 Ko : les 16 Ko
+  restent accessibles, réarrangés par blocs de 64 octets quand le bit bascule
+  (`remapVramForR1Bit7`). [B] TI TMS9918A Data Manual, R1 ; [D] openMSX
+  `change4k8kMapping` @ a0a4f24199 ; [F] non vérifié sur une vraie puce. Le
+  test T7, qui figeait l'ancien repli `$1800` → `$0800`, fige maintenant le
+  comportement réel.
+- **Un accès VRAM du CPU en attente de son créneau survit à un snapshot ou un
+  rewind** : son type voyage dans les bits 1-2 de l'octet du mode strict (un
+  ancien blob, à 0/1, se charge toujours). Il était perdu, et l'écriture
+  n'arrivait jamais (T7c).
+- **Le mode texte (M1) ne lance plus le scan d'état des sprites** : 5S, collision
+  et l'index ne viennent plus d'une table des sprites fantôme. [D] openMSX
+  `SpriteChecker.hh` @ a0a4f24199, meisei `vdp.c:571` (T7b).
+
 ### Fixed — brancher le Juke-Box lisait 256 Ko sur le disque sous `stateMutex`
 
 Rouge intermittent de la CI nocturne Linux (22 et 25 octobre) :

@@ -24,11 +24,14 @@
 // Each test runs in a fresh TMS9918 to avoid sticky-flag bleed.
 
 #include "TMS9918.h"
+#include "SnapshotIO.h"
 
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
+#include <vector>
 
 namespace {
 
@@ -255,8 +258,10 @@ int main()
     }
 
     // -----------------------------------------------------------------
-    // T7 — silicon strict 4K VRAM mode. With R1 bit 7 clear, addresses
-    // above $0FFF mirror into the first 4 KB.
+    // T7 — silicon strict 4K VRAM mode. With R1 bit 7 clear (the 4027
+    // DRAM mapping) all 16 KB stay reachable, only rearranged: [B] TI data
+    // manual R1, [D] openMSX change4k8kMapping @ a0a4f24199. A write to
+    // $1800 used to wrap into $0800 (fixed 2026-11-07, from POM2).
     // -----------------------------------------------------------------
     {
         TMS9918 vdp;
@@ -266,8 +271,72 @@ int main()
         strictWriteData(vdp, 0xA5);
         strictSetReadAddress(vdp, 0x0800);
         vdp.advanceCycles(44);
-        mustBeTrue(vdp.readData() == 0xA5,
-                   "T7: strict 4K mode should mirror $1800 writes to $0800");
+        mustBeTrue(vdp.readData() != 0xA5, "T7: 4K mode must not wrap $1800 into $0800");
+        strictSetReadAddress(vdp, 0x1800);
+        vdp.advanceCycles(44);
+        mustBeTrue(vdp.readData() == 0xA5, "T7: 4K mode reads $1800 back");
+        // 4K -> 16K moves the 64-byte blocks: $1800 (4K order) is $0C00.
+        strictWriteControl(vdp, 0x80);
+        strictWriteControl(vdp, 0x81);                 // R1 = $80: 16K
+        strictSetReadAddress(vdp, 0x0C00);
+        vdp.advanceCycles(44);
+        mustBeTrue(vdp.readData() == 0xA5, "T7: the 16K mapping finds it at $0C00");
+        strictWriteControl(vdp, 0x00);
+        strictWriteControl(vdp, 0x81);                 // back to 4K
+        strictSetReadAddress(vdp, 0x1800);
+        vdp.advanceCycles(44);
+        mustBeTrue(vdp.readData() == 0xA5, "T7: and back at $1800 in 4K");
+    }
+
+    // -----------------------------------------------------------------
+    // T7b — Text mode (M1) has no sprite engine: 5S, collision and the
+    // index stay put whatever the "SAT" bytes say ([D] openMSX
+    // SpriteChecker.hh @ a0a4f24199; meisei vdp.c:571). The same VRAM in
+    // Graphics I raises 5S.
+    // -----------------------------------------------------------------
+    {
+        TMS9918 vdp;
+        initVdp(vdp);
+        for (int i = 0; i < 5; i++)
+            pokeSAT(vdp, i, /*y=*/49, /*x=*/(uint8_t)(i * 16), /*name=*/1, /*color=*/0x0F);
+        pokeSAT(vdp, 5, 0xD0, 0, 0, 0);
+        (void)readStatus(vdp);
+        writeReg(vdp, 1, 0xD0);                        // display on + M1 (Text)
+        tickFrame(vdp);
+        mustBeTrue((readStatus(vdp) & 0x60) == 0, "T7b: Text mode raises no 5S / collision");
+        writeReg(vdp, 1, 0xC0);                        // Graphics I
+        tickFrameStepped(vdp);                         // a whole next frame, scanned
+        mustBeTrue((readStatus(vdp) & 0x40) != 0, "T7b: Graphics I on the same VRAM raises 5S");
+    }
+
+    // -----------------------------------------------------------------
+    // T7c — a CPU VRAM write still waiting for its slot survives a snapshot:
+    // it rides in bits 1-2 of the strict-mode byte (old blobs hold 0/1).
+    // -----------------------------------------------------------------
+    {
+        TMS9918 vdp;
+        vdp.reset();
+        vdp.setSiliconStrictMode(true);
+        strictWriteControl(vdp, 0xC0);
+        strictWriteControl(vdp, 0x81);                 // R1: display on, 16K
+        strictSetWriteAddress(vdp, 0x0100);
+        vdp.advanceCycles(44);
+        vdp.writeData(0x5A);                           // scheduled, not landed
+        pom1::SnapshotWriter w;
+        auto h = w.beginSection("TMS");
+        vdp.serialize(w);
+        w.endSection(h);
+        const std::vector<uint8_t> blob = w.takeBuffer();
+        TMS9918 back;
+        back.reset();
+        pom1::SnapshotReader r(blob);
+        std::string name; std::uint32_t len = 0;
+        mustBeTrue(r.nextSection(name, len) && name == "TMS", "T7c: section");
+        back.deserialize(r);
+        back.advanceCycles(200);                       // the slot comes round
+        strictSetReadAddress(back, 0x0100);
+        back.advanceCycles(44);
+        mustBeTrue(back.readData() == 0x5A, "T7c: the pending write lands after a restore");
     }
 
     // -----------------------------------------------------------------
