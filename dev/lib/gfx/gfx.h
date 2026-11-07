@@ -18,8 +18,12 @@
  *
  * COORDINATES. x is `unsigned` so the same prototype covers GEN2 HIRES
  * (0..279, needs 9 bits) and TMS9918 bitmap (0..255). y is `unsigned char`
- * (0..191 on both). Endpoints handed to gfx_line/gfx_rect are assumed on-screen
- * (the H/V fast paths still clip); gfx_circle clips every plotted point itself.
+ * (0..191 on both). gfx_line draws a diagonal only when both endpoints are
+ * on-screen (straight runs clip through the span calls); gfx_rect writes each
+ * outline pixel once, so an XOR plot mode no longer erases its corners;
+ * gfx_circle clips every plotted point and plots each one once; gfx_ellipse
+ * rejects an invisible box and collapses a zero radius to a line inside its
+ * box (corrections ported from the pom2games edition, 2026-11-07).
  */
 #ifndef GFX_H
 #define GFX_H
@@ -42,7 +46,7 @@ void gfx_hline(unsigned x0, unsigned x1, unsigned char y);
 void gfx_vline(unsigned x, unsigned char y0, unsigned char y1);
 
 /* Filled rectangle through opposite corners. Each card wires this to its
- * byte-aligned fast path (GEN2: gen2_hgr_fill_pixrect, TMS9918:
+ * byte-aligned fast path (GEN2: gen2_hgr_fill_box, TMS9918:
  * screen2_filled_rect). Coordinates are inclusive on both ends; both
  * backends sort / bounds-check internally. */
 void gfx_filled_rect(unsigned x0, unsigned char y0,

@@ -30,12 +30,16 @@ delay_ms_a:
         TAX                     ; X = ms count
 @o:     LDY     #203            ; inner reload calibrated for ~1 ms @ 1.022 MHz
 @i:     DEY
-        BNE     @i
+@bi:    BNE     @i
         DEX
-        BNE     @o
+@bo:    BNE     @o
         RTS
         ; Inner BNE staying in the same page is part of the 1 ms calibration:
-        ; a page-cross adds 1 cycle per iteration (~+20% drift). Assert that
-        ; the assembled location keeps the cycle-exact contract.
-        .assert >(@i+2) = >@i, error, "delay_ms_a inner branch crosses a page"
-        .assert >(@o+2) = >@o, error, "delay_ms_a outer branch crosses a page"
+        ; a page-cross adds 1 cycle per iteration (~+20% drift). A taken
+        ; branch pays it when the address AFTER the branch (@bi+2 / @bo+2)
+        ; is in another page than its target -- not the branch's own address.
+        ; The old asserts tested @i+2 / @o+2 and missed exactly the case of
+        ; the BNE operand sitting at $xxFF (fixed 2026-11-07, from the
+        ; pom2games edition).
+        .assert >(@bi+2) = >@i, error, "delay_ms_a inner branch crosses a page"
+        .assert >(@bo+2) = >@o, error, "delay_ms_a outer branch crosses a page"

@@ -156,6 +156,10 @@ unsigned char *gen2_hgr_row(unsigned char y);
  * (byte-aligned) or gen2_hgr_clear. */
 void gen2_hgr_fill_pixrect(unsigned x, unsigned char y, unsigned char w, unsigned char h);
 void gen2_hgr_clear_pixrect(unsigned x, unsigned char y, unsigned char w, unsigned char h);
+/* Fill (white) the inclusive box (x0,y0)-(x1,y1), corners in any order,
+ * clipped to the screen. Same asm core as gen2_hgr_fill_pixrect, but both x
+ * edges are 16-bit: one call covers any width up to the full 280 px. */
+void gen2_hgr_fill_box(unsigned x0, unsigned char y0, unsigned x1, unsigned char y1);
 /* Fill (set=1) / erase (set=0) a 6x6 block in the 8x8 grid cell (cx, cy).
  * cx*8/cy*8 done in asm, no clip — for 8px-grid games drawing one cell/call. */
 void gen2_hgr_cell(unsigned char cx, unsigned char cy, unsigned char set);

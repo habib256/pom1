@@ -11,21 +11,11 @@
 #include "gen2_internal.h"
 #include "gfx.h"
 
-/* Horizontal run from (x0..x1) inclusive on scanline y. Splits into <=255px
- * chunks because gen2_hgr_fill_pixrect's width is a single byte. */
+/* Horizontal run from (x0..x1) inclusive on scanline y: one box fill, any
+ * width (the asm core takes both 16-bit x edges, so no 255-px chunking). */
 void gen2_hgr_hline(unsigned x0, unsigned x1, unsigned char y)
 {
-    unsigned len;
-    if (x1 < x0) { unsigned t = x0; x0 = x1; x1 = t; }
-    if (x0 > 279u || y > 191u) return;
-    if (x1 > 279u) x1 = 279u;
-    len = x1 - x0 + 1u;                          /* 1..280 */
-    while (len) {
-        unsigned char chunk = (len > 255u) ? 255u : (unsigned char)len;
-        gen2_hgr_fill_pixrect(x0, y, chunk, 1u);
-        x0  += chunk;
-        len -= chunk;
-    }
+    gen2_hgr_fill_box(x0, y, x1, y);
 }
 
 /* Vertical run from (y0..y1) inclusive at column x. */

@@ -45,6 +45,27 @@ static void gen2_pixrect(unsigned x, unsigned char y,
     gen2_pixrect_asm();
 }
 
+/* Fill the inclusive box (x0,y0)-(x1,y1), corners in any order, through the
+ * same asm core. Both x edges are 16-bit, so a box may span the full 280-px
+ * width in one call -- gen2_hgr_fill_pixrect's width is a single byte, which
+ * is what truncated gfx_filled_rect(0,0,279,191) to a 24-px band and made
+ * gen2_hgr_hline split its runs into 255-px chunks. */
+void gen2_hgr_fill_box(unsigned x0, unsigned char y0, unsigned x1, unsigned char y1)
+{
+    gen2_build_tables();
+    if (x1 < x0) { unsigned t = x0; x0 = x1; x1 = t; }
+    if (y1 < y0) { unsigned char t = y0; y0 = y1; y1 = t; }
+    if (x0 > 279u || y0 > 191u) return;
+    if (x1 > 279u) x1 = 279u;
+    if (y1 > 191u) y1 = 191u;
+    gen2_r_x    = x0;
+    gen2_r_xr   = x1;
+    gen2_r_y0   = y0;
+    gen2_r_rows = (unsigned char)(y1 - y0 + 1u);
+    gen2_r_mode = 1u;
+    gen2_pixrect_asm();
+}
+
 void gen2_hgr_fill_pixrect(unsigned x, unsigned char y, unsigned char w, unsigned char h)
 {
     gen2_pixrect(x, y, w, h, 1u);

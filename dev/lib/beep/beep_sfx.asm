@@ -97,10 +97,14 @@ sfx_burst:
         ldy     sfx_per         ; inner pitch delay (Y=0 -> 256 iters = long rest)
 @dly:
         dey
-        bne     @dly
+@bdly:  bne     @dly
         dex
         bne     @hc
         rts
+        ; The pitch loop's timing assumes its BNE never crosses a page: a
+        ; crossing adds 1 cycle per iteration (~+20 % on the period, so the
+        ; pitch drops) with nothing else to show for it.
+        .assert >(@bdly+2) = >@dly, error, "sfx: pitch delay loop crosses a page"
 
 ; ----------------------------------------------------------------------------
 ; sfx_play -- X=lo, Y=hi. Blocking: run every step of the SFX back to back.
