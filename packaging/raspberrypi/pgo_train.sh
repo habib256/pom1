@@ -103,7 +103,7 @@ for p in "software/Graphic HGR/GEN2Bounces.txt" \
 done
 
 # --- 4. TMS9918 : machine à états VDP, sprites, rendu par ligne --------------
-for p in "software/Graphic TMS9918/TMS_Plasma.txt" \
+for p in "software/Graphic TMS9918/TMS_Split.txt" \
          "software/Graphic TMS9918/TMS_Galaga.txt" \
          "software/Graphic TMS9918/TMS_Stars.txt"; do
     have "$p" && run "TMS9918 — $(basename "$p" .txt)" \

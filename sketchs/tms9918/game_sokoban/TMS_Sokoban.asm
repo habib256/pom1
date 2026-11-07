@@ -7,8 +7,8 @@
 ; Assemble with cc65:
 ;   Build: make
 ;
-; Load in POM1 via File > Load Memory (TMS_Sokoban.txt), then 280R.
-; The TMS9918 card must be enabled (Hardware menu).
+; Ships on the Codetank_ARCADE cartridge (menu at 4000R). From the DevBench:
+; open this file, flash the CODETANKDEV bank, 4000R.
 ;
 ; Display: 32x24 Graphics I mode. Each Sokoban tile = one 16x16
 ; block (a 2x2 grid of 8x8 chars). The 7 tile types each live in

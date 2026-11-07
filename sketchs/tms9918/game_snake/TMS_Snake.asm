@@ -9,10 +9,8 @@
 ;   Build: make
 ;        -o build/TMS_Snake.bin build/TMS_Snake.o
 ;
-; Or just: python3 software/tms9918/emit_TMS_Snake_txt.py
-;
-; Load in POM1 via File > Load Memory (TMS_Snake.txt), then 280R.
-; The TMS9918 card must be enabled (Hardware menu).
+; Ships on the Codetank_ARCADE cartridge (menu at 4000R). From the DevBench:
+; open this file, flash the CODETANKDEV bank, 4000R.
 ;
 ; Footprint: program + ring buffers fit inside the stock 4 KB DRAM
 ; ($0280-$0DFF, see apple1_snake.cfg). Earlier revisions kept a 768 B
