@@ -87,7 +87,8 @@ void gfx_circle(unsigned xc, unsigned char yc, unsigned char r);
 void gfx_ellipse(unsigned x0, unsigned char y0, unsigned x1, unsigned char y1);
 
 /* ===========================================================================
- * Shared integer -> ASCII (gfx_num_dec/hex.c) — STRING BUILDERS only.
+ * Shared integer -> ASCII (gfx_num_dec.s / gfx_num_signed.s / gfx_num_hex.s)
+ * — STRING BUILDERS only.
  * ===========================================================================
  * These produce a NUL-terminated string; they do NOT draw. Each card draws the
  * result its own way (GEN2: gen2_hgr_puts at a pixel; TMS9918: screen_putc at a
@@ -95,11 +96,11 @@ void gfx_ellipse(unsigned x0, unsigned char y0, unsigned x1, unsigned char y1);
  * (pixel-addressed graphics font vs 8px char cells) — that part is deliberately
  * NOT unified here (see README "what stays per-card").
  *
- * This removes the THREE-way duplication of the conversion itself
- * (gen2_utoa asm + gen2_hgr_putx + printlib pl_print_dec/hex).
- *
- * NOTE on speed: gfx_utoa is portable C (/10, %10). GEN2's hot HUD path
- * (gen2_hgr_putu_field) keeps its hand-written asm gen2_utoa — see README. */
+ * ONE converter for every runtime: gfx_utoa is hand-written 6502 (repeated
+ * subtraction, no cc65 udiv16), and gen2c's legacy _gen2_utoa is an alias of
+ * the same routine, so a binary never carries two. All three are asm with no
+ * private zero page, no self-modifying code and no DATA writes (CodeTank-ROM
+ * safe), each its own archive member. */
 
 /* Unsigned decimal, no leading zeros. `buf` must hold >= 6 bytes (65535 + NUL).
  * Returns the digit count written (excluding the NUL). */
@@ -117,7 +118,8 @@ unsigned char gfx_hexstr(char *buf, unsigned value);
  * A card-NEUTRAL cell-cursor model: an 8x8 character grid with a single
  * cursor, so a program can `gfx_gotoxy` + `gfx_text` / `gfx_putu` and compile
  * for GEN2 *or* TMS9918 by backend choice alone. The shared layer here owns the
- * cursor, advance/wrap and the number formatting; each card supplies the two
+ * cursor, advance/wrap and the number writers (gfx_putu.c / gfx_puti.c /
+ * gfx_putx.c, one member each); each card supplies the two
  * one-line cell primitives below (gfx_text_backend_<card>.c) that map a cell to
  * its native glyph blit (GEN2 8x8 gen2_hgr_puts8 / TMS9918 screen2_putc).
  *

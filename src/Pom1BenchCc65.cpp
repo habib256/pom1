@@ -314,8 +314,9 @@ std::string jsonQuoted(const std::string& s)
 // linked as DIRECT objects, never archived — they must survive even when no
 // symbol references them.
 //   - gen2c is split into per-family modules (init/pixel/rect/text/sprites/
-//     hgr_blit_x2/preshift/sprmask/sprengine/geom/lores) + the hot-path asm
-//     gen2_blit.s and the hand-asm gen2_hgr_x2.s (x2 inflate; its .c
+//     hgr_blit_x2/preshift/sprmask/sprengine/geom/lores) + the hot-path asm,
+//     one member per kernel (gen2_*_asm.s, each owning its
+//     zero page) and the hand-asm gen2_hgr_x2.s (x2 inflate; its .c
 //     miscompiles under -Oirs).
 //   - the shared apple1c text base rides along with GEN2 so C programs can
 //     also print to the WOZ terminal / read the keyboard.
@@ -347,8 +348,13 @@ const char* kBenchCSpecGen2c = R"json({
     { "path": "/dev/lib/gen2c/gen2_init.c", "name": "gen2_init.c" },
     { "path": "/dev/lib/gen2c/gen2_pixel.c", "name": "gen2_pixel.c" },
     { "path": "/dev/lib/gen2c/gen2_rect.c", "name": "gen2_rect.c" },
+    { "path": "/dev/lib/gen2c/gen2_fill_rect.c", "name": "gen2_fill_rect.c" },
+    { "path": "/dev/lib/gen2c/gen2_cell.c", "name": "gen2_cell.c" },
+    { "path": "/dev/lib/gen2c/gen2_colorize.c", "name": "gen2_colorize.c" },
     { "path": "/dev/lib/gen2c/gen2_text.c", "name": "gen2_text.c" },
     { "path": "/dev/lib/gen2c/gen2_text_num.c", "name": "gen2_text_num.c" },
+    { "path": "/dev/lib/gen2c/gen2_text_field.c", "name": "gen2_text_field.c" },
+    { "path": "/dev/lib/gen2c/gen2_text_hex.c", "name": "gen2_text_hex.c" },
     { "path": "/dev/lib/gen2c/gen2_sprites.c", "name": "gen2_sprites.c" },
     { "path": "/dev/lib/gen2c/gen2_hgr_blit_x2.c", "name": "gen2_hgr_blit_x2.c" },
     { "path": "/dev/lib/gen2c/gen2_preshift.c", "name": "gen2_preshift.c" },
@@ -359,17 +365,39 @@ const char* kBenchCSpecGen2c = R"json({
     { "path": "/dev/lib/gfx/gfx_rect.c", "name": "gfx_rect.c" },
     { "path": "/dev/lib/gfx/gfx_circle.c", "name": "gfx_circle.c" },
     { "path": "/dev/lib/gfx/gfx_ellipse.c", "name": "gfx_ellipse.c" },
-    { "path": "/dev/lib/gfx/gfx_num_dec.c", "name": "gfx_num_dec.c" },
-    { "path": "/dev/lib/gfx/gfx_num_hex.c", "name": "gfx_num_hex.c" },
     { "path": "/dev/lib/gfx/gfx_text.c", "name": "gfx_text.c" },
+    { "path": "/dev/lib/gfx/gfx_putu.c", "name": "gfx_putu.c" },
+    { "path": "/dev/lib/gfx/gfx_puti.c", "name": "gfx_puti.c" },
+    { "path": "/dev/lib/gfx/gfx_putx.c", "name": "gfx_putx.c" },
     { "path": "/dev/lib/gfx/gfx_backend_gen2.c", "name": "gfx_backend_gen2.c" },
     { "path": "/dev/lib/gfx/gfx_backend_gen2_rect.c", "name": "gfx_backend_gen2_rect.c" },
     { "path": "/dev/lib/gfx/gfx_text_backend_gen2.c", "name": "gfx_text_backend_gen2.c" }
   ],
   "asmSources": [
-    { "path": "/dev/lib/gen2c/gen2_blit.s", "name": "gen2_blit.s" },
+    { "path": "/dev/lib/gen2c/gen2_mode_asm.s", "name": "gen2_mode_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_mode_clear_asm.s", "name": "gen2_mode_clear_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_lores_init_asm.s", "name": "gen2_lores_init_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_hgr_clear_asm.s", "name": "gen2_hgr_clear_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_pen_asm.s", "name": "gen2_pen_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_text_params.s", "name": "gen2_text_params.s" },
+    { "path": "/dev/lib/gen2c/gen2_carrier_params.s", "name": "gen2_carrier_params.s" },
+    { "path": "/dev/lib/gen2c/gen2_text16_asm.s", "name": "gen2_text16_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_text8_asm.s", "name": "gen2_text8_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_fill_rect_asm.s", "name": "gen2_fill_rect_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_pixel_asm.s", "name": "gen2_pixel_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_pixrect_asm.s", "name": "gen2_pixrect_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_cell_asm.s", "name": "gen2_cell_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_colorize_asm.s", "name": "gen2_colorize_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_blit_params.s", "name": "gen2_blit_params.s" },
+    { "path": "/dev/lib/gen2c/gen2_blit_asm.s", "name": "gen2_blit_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_blit7_asm.s", "name": "gen2_blit7_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_preshift_asm.s", "name": "gen2_preshift_asm.s" },
+    { "path": "/dev/lib/gen2c/gen2_utoa_asm.s", "name": "gen2_utoa_asm.s" },
     { "path": "/dev/lib/gen2c/gen2_hgr_x2.s", "name": "gen2_hgr_x2.s" },
     { "path": "/dev/lib/gen2c/gen2_sprmask.s", "name": "gen2_sprmask.s" },
+    { "path": "/dev/lib/gfx/gfx_num_dec.s", "name": "gfx_num_dec.s" },
+    { "path": "/dev/lib/gfx/gfx_num_signed.s", "name": "gfx_num_signed.s" },
+    { "path": "/dev/lib/gfx/gfx_num_hex.s", "name": "gfx_num_hex.s" },
     { "path": "/dev/lib/apple1c/apple1io_asm.s", "name": "apple1io_asm.s" },
     { "path": "/dev/lib/apple1c/apple1io_str.s", "name": "apple1io_str.s" },
     { "path": "/dev/lib/apple1c/apple1io_key.s", "name": "apple1io_key.s" }
@@ -402,16 +430,20 @@ const char* kBenchCSpecTms9918c = R"json({
     { "path": "/dev/lib/gfx/gfx_rect.c", "name": "gfx_rect.c" },
     { "path": "/dev/lib/gfx/gfx_circle.c", "name": "gfx_circle.c" },
     { "path": "/dev/lib/gfx/gfx_ellipse.c", "name": "gfx_ellipse.c" },
-    { "path": "/dev/lib/gfx/gfx_num_dec.c", "name": "gfx_num_dec.c" },
-    { "path": "/dev/lib/gfx/gfx_num_hex.c", "name": "gfx_num_hex.c" },
     { "path": "/dev/lib/gfx/gfx_text.c", "name": "gfx_text.c" },
+    { "path": "/dev/lib/gfx/gfx_putu.c", "name": "gfx_putu.c" },
+    { "path": "/dev/lib/gfx/gfx_puti.c", "name": "gfx_puti.c" },
+    { "path": "/dev/lib/gfx/gfx_putx.c", "name": "gfx_putx.c" },
     { "path": "/dev/lib/gfx/gfx_backend_tms.c", "name": "gfx_backend_tms.c" },
     { "path": "/dev/lib/gfx/gfx_backend_tms_rect.c", "name": "gfx_backend_tms_rect.c" },
     { "path": "/dev/lib/gfx/gfx_text_backend_tms.c", "name": "gfx_text_backend_tms.c" }
   ],
   "asmSources": [
     { "path": "/dev/lib/tms9918c/apple1_asm.s", "name": "apple1_asm.s" },
-    { "path": "/dev/lib/tms9918c/tms_fast.s", "name": "tms_fast.s" }
+    { "path": "/dev/lib/tms9918c/tms_fast.s", "name": "tms_fast.s" },
+    { "path": "/dev/lib/gfx/gfx_num_dec.s", "name": "gfx_num_dec.s" },
+    { "path": "/dev/lib/gfx/gfx_num_signed.s", "name": "gfx_num_signed.s" },
+    { "path": "/dev/lib/gfx/gfx_num_hex.s", "name": "gfx_num_hex.s" }
   ]
 }
 )json";

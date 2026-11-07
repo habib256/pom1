@@ -54,7 +54,7 @@ ASM_INC  := -I tms9918 -I apple1 -I m6502 -I beep -I sid
 # .o/.lib artefacts. gfx/ has its own `clean` (delegated below).
 SPILL_DIRS := apple1c gen2c tms9918c
 
-.PHONY: check equates zp-test compile compile-c compile-gfx compile-asm clean
+.PHONY: check equates zp-test compile compile-c compile-gfx compile-gen2c-lib compile-asm clean
 
 check: equates zp-test compile
 	@echo "dev/lib: check OK -- equates, zp.inc layout, and all sources compile"
@@ -77,7 +77,7 @@ zp-test:
 	@echo "[lib] zp.inc slot-pool layout pin ..."
 	@$(MAKE) --no-print-directory -C apple1/test test
 
-compile: compile-c compile-gfx compile-asm
+compile: compile-c compile-gfx compile-gen2c-lib compile-asm
 	@rm -f $(TMP)
 
 compile-c:
@@ -98,6 +98,13 @@ compile-gfx:
 	@echo "[lib] gfx card-neutral layer (both backends) ..."
 	@$(MAKE) --no-print-directory -C gfx check
 
+# gen2c.lib: the archive the GEN2 C sketches link (gen2c members + the GEN2
+# half of gfx). Building it checks the member list and the member names.
+compile-gen2c-lib:
+	@echo "[lib] gen2c.lib archive (gen2c + GEN2 gfx members) ..."
+	@$(MAKE) --no-print-directory -s -C gen2c lib >/dev/null
+	@echo "  ok  gen2c/gen2c.lib"
+
 compile-asm:
 	@echo "[lib] assembling standalone asm objects to .o ..."
 	@for s in $(ASM_SRCS); do \
@@ -108,5 +115,6 @@ clean:
 	@rm -f $(TMP)
 	@$(MAKE) --no-print-directory -C apple1/test clean
 	@$(MAKE) --no-print-directory -C gfx clean
+	@$(MAKE) --no-print-directory -C gen2c clean >/dev/null
 	@for d in $(SPILL_DIRS); do rm -f $$d/*.o $$d/*.lib; done
 	@echo "[lib] clean -- swept .o/.lib from $(SPILL_DIRS) + gfx + apple1/test"

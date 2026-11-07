@@ -20,7 +20,7 @@ mode itself (`gen2_hgr_init()` does this).
 | Function | Effect |
 |---|---|
 | `gen2_hgr_init()`            | graphics + HIRES + page 1 + full screen (call first) |
-| `gen2_hgr_clear(fill)`       | fill the `$2000-$3FFF` page (`0` = black) |
+| `gen2_hgr_clear(fill)`       | fill the current draw page (`$2000` or `$4000`, 8 KB; `0` = black) — **asm**, unrolled (~46 000 cycles) |
 | `gen2_hgr_fill_rect(y0,rows,col0,ncols,val)` | **asm** byte-fill a rectangle (fast targeted erase) |
 | `gen2_hgr_fill_pixrect(x,y,w,h)` / `gen2_hgr_clear_pixrect(...)` | **asm** fill / erase a PIXEL rectangle (solid blocks/sprites) |
 | `gen2_hgr_plot(x, y)` / `gen2_hgr_unplot(x, y)` | set / clear a white pixel, `x:0..279 y:0..191` — **asm** |
@@ -64,7 +64,7 @@ and the per-pixel hot paths stay byte-for-byte identical (the page costs a table
 refresh at the flip, never a cycle per pixel). Demo:
 `sketchs/gen2/demo_bounces` (`gen2_set_draw_page` / `gen2_show_page`).
 
-### Assembly fast paths (`gen2_blit.s`)
+### Assembly fast paths (one archive member per kernel)
 
 The text and erase hot paths run in hand-written 6502 (the C alone computed
 `x/7` / `x%7` software divisions per pixel — no hardware DIV on the 6502 — which
@@ -87,7 +87,11 @@ cost millions of cycles for one line of text):
   clips and passes `x/xr/y/h/mode`; the asm derives columns + edge masks. **~10×
   faster than a per-pixel `gen2_hgr_plot` double loop** — a 6×6 block is one call
   instead of 36. This is the primitive for block/tile/sprite games like Snake.
-- **`gen2_colorize_asm`** — behind `gen2_hgr_puts_color`. GEN2 HIRES has NO
+- **`gen2_hgr_clear`** — eight absolute `STA abs,Y` per turn, the store pages
+  patched once per group of eight pages (pom2games `HGR_CLEAR_LOOP`): ~46 000
+  cycles per 8 KB page instead of ~90 000, no zero page. **Self-modifying —
+  RAM only**; gen2c programs run from RAM at `$6000`, never link it into a ROM.
+- **`gen2_colorize_asm`** — behind `gen2_hgr_colorize`. GEN2 HIRES has NO
   per-pixel colour; colour is an NTSC artifact of the bit pattern + the byte's
   high bit. So colour text is drawn WHITE, then this pass rewrites each byte
   `b = (b & carrier[col&1]) | hibit`, masking it down to the colour's carrier.
@@ -97,58 +101,92 @@ cost millions of cycles for one line of text):
 
 These read scanline base addresses from the `gen2_rowlo`/`gen2_rowhi` tables —
 and `plot`/`unplot` also the `gen2_col7`/`gen2_mask7` x-lookup tables — that
-`gen2_init.c` builds once. **Any project that compiles any of the per-family C
-modules (see `gen2c.mk`) must also assemble `gen2_blit.s`** (the per-project
-Makefile / emit script and the POM1 Bench already do). Parameters travel
-through a zero-page block (`#pragma zpsym`), so no cc65 stack juggling.
+`gen2_init.c` builds once. Parameters travel through zero-page blocks
+(`#pragma zpsym` in `gen2_internal.h`), so no cc65 stack juggling.
 
-### Per-family split (ld65 dead-strip)
+| Member | Routines | Zero page it owns |
+|---|---|---|
+| `gen2_mode_asm.s` / `gen2_lores_init_asm.s` / `gen2_mode_clear_asm.s` | `gen2_hgr_init` + `gen2_text_restore` / `gen2_lores_init` / `gen2_hgr_init_clear` (from `../gen2/gen2_init.asm`) | — |
+| `gen2_hgr_clear_asm.s` | `gen2_hgr_clear` (self-modifying) | — |
+| `gen2_text_params.s` | the `gen2_g_*` / `gen2_t_*` text block | 13 |
+| `gen2_carrier_params.s` | the `gen2_z_ce/co/hi` colour carriers | 3 |
+| `gen2_text16_asm.s` | `gen2_puts_run`, `gen2_blit_glyph`, `gen2_blit_glyph_color` | — (cc65 scratch) |
+| `gen2_text8_asm.s` | `gen2_puts_run8`, `gen2_blit_glyph8` | — |
+| `gen2_pen_asm.s` | the shared pixel pen (`gen2_plot_one`, `gen2_advance`) | — |
+| `gen2_fill_rect_asm.s` | `gen2_fill_rect_asm` | 5 |
+| `gen2_pixel_asm.s` | `gen2_plot_asm`, `gen2_unplot_asm` | 3 |
+| `gen2_pixrect_asm.s` | `gen2_pixrect_asm` | 7 |
+| `gen2_cell_asm.s` | `gen2_cell_asm` (args alias the pixrect block) | — |
+| `gen2_colorize_asm.s` | `gen2_colorize_asm` | 4 |
+| `gen2_blit_params.s` | the `gen2_b_*` sprite block | 9 |
+| `gen2_blit_asm.s` / `gen2_blit7_asm.s` | `gen2_blit_run` / `gen2_blit7_run` | — |
+| `gen2_preshift_asm.s` | `gen2_xs_run`, `gen2_preshift_xor_run` | 5 |
+| `gen2_utoa_asm.s` | legacy `gen2_utoa` = alias of gfx's one converter `gfx_u16_dec` | — |
 
-The runtime is split into small per-family `.c` modules (`gen2_init.c`,
-`gen2_pixel.c`, `gen2_rect.c`, `gen2_text.c` + `gen2_text_num.c`,
-`gen2_sprites.c`, `gen2_geom.c`, `gen2_lores.c`) plus a private
-`gen2_internal.h`. cc65's ld65 strips at the `.o`-file granularity, not per
-function — splitting per family lets a text-only demo skip the pixel + sprite +
-lores code. TEXT is itself two modules (glyph core vs number formatters): a
-string-only program linked from an archive also drops `putu/putx/…` and what
-they pull (`gen2_rect` via `putu_field`'s erase, `gfx_num_hex`, cc65 soft
-multiply) — the split was sized with `tools/size_report.py --why`. `gen2c.mk` exposes the matching `GEN2C_*_SRCS`
-variables so a project picks only what it calls. The new `sketchs/gen2/_template_gen2c/`
-shows a ~6 KB program using only CORE + TEXT + RECT — about 5 KB smaller than
-the same demo with `GEN2C_ALL_SRCS`.
+These replace the former monolithic `gen2_blit.s` (1292 lines, ~1.85 KB of code
+and 73 B of zero page linked into EVERY gen2c program); the split follows
+pom2games `dev/lib/hgrc/*_asm.s`. Decimal digits come from the card-neutral
+`gfx_utoa` (`../gfx/gfx_num_dec.s`), shared with the TMS9918 runtime.
 
-### Build integration (`gen2c.mk`)
+### Per-family split and the archive (ld65 dead-strip)
 
-A project's Makefile pulls the family source sets from `gen2c.mk` rather than
-hand-listing the `.c` modules, so it stays in lockstep with the split. Point
-`GEN2C` (and `APPLE1C`) at the lib dirs, `include` the fragment, then compose
-`SRCS` from the `GEN2C_*_SRCS` variables for exactly the families you call:
+ld65 links an object named on the command line WHOLE, but pulls from a `.lib`
+only the members a program references. The runtime is therefore one small
+module per entry family (`gen2_rect.c` / `gen2_fill_rect.c` / `gen2_cell.c` /
+`gen2_colorize.c`; `gen2_text.c` / `gen2_text_num.c` / `gen2_text_field.c` /
+`gen2_text_hex.c`; ...) plus one asm member per kernel, and programs link the
+**`gen2c.lib`** archive. It also carries the GEN2 half of [`../gfx/`](../gfx/):
+gen2c and gfx reference each other, and ld65 never rescans a library listed
+earlier, so one archive is the only link order that always resolves.
+
+Shipped programs, before (objects: `GEN2C_*_SRCS` + `gfx-gen2.lib`) and after
+(`gen2c.lib`), from `tools/size_report.py` on the ld65 maps (ZP includes the
+26 bytes of the cc65 runtime):
+
+| Program | Binary | Zero page |
+|---|---|---|
+| `demo_bounces` (GEN2Bounces) | 19 295 → 14 174 B | 134 → 61 |
+| `demo_sprite_animals` (GEN2Animals) | 16 740 → 14 339 B | 99 → 56 |
+| `demo_preshift` | 5 767 → 4 496 B | 99 → 54 |
+| `_template_gen2c` | 6 550 → 4 698 B | 99 → 53 |
+| `game_snake_telemetry` (GEN2Snake, DevBench) | 9 241 → 7 965 B | 99 → 58 |
+| `demo_lores` (GEN2Lores, DevBench) | 4 667 → 2 827 B | 99 → 26 |
+| `portable/hello_gfx_text` (GEN2) | 15 361 → 4 334 B | 134 → 42 |
+
+### Build integration (`gen2c.mk`, `Makefile`)
+
+`make -C dev/lib/gen2c lib` builds `gen2c.lib` (objects under `obj/`, both
+gitignored). A project's Makefile includes `gen2c.mk` for the paths and lets
+the library's own Makefile decide what is stale:
 
 ```make
-LIBDIR  := ../../../lib
+LIBDIR  := ../../../dev/lib
 GEN2C   := $(LIBDIR)/gen2c
 APPLE1C := $(LIBDIR)/apple1c
 GFX     := $(LIBDIR)/gfx
 include $(APPLE1C)/apple1c.mk
 include $(GEN2C)/gen2c.mk
 
-# Smallest HIRES binary — CORE + TEXT + RECT only:
-SRCS := main.c $(GEN2C_CORE_SRCS) $(GEN2C_TEXT_SRCS) $(GEN2C_RECT_SRCS) $(APPLE1C_SRCS)
-# …or every family (matches the existing demos):
-# SRCS := main.c $(GEN2C_ALL_SRCS) $(APPLE1C_SRCS)
-
+SRCS := main.c $(APPLE1C_SRCS)
 INCS := $(GEN2C_INCS) $(APPLE1C_INCS) -I $(GFX)
+
+$(GEN2C_LIB): FORCE
+	@$(MAKE) --no-print-directory -C $(GEN2C) lib
+FORCE:
+main.bin: main.c $(GEN2C_LIB)
+	cl65 -t none -Oirs -C $(CC65DIR)/apple1_gen2_c.cfg $(INCS) $(SRCS) $(GEN2C_LIB) -o $@
 ```
 
-`gen2c.mk` exports: `GEN2C_CORE_SRCS` (always link — tables + soft-switch sink +
-draw-page setter + `gen2_blit.s`), `GEN2C_PIXEL_SRCS`, `GEN2C_RECT_SRCS`,
-`GEN2C_TEXT_SRCS`, `GEN2C_SPRITES_SRCS`, `GEN2C_GEOM_SRCS`, `GEN2C_LORES_SRCS`,
-the `GEN2C_ALL_SRCS` umbrella, and `GEN2C_INCS`. **`GEN2C_GEOM_SRCS` and
-`GEN2C_TEXT_SRCS` call `gfx_*`**, so a project that includes either must also
-link `gfx-gen2.lib` (`make -C ../gfx gen2`) — see [`../gfx/`](../gfx/). The
-generic asm/C build pattern (Makefile skeleton, emit script, linker cfgs) is in
-[`../README.md`](../README.md); this section covers only the gen2c-specific
-`.mk` knobs.
+`gen2c.mk` exports `GEN2C_LIB`, `GEN2C_INCS`, and the family source sets the
+archive is built from (`GEN2C_CORE_SRCS` — `gen2_init.c` + every asm kernel
+member —, `GEN2C_PIXEL_SRCS`, `GEN2C_RECT_SRCS`, `GEN2C_TEXT_SRCS`,
+`GEN2C_SPRITES_SRCS`, `GEN2C_GEOM_SRCS`, `GEN2C_LORES_SRCS`, ...,
+`GEN2C_ALL_SRCS`). Linking those as objects still works, but links every listed
+kernel whole and needs `gfx-gen2.lib` after them. **Keep in sync** with the
+DevBench spec `dev/bench/gen2c.json` and its compiled-in copy
+`kBenchCSpecGen2c` (`src/Pom1BenchCc65.cpp`); `size_report_smoke` builds the
+spec. The generic asm/C build pattern (Makefile skeleton, emit script, linker
+cfgs) is in [`../README.md`](../README.md).
 
 ## Minimal program
 
@@ -166,22 +204,18 @@ void main(void) {
 }
 ```
 
-Build (run `6000R`). The `text` and `geom` families call `gfx_*`, so build the
-GEN2 gfx archive once and link it (and add `-I ../gfx` for `gfx.h`):
+Build (run `6000R`) against the archive (`-I ../gfx` for `gfx.h`):
 
 ```bash
-make -C ../gfx gen2          # builds ../gfx/gfx-gen2.lib (once)
+make -C . lib                # builds ./gen2c.lib (gen2c + its gfx half)
 
 cl65 -t none -Oirs -C ../../cc65/apple1_gen2_c.cfg -I . -I ../apple1c -I ../gfx \
-     hello.c gen2_init.c gen2_pixel.c gen2_rect.c gen2_text.c gen2_sprites.c \
-     gen2_geom.c gen2_lores.c gen2_blit.s \
-     ../apple1c/apple1io_asm.s ../apple1c/apple1io_str.s ../apple1c/apple1io_key.s \
-     ../gfx/gfx-gen2.lib -o hello.bin
+     hello.c ../apple1c/apple1io_asm.s ../apple1c/apple1io_str.s \
+     ../apple1c/apple1io_key.s gen2c.lib -o hello.bin
 ```
 
-For minimal binaries, list only the families you actually call (see
-`gen2c.mk`). Or just pick **GEN2 HGR (C)** in the *POM1 Bench* — it wires
-everything for you.
+Or just pick **GEN2 HGR (C)** in the *POM1 Bench* — it builds the same members
+into its own runtime archive.
 
 ## Two gotchas (read these)
 
@@ -191,8 +225,8 @@ everything for you.
 2. **Don't clear the framebuffer with a naïve 16-bit pointer loop.**
    `for (i = 0; i < 8192; i++) p[i] = 0;` is ~20× slower (it drags in cc65's
    16-bit pointer-increment helper) and blanks the screen for seconds. Use
-   `gen2_hgr_clear()` (asm in `gen2_blit.s`), which fills a page at a time
-   with an 8-bit index.
+   `gen2_hgr_clear()` (asm, `gen2_hgr_clear_asm.s`): eight unrolled absolute
+   stores per 8-bit index step, ~46 000 cycles for the whole page.
 
 Card hardware reference (soft switches, HST0, beam timing) lives in the POM1
 documentation set; for asm-level detail and the canonical equates see the asm

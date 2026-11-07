@@ -6,7 +6,7 @@
  * Mirror of gen2c/gen2_internal.h. Currently a scaffolding header: the
  * tms9918c port has no C↔asm ZP parameter blocks (its asm fast paths in
  * tms_fast.s use the cc65 software stack via popa/popax, not ZEROPAGE
- * parameters like gen2_blit.s does). The header is in place so a future
+ * parameters like the gen2c asm members do). The header is in place so a future
  * sprint can park `#pragma zpsym` directives for the hot-path globals
  * (tms_cursor_x/y/reverse, vsync_frames, rand*_state) once each one is
  * migrated to ZEROPAGE via `#pragma bss-name(push, "ZEROPAGE")` in its

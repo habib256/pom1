@@ -1,8 +1,8 @@
 /*
  * gfx_text.c — card-NEUTRAL positioned-text façade (AXIS 3). See gfx.h.
  *
- * Owns the 8x8 cell cursor, the advance/wrap rules and the number formatting;
- * draws nothing itself — every glyph goes through the per-card backend
+ * Owns the 8x8 cell cursor and the advance/wrap rules (the number writers are
+ * separate members: gfx_putu.c / gfx_puti.c / gfx_putx.c); draws nothing itself — every glyph goes through the per-card backend
  * gfx_cell_glyph (gfx_text_backend_<card>.c). Includes ONLY gfx.h, so the same
  * object links against either backend (GEN2 or TMS9918) unchanged.
  *
@@ -53,23 +53,6 @@ void gfx_text(const char *s)
         gfx_putc(*s++);
 }
 
-void gfx_putu(unsigned value)
-{
-    char buf[6];                     /* 65535 = 5 digits + NUL */
-    gfx_utoa(buf, value);
-    gfx_text(buf);
-}
-
-void gfx_puti(int value)
-{
-    char buf[7];                     /* '-' + 5 digits + NUL */
-    gfx_itoa(buf, value);
-    gfx_text(buf);
-}
-
-void gfx_putx(unsigned value)
-{
-    char buf[5];                     /* 4 hex digits + NUL */
-    gfx_hexstr(buf, value);
-    gfx_text(buf);
-}
+/* gfx_putu / gfx_puti / gfx_putx live in their own members (gfx_putu.c,
+ * gfx_puti.c, gfx_putx.c) so a string-only program does not link the number
+ * converters. */

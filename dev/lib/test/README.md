@@ -112,6 +112,9 @@ EXPECT: ADDR B0 B1 ...       hex bytes expected at ADDR (repeatable)
 | `t34_m1_upload16_clear.s` | `tms9918/tms9918m1` — 16-bit `vdp_upload` + `clear_name_table` |
 | `t35_m1_pair_sei.s` | `tms9918/tms9918m1` built with `TMS_PAIR_SEI = 1` — the I flag survives the masked pairs |
 
+| `t36_gfx_utoa.s` | `gfx/gfx_num_dec.s` + `gfx_num_signed.s` — the one decimal converter, wide sweep vs an ASCII-counter oracle |
+| `t37_gfx_hexstr.s` | `gfx/gfx_num_hex.s` — `gfx_hexstr`, wide sweep vs a nibble-counter oracle |
+| `t38_c_hgr_clear.c` | `gen2c/gen2_hgr_clear_asm.s` (C) — unrolled self-modifying clear: lazy page-1 default, page 2, re-patch, window bounds |
 `t18`–`t25` link with [`micro/micro_gen2.cfg`](micro/micro_gen2.cfg) (code at
 `$6000`, `BSS` at `$9000`, preset 11): the GEN2 modules and their tables do not
 fit `micro.cfg`'s `$0300-$0DFF` + 256-byte `BSS`.

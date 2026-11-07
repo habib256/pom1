@@ -18,7 +18,7 @@
 ; Power-on state is INDETERMINATE (PLD POR is untrustworthy) and the Apple-1
 ; RESET line never touches the latch: ALWAYS initialise every switch your
 ; program relies on before displaying anything. JSR gen2_hgr_init or
-; gen2_lores_init from dev/lib/gen2/gen2_init.asm (or link gen2_blit.s from C).
+; gen2_lores_init from dev/lib/gen2/gen2_init.asm (or link gen2c.lib from C).
 ;
 ; The framebuffer SRAM is indeterminate too, and the card has NO display-enable
 ; bit — so a HIRES program that flips modes before clearing $2000-$3FFF shows

@@ -13,7 +13,7 @@
 #include "gfx.h"   /* shared int->ASCII builders (dev/lib/gfx); link gfx-tms.lib */
 
 /* These now build the digits with the card-neutral gfx_utoa / gfx_hexstr (the
- * de-dup: gfx_num.c is the single implementation, replacing the per-card copies)
+ * de-dup: gfx_num_dec.s / gfx_num_hex.s are the single implementation, replacing the per-card copies)
  * and emit the result through the caller's pl_putc_fn. Output matches printlib's
  * documented contract — "no leading zeros, no width control" (printlib.h) — so
  * hex is now minimal-width, like the decimal path always was. */

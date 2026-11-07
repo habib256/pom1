@@ -184,7 +184,8 @@ TMS9918C_RUNTIME  = [
 ]
 GFX_RUNTIME       = [
     "gfx_line.c", "gfx_rect.c", "gfx_circle.c", "gfx_ellipse.c",
-    "gfx_num_dec.c", "gfx_num_hex.c", "gfx_text.c",
+    "gfx_num_dec.s", "gfx_num_signed.s", "gfx_num_hex.s",
+    "gfx_text.c", "gfx_putu.c", "gfx_puti.c", "gfx_putx.c",
     "gfx_backend_tms.c", "gfx_backend_tms_rect.c", "gfx_text_backend_tms.c",
 ]
 

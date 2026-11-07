@@ -23,15 +23,19 @@
     { "path": "/dev/lib/gfx/gfx_rect.c", "name": "gfx_rect.c" },
     { "path": "/dev/lib/gfx/gfx_circle.c", "name": "gfx_circle.c" },
     { "path": "/dev/lib/gfx/gfx_ellipse.c", "name": "gfx_ellipse.c" },
-    { "path": "/dev/lib/gfx/gfx_num_dec.c", "name": "gfx_num_dec.c" },
-    { "path": "/dev/lib/gfx/gfx_num_hex.c", "name": "gfx_num_hex.c" },
     { "path": "/dev/lib/gfx/gfx_text.c", "name": "gfx_text.c" },
+    { "path": "/dev/lib/gfx/gfx_putu.c", "name": "gfx_putu.c" },
+    { "path": "/dev/lib/gfx/gfx_puti.c", "name": "gfx_puti.c" },
+    { "path": "/dev/lib/gfx/gfx_putx.c", "name": "gfx_putx.c" },
     { "path": "/dev/lib/gfx/gfx_backend_tms.c", "name": "gfx_backend_tms.c" },
     { "path": "/dev/lib/gfx/gfx_backend_tms_rect.c", "name": "gfx_backend_tms_rect.c" },
     { "path": "/dev/lib/gfx/gfx_text_backend_tms.c", "name": "gfx_text_backend_tms.c" }
   ],
   "asmSources": [
     { "path": "/dev/lib/tms9918c/apple1_asm.s", "name": "apple1_asm.s" },
-    { "path": "/dev/lib/tms9918c/tms_fast.s", "name": "tms_fast.s" }
+    { "path": "/dev/lib/tms9918c/tms_fast.s", "name": "tms_fast.s" },
+    { "path": "/dev/lib/gfx/gfx_num_dec.s", "name": "gfx_num_dec.s" },
+    { "path": "/dev/lib/gfx/gfx_num_signed.s", "name": "gfx_num_signed.s" },
+    { "path": "/dev/lib/gfx/gfx_num_hex.s", "name": "gfx_num_hex.s" }
   ]
 }

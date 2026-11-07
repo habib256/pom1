@@ -1,8 +1,7 @@
 /* gen2_sprites.c — 1bpp sprite blit (gen2_hgr_blit, gen2_hgr_blit7).
  *
- * Named *_sprites instead of *_blit to avoid the gen2_blit.o collision with
- * gen2_blit.s (the asm fast paths). The blit kernels live in the asm file
- * (gen2_blit_run / gen2_blit7_run); this file is just the C clipping wrapper. */
+ * The blit kernels live in asm (gen2_blit_asm.s: gen2_blit_run; gen2_blit7_asm.s:
+ * gen2_blit7_run); this file is just the C clipping wrapper. */
 
 #include "gen2.h"
 #include "gen2_internal.h"
