@@ -94,6 +94,12 @@ EXPECT: ADDR B0 B1 ...       hex bytes expected at ADDR (repeatable)
 | `t08_shadowcast.s` | `games/rogue/shadowcast` — FOV + index math |
 | `t09_c_sprite_dodge.c` | `tms9918c` (C) — `tms_set_sprite` / SAT terminator |
 | `t10_m1_upload_name_at.s` | `tms9918/tms9918m1` — `name_at_rc` + `vdp_upload_a` |
+| `t18_c_line.c` | `gfx/gfx_line_gen2.s` — GEN2 `gfx_line`, pixel-identical to `gfx_line.c` |
+| `t19_c_lores.c` | `gen2c/gen2_lores_*.s` — LORES blocks, spans, rects, clips, page 2 |
+| `t20_c_sprmask.c` | `gen2c/gen2_sprmask.s` — masked draw / save / restore, clips, phases |
+| `t21_c_tables.c` | `gen2c/gen2_tables.s` + `gen2_page.s` — tables, `gen2_hgr_row`, page flips |
+| `t22_c_rect.c` | `gen2c/gen2_rect_run.s` — pixel and byte rectangles vs a C reference |
+| `t23_c_inflate_x2_all.c` | `gen2c/gen2_hgr_x2.s` — x2 inflate, all colours, wbytes 0 |
 
 Each header's `GUARDS:` block names the exact bug class it pins (e.g. `t06` pins
 the shared-ZP argument window whose clobber let a `Maze3D` bug survive for
