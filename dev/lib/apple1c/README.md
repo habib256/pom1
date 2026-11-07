@@ -36,7 +36,7 @@ is plain text, GEN2 HGR colour, or TMS9918 sprites.
 > cc65 put all four in ONE 101-byte object: printing a string linked the key
 > readers too. They are now hand-written and split by family (67 bytes for the
 > whole runtime, was 125), so an archive link — the DevBench's — pulls only
-> what a program calls. Model: the pom2games edition's `apple2c/apple2io_str.s`.
+> what a program calls. Model: the pom2games edition's `pom2games/dev/lib/apple2c/apple2io_str.s`.
 > The `_asm.s` suffix of the shim mirrors Nino's `apple1.c` + `apple1_asm.s`
 > (a hand-written `apple1io.s` would be clobbered by cc65's intermediate file
 > of any `apple1io.c`).

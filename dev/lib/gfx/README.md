@@ -30,7 +30,7 @@ ambiguity to resolve at runtime.
 |------|------|
 | `gfx.h` | card-neutral API + the backend contract |
 | `gfx_line.c` | `gfx_line` (shared geometry; the TMS9918 archive's line) |
-| `gfx_line_gen2.s` | GEN2's `gfx_line`, in **asm** — same contract and the same pixels as `gfx_line.c` (pinned by micro-test `t39_c_line`), an incremental Bresenham on the gen2c row/column/mask tables instead of one `gfx_plot` call per pixel: `gfx_line(0,0,279,191)` 269 866 → 20 655 cycles, +55 B. Replaces `gfx_line.o` in `gfx-gen2.lib`. Port of pom2games `hgrc/hgr_line_asm.s` |
+| `gfx_line_gen2.s` | GEN2's `gfx_line`, in **asm** — same contract and the same pixels as `gfx_line.c` (pinned by micro-test `t39_c_line`), an incremental Bresenham on the gen2c row/column/mask tables instead of one `gfx_plot` call per pixel: `gfx_line(0,0,279,191)` 269 866 → 20 655 cycles, +55 B. Replaces `gfx_line.o` in `gfx-gen2.lib`. Port of `pom2games/dev/lib/hgrc/hgr_line_asm.s` |
 | `gfx_rect.c` | `gfx_rect` (shared geometry) |
 | `gfx_circle.c` | `gfx_circle` (shared geometry) |
 | `gfx_ellipse.c` | `gfx_ellipse` (shared geometry) |
@@ -72,8 +72,8 @@ rich per-card text:
 - **Colour.** TMS honours a per-cell `FG_BG` attribute via `gfx_cell_color`; GEN2
   8×8 cells are white (its colour is the NTSC artifact trick on the 16×16 doubled
   glyphs — reach for `gen2_hgr_puts_color` directly).
-- **One converter.** `gfx_utoa` is hand-written 6502 (ported from pom2games
-  `math/dec.asm` `u16_to_dec`, ~31 % faster than the former `gen2_utoa`, which
+- **One converter.** `gfx_utoa` is hand-written 6502 (ported from
+  `pom2games/dev/lib/math/dec.asm` `u16_to_dec`, ~31 % faster than the former `gen2_utoa`, which
   is now an alias of it), so GEN2's flicker-free `gen2_hgr_putu_field` and the
   TMS `printlib` share one routine. No private zero page, no self-modifying
   code, no DATA writes: it runs from CodeTank ROM.

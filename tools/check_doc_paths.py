@@ -61,6 +61,7 @@ SKIP_FILES = ("CHANGELOG.md",)
 # citation POM1's docs need to make — they just cannot be checked here.
 EXTERNAL_ROOTS = (
     "POM2/",     # the sibling Apple II emulator, its own repository
+    "pom2games/",  # POM2's games + library repository (dev/lib backports)
     "demos/",    # upstream nino-d/tms9918 demos the dev/lib ports came from
     "GLFW/",     # toolkit headers, not repo files
     "GL/", "GLES3/",

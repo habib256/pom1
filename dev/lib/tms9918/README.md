@@ -356,7 +356,7 @@ calls, and the labels stay private to that object — `tms9918m1/m2/_text`,
 `text_bitmap` and `tms9918_5strigger` each carry their own copy, so no new
 object enters any consumer's link. `tms9918_helpers.asm` includes it to export
 `vdp_write_a` / `vdp_ctrl_a`. No self-modifying code (ROM-safe). Port of
-pom2games `dev/lib/apple2/ezcolor.asm` (`ez_data_w`, `ez_ctrl_w`, `ez_fill*`,
+`pom2games/dev/lib/apple2/ezcolor.asm` (`ez_data_w`, `ez_ctrl_w`, `ez_fill*`,
 `ez_copy*`).
 
 | Routine | In | Pacing |

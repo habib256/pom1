@@ -127,7 +127,7 @@ first use; the C builder it replaced took ~237 000). Parameters travel through z
 | `gen2_preshift_asm.s` | `gen2_xs_run`, `gen2_preshift_xor_run` | 5 |
 | `gen2_tables.s` | the row/column/mask/phase tables (BSS), `gen2_build_tables`, `gen2_hgr_row` | — |
 | `gen2_page.s` | `gen2_set_draw_page`, `gen2_show_page` | — |
-| `gen2_lores_tab/clr/dot/run.s` | the LORES family: row-table build, clear, set/get block, hlin/vlin/fill_rect | — |
+| `gen2_lores_tab.s` `gen2_lores_clr.s` `gen2_lores_dot.s` `gen2_lores_run.s` | the LORES family: row-table build, clear, set/get block, hlin/vlin/fill_rect | — |
 | `gen2_hgr_x2.s` | `gen2_hgr_inflate_x2` (byte-wise, spread table) | — |
 | `gen2_sprmask.s` | the masked sprite kernels (`gen2_ms_*`, `gen2_msu_run`) | 11 |
 | `gen2_utoa_asm.s` | legacy `gen2_utoa` = alias of gfx's one converter `gfx_u16_dec` | — |
