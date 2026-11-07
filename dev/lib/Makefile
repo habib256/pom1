@@ -54,10 +54,23 @@ ASM_INC  := -I tms9918 -I apple1 -I m6502 -I beep -I sid
 # .o/.lib artefacts. gfx/ has its own `clean` (delegated below).
 SPILL_DIRS := apple1c gen2c tms9918c
 
-.PHONY: check equates zp-test compile compile-c compile-gfx compile-gen2c-lib compile-asm clean
+.PHONY: check stems equates zp-test compile compile-c compile-gfx compile-gen2c-lib compile-asm clean
 
-check: equates zp-test compile
-	@echo "dev/lib: check OK -- equates, zp.inc layout, and all sources compile"
+check: stems equates zp-test compile
+	@echo "dev/lib: check OK -- stems, equates, zp.inc layout, and all sources compile"
+
+# A .c must never share its stem with a .s in the same directory: `cl65 -c x.c`
+# (and `cl65 x.c ...`) writes its intermediate x.s NEXT TO THE SOURCE, whatever
+# -o says, then deletes it -- a hand-written x.s there is overwritten and lost.
+# That is how pom2games lost dev/lib/gfx/gfx_ellipse.s on 2026-11-07. A C
+# reference that keeps an asm twin is named *_ref.c (gen2c/gen2_hgr_x2_ref.c).
+stems:
+	@echo "[lib] no .c shares its stem with a .s (cl65 would overwrite it) ..."
+	@cd $(REPO) && bad=$$(find dev sketchs -name '*.c' | while read -r c; do \
+	    [ -e "$${c%.c}.s" ] && echo "  $$c"; done); \
+	  if [ -n "$$bad" ]; then \
+	    echo "FAIL: these .c files sit next to a .s of the same stem:"; \
+	    echo "$$bad"; echo "rename the C reference to *_ref.c"; exit 1; fi
 
 equates:
 	@echo "[lib] hardware-equate cross-check (asm .inc <-> C) ..."
