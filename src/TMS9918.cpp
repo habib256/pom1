@@ -211,9 +211,27 @@ void TMS9918::resetDroppedWriteCount()
     dropStats = DropDiagnostics{};
 }
 
-uint16_t TMS9918::vramMaskForRegs(const uint8_t* regs, bool strict)
+// [B] TI TMS9918A Data Manual, R1: bit 7 picks the DRAM (4027 / 4108-4116),
+// i.e. how VA0-13 reach RAS/CAS. [D] openMSX VDPVRAM.cc change4k8kMapping @
+// a0a4f24199 (after C. MacDonald): "even in 4K mode, all 16K of VRAM can be
+// accessed" — nothing wraps at 4 KB; remapVramForR1Bit7 does the rearranging.
+// (Ported from POM2's bug hunt 2026-11-07, where the E-Z Color card shares
+// this file.)
+uint16_t TMS9918::vramMaskForRegs(const uint8_t*, bool) { return 0x3FFF; }
+
+// [D] openMSX change4k8kMapping @ a0a4f24199: VRAM is kept in the current
+// mode's order; a toggle moves its 64-byte blocks (4K: VA12 on the column).
+// [F] Not checked on a real TMS9918A; settled by a write / flip / read on
+// the iron. A reset needs none: it refills VRAM with the power-on pattern.
+void TMS9918::remapVramForR1Bit7(bool to4k)
 {
-    return (strict && (regs[1] & 0x80) == 0) ? 0x0FFF : 0x3FFF;
+    std::array<uint8_t, kVramSize> moved;
+    for (unsigned a = 0; a < kVramSize; a += 64) {
+        const unsigned b = to4k ? ((a & 0x2000) | ((a & 0x1000) >> 6) | ((a & 0x0FC0) << 1))
+                                : ((a & 0x2000) | ((a & 0x0040) << 6) | ((a & 0x1F80) >> 1));
+        std::copy_n(vram.begin() + a, 64, moved.begin() + b);
+    }
+    vram = moved;
 }
 
 uint16_t TMS9918::liveVramMask() const
@@ -553,6 +571,8 @@ void TMS9918::writeControl(uint8_t value)
         // isMSX1VDP()`; MAME tms9928a agrees). The old POM1 code ignored
         // $C0-$FF entirely.
         uint8_t regNum = value & 0x07;
+        if (regNum == 1 && siliconStrictMode && ((regs[1] ^ controlLatch) & 0x80))
+            remapVramForR1Bit7((controlLatch & 0x80) == 0);
         regs[regNum] = controlLatch;
         snapshotDirty = true;             // register change alters rendering
         // MSX1 quirk: a register write ALSO loads the address counter's high
@@ -685,7 +705,7 @@ void TMS9918::advanceCycles(int cycles)
         // SAT during vertical retrace, but on POM1 the per-line path is
         // strictly more accurate, so the fallback only fires when the
         // per-line path stayed dormant.
-        if ((regs[1] & 0x40) && lastScanlineProcessed < kScreenHeight) {
+        if ((regs[1] & 0x50) == 0x40 && lastScanlineProcessed < kScreenHeight) {
             scanSpritesForStatus(vram.data(), regs.data(), siliconStrictMode, statusReg);
         }
         // Hostile-silicon model: the frame flag never registers to the CPU, so
@@ -1711,6 +1731,9 @@ void TMS9918::renderSprites(uint32_t* pixels, const Snapshot& s)
 void TMS9918::scanSpritesForLine(int line)
 {
     if (line < 0 || line >= kScreenHeight) return;
+    // Text (M1): no sprite engine, no status update — [D] openMSX SpriteChecker.hh
+    // @ a0a4f24199 (sprite mode 0); meisei vdp.c:571, as the renderer gates.
+    if ((regs[1] & 0x50) == 0x50) return;
     if ((regs[1] & 0x40) == 0) {
         // Display blanked: silicon doesn't sprite-scan, but DOES set
         // status bits 0..4 to $1F (per meisei vdp.c:437,512 — the
@@ -1979,7 +2002,9 @@ void TMS9918::serialize(pom1::SnapshotWriter& w) const
     w.writeU32(static_cast<uint32_t>(pendingDrainCycles));
     w.writeU32(static_cast<uint32_t>(lastScanlineProcessed));
     w.writeU32(static_cast<uint32_t>(lastScanlineRendered));
-    w.writeU8 (siliconStrictMode ? 1 : 0);
+    // Bits 1-2: a pending access (it outlasts the instruction). Old blobs: 0/1.
+    w.writeU8 (static_cast<uint8_t>((siliconStrictMode ? 1 : 0)
+               | (pendingCpuAccess ? static_cast<uint8_t>(pendingKind) << 1 : 0)));
     w.writeU8 (irqStrapped ? 1 : 0);
     w.writeU8 (static_cast<uint8_t>(chipType));
 }
@@ -1995,14 +2020,16 @@ void TMS9918::deserialize(pom1::SnapshotReader& r)
     readAheadBuffer       = r.readU8();
     frameCycleCounter     = static_cast<int>(r.readU32());
     pendingDrainCycles    = static_cast<int>(r.readU32());
-    // Pending CPU↔VRAM access is transient (sub-instruction) and not part of
-    // the snapshot byte layout — clear it so a restored state never fires a
-    // stale deferred access. (pendingDrainCycles above is harmless with this off.)
-    pendingCpuAccess      = false;
-    pendingKind           = PendingKind::None;
     lastScanlineProcessed = static_cast<int>(r.readU32());
     lastScanlineRendered  = static_cast<int>(r.readU32());
-    siliconStrictMode     = r.readU8() != 0;
+    // Bit 0 strict mode; bits 1-2 the pending CPU<->VRAM access kind, which
+    // outlasts its instruction (a write waiting for its slot). It used to be
+    // dropped on restore, so the access never landed. Old blobs hold 0/1.
+    {   const uint8_t v = r.readU8(), k = (v >> 1) & 3;
+        siliconStrictMode = (v & 1) != 0;
+        pendingCpuAccess  = (k == 1 || k == 2) && pendingDrainCycles > 0 && pendingDrainCycles < 4096;
+        pendingKind = pendingCpuAccess ? static_cast<PendingKind>(k) : PendingKind::None;
+        if (!pendingCpuAccess) pendingDrainCycles = 0; }
     irqStrapped           = r.readU8() != 0;
     // Clamp to a known-good default on a corrupt snapshot byte (ChipType is
     // 0..6), mirroring IECCard/Drive1541::deserialize.

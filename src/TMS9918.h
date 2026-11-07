@@ -90,7 +90,8 @@ public:
     void advanceCycles(int cycles);
 
     // Silicon-accuracy checks used by real-hardware presets. When enabled,
-    // R1 bit 7 selects 4K/16K VRAM addressing and CPU accesses to $CC00/$CC01
+    // R1 bit 7 selects the 4K/16K DRAM mapping (all 16 KB stay reachable,
+    // rearranged — remapVramForR1Bit7) and CPU accesses to $CC00/$CC01
     // must leave enough 6502 cycles for the VDP's internal access window.
     void setSiliconStrictMode(bool enabled);
     bool isSiliconStrictMode() const { return siliconStrictMode; }
@@ -424,6 +425,8 @@ private:
     static void scanSpritesForStatus(const uint8_t* vram, const uint8_t* regs,
                                      bool strict, uint8_t& statusOut);
     static uint16_t vramMaskForRegs(const uint8_t* regs, bool strict);
+    // Strict mode: move VRAM's 64-byte blocks when R1 bit 7 toggles (.cpp).
+    void remapVramForR1Bit7(bool to4k);
     uint16_t liveVramMask() const;
 
     // Silicon-strict timing: port verbatim of openMSX VDPAccessSlots.cc
