@@ -94,6 +94,11 @@ EXPECT: ADDR B0 B1 ...       hex bytes expected at ADDR (repeatable)
 | `t08_shadowcast.s` | `games/rogue/shadowcast` — FOV + index math |
 | `t09_c_sprite_dodge.c` | `tms9918c` (C) — `tms_set_sprite` / SAT terminator |
 | `t10_m1_upload_name_at.s` | `tms9918/tms9918m1` — `name_at_rc` + `vdp_upload_a` |
+| `t18_apple1_print_num.s` | `apple1/print_num` — all 256 inputs, Y kept, C not trusted across ECHO |
+| `t19_apple1_kbd.s` | `apple1/kbd` — `poll_key` / `wait_key` register + flag contract (KBD/KBDCR in RAM) |
+| `t20_apple1_delay.s` | `apple1/delay` — `delay_ms_a` cycle budget, timed by the A1-IO VIA's Timer 1 |
+| `t21_sid_player_notes.s` | `sid/sid_player` — frequency of all 96 notes (12-note table + octave shift) |
+| `t22_math_div10.s` | `m6502/math` — `div_arg_by_10` over 516 dividends, self-checked |
 
 Each header's `GUARDS:` block names the exact bug class it pins (e.g. `t06` pins
 the shared-ZP argument window whose clobber let a `Maze3D` bug survive for
