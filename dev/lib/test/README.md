@@ -101,6 +101,11 @@ EXPECT: ADDR B0 B1 ...       hex bytes expected at ADDR (repeatable)
 | `t22_hgr_plot16_line16.s` | `gen2/hgr_plot16` + `hgr_line16` — 280-px X, clipping, XOR keeps the palette bit |
 | `t23_hgr_plot_hist.s` / `t24_hgr_plot_hist_fast.s` | `gen2/hgr_plot_hist` — erase history, plain and FAST (`pl_erase_to`, `pl_sprite`) |
 | `t25_hgr_hud8.s` | `gen2/hgr_hud8` — differential HUD fields (the 0 − 65535 = +1 wrap trap) |
+| `t26_apple1_print_num.s` | `apple1/print_num` — all 256 inputs, Y kept, C not trusted across ECHO |
+| `t27_apple1_kbd.s` | `apple1/kbd` — `poll_key` / `wait_key` register + flag contract (KBD/KBDCR in RAM) |
+| `t28_apple1_delay.s` | `apple1/delay` — `delay_ms_a` cycle budget, timed by the A1-IO VIA's Timer 1 |
+| `t29_sid_player_notes.s` | `sid/sid_player` — frequency of all 96 notes (12-note table + octave shift) |
+| `t30_math_div10.s` | `m6502/math` — `div_arg_by_10` over 516 dividends, self-checked |
 
 `t18`–`t25` link with [`micro/micro_gen2.cfg`](micro/micro_gen2.cfg) (code at
 `$6000`, `BSS` at `$9000`, preset 11): the GEN2 modules and their tables do not

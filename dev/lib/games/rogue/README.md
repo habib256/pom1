@@ -20,7 +20,10 @@ DevBench sketch (`sketchs/tms9918/game_rogue/`).
   cross-multiplications go through `umul4`, so the caller must also
   `.include "multiply.asm"` (from `lib/m6502`).
 - **`dungeon.asm`** — procedural dungeon-gen primitives. Today exposes
-  `rand_mod` (uniform `[0, max)` PRNG wrapper around `prng16`); the bigger
+  `rand_mod` (uniform `[0, max)` PRNG wrapper around `prng16`; returns with
+  Z/N from A, so `JSR rand_mod / BEQ` tests for 0 — before 2026-11 Z was
+  always 0 there and the rogues' item drop and `ai_death` coin flip never
+  fired); the bigger
   BSP-light generator stays inline in the project for now (see the file
   header). Requires `prng16` state (`.include "prng16.asm"` first) and a
   caller-owned `tmp` scratch byte.

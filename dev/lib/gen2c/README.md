@@ -175,7 +175,8 @@ make -C ../gfx gen2          # builds ../gfx/gfx-gen2.lib (once)
 cl65 -t none -Oirs -C ../../cc65/apple1_gen2_c.cfg -I . -I ../apple1c -I ../gfx \
      hello.c gen2_init.c gen2_pixel.c gen2_rect.c gen2_text.c gen2_sprites.c \
      gen2_geom.c gen2_lores.c gen2_blit.s \
-     ../apple1c/apple1io.c ../apple1c/apple1io_asm.s ../gfx/gfx-gen2.lib -o hello.bin
+     ../apple1c/apple1io_asm.s ../apple1c/apple1io_str.s ../apple1c/apple1io_key.s \
+     ../gfx/gfx-gen2.lib -o hello.bin
 ```
 
 For minimal binaries, list only the families you actually call (see

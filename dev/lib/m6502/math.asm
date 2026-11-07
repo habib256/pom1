@@ -63,17 +63,11 @@ roll_lfsr:
 
 ; ----------------------------------------------------------------------------
 ; print_decimal: print arg_lo:hi as unsigned decimal (1..5 digits, no padding).
+;   Clobbers A, X, Y; leaves arg_lo:hi = 0. Zero needs no special case: the
+;   do-while extracts one digit (remainder 0) before testing the quotient,
+;   so 0 prints "0".
 ; ----------------------------------------------------------------------------
 print_decimal:
-        ; If value is zero, print "0" and return.
-        LDA arg_lo
-        ORA arg_hi
-        BNE @nz
-        LDA #'0'
-        ORA #$80
-        JSR ECHO
-        RTS
-@nz:    ; Extract digits via repeated div by 10, push, then pop to print.
         LDY #0                ; digit count (X is clobbered by div_arg_by_10)
 @dig:   JSR div_arg_by_10     ; arg /= 10, A = remainder
         PHA
@@ -82,8 +76,7 @@ print_decimal:
         ORA arg_hi
         BNE @dig
 @out:   PLA
-        ORA #'0'
-        ORA #$80
+        ORA #'0' | $80        ; digit -> high-bit ASCII for ECHO
         JSR ECHO
         DEY
         BNE @out
@@ -91,23 +84,24 @@ print_decimal:
 
 ; ----------------------------------------------------------------------------
 ; div_arg_by_10: arg_lo:hi /= 10 (unsigned), returns remainder in A.
+;   Clobbers X (= 0 on return); Y and tmp untouched. The remainder lives in
+;   A for the whole loop -- the pom2games edition's div16by8 shape
+;   (dev/lib/math/div.asm there): it is < 10 before each ROL, so it stays
+;   < 20 and the ROL A never carries out. 21 bytes (was 30); 22 cycles a
+;   bit without a subtraction, 28 with one (was 28 / 37).
 ; ----------------------------------------------------------------------------
 div_arg_by_10:
-        LDA #0
-        STA tmp               ; remainder
+        LDA #0                ; remainder
         LDX #16
 @d:     ASL arg_lo
         ROL arg_hi
-        ROL tmp
-        LDA tmp
+        ROL A                 ; next dividend bit into the remainder (C = 0 after)
         CMP #10
         BCC @ns
-        SBC #10
-        STA tmp
-        INC arg_lo            ; bit-0 of quotient
+        SBC #10               ; C = 1 from the CMP
+        INC arg_lo            ; bit 0 of the quotient (ASL left it 0)
 @ns:    DEX
         BNE @d
-        LDA tmp
         RTS
 
 ; ----------------------------------------------------------------------------

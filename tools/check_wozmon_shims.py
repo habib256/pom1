@@ -16,7 +16,9 @@ Checked:
   - equates ECHO / PRBYTE / WOZMON / KEYCR / KEYDATA have the same values;
   - the normalised instruction stream of each shared routine is identical
     (labels/comments/whitespace ignored; tms9918c's extra _woz_mon_silent
-    is allowed -- it is the documented superset).
+    is allowed -- it is the documented superset). A routine may also be an
+    ALIAS of a ROM entry (`_woz_print_hex = PRBYTE`): its "body" is then the
+    aliased name, and both shims must alias the same one.
 
 Run by `make -C dev/lib check`. Exit 0 = in sync.
 """
@@ -44,6 +46,11 @@ def parse(path):
         m = re.match(r"(\w+)\s*=\s*(\$[0-9A-Fa-f]+)", line.strip())
         if m:
             equates[m.group(1)] = m.group(2).upper()
+            continue
+        m = re.match(r"(_\w+)\s*:?=\s*([A-Za-z_]\w*)\s*$", line.strip())
+        if m:                       # C entry aliased onto a ROM equate
+            routines[m.group(1)] = ["= " + m.group(2).upper()]
+            cur = None
             continue
         m = re.match(r"(_\w+):", line)
         if m:

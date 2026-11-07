@@ -69,12 +69,20 @@ these 8 bytes; see their READMEs for the extra symbols you must
 - **`print.asm`** — `print_str_ax`: print NUL-terminated ASCIIZ string
   via Wozmon `ECHO` (`$FFEF`). Uses `print_ptr_lo / print_ptr_hi` (from
   `zp.inc` if used, else allocated locally via `.ifndef`).
-- **`kbd.asm`** — `wait_key` (blocking) and `poll_key` (non-blocking).
-  No ZP usage. Replaces 15+ inline copies across projects.
-- **`delay.asm`** — `delay_ms_a`: A = ms count, ~1 ms per unit at the
-  Apple-1's 1.022727 MHz clock. No ZP. A = 0 wraps to 256 ms.
+- **`kbd.asm`** — `wait_key` (blocking) and `poll_key` (non-blocking),
+  ending on one shared tail (19 bytes, was 25; layout from the pom2games
+  edition). X, Y, C and V preserved; Z/N from the returned key. No ZP
+  usage. Replaces 15+ inline copies across projects. Pinned by
+  [`../test/micro/t27_apple1_kbd.s`](../test/micro/t27_apple1_kbd.s).
+- **`delay.asm`** — `delay_ms_a`: A = ms count, 1021 × A + 1 cycles
+  (~0.999 ms per unit at the Apple-1's 1.022727 MHz clock, DRAM refresh
+  aside). No ZP. A = 0 wraps to 256 ms. The cycle budget is measured by
+  [`t28_apple1_delay.s`](../test/micro/t28_apple1_delay.s) with the A1-IO
+  VIA's Timer 1.
 - **`print_num.asm`** — `print_byte_dec`: A = byte → prints exactly
-  three ASCII decimal digits (`"000"`..`"255"`) via ECHO. No ZP.
+  three ASCII decimal digits (`"000"`..`"255"`) via ECHO (41 bytes, was
+  46). Y preserved; does not rely on ECHO keeping C. No ZP. All 256
+  inputs pinned by [`t26_apple1_print_num.s`](../test/micro/t26_apple1_print_num.s).
 
 ## apple1.inc — Public symbols
 
@@ -104,8 +112,8 @@ GETLINE) and has been removed; rename any usage to `WOZ_RST`.
 | Routine | Module | Inputs | Outputs | Clobbers | ZP |
 |---|---|---|---|---|---|
 | `print_str_ax` | `print.asm` | A=lo, X=hi (ptr to ASCIIZ) | — | A, Y | `print_ptr_*` |
-| `wait_key` | `kbd.asm` | — | A = key & $7F | A | none |
-| `poll_key` | `kbd.asm` | — | A = key & $7F or 0; Z reflects | A | none |
+| `wait_key` | `kbd.asm` | — | A = key & $7F; Z/N reflect | A | none |
+| `poll_key` | `kbd.asm` | — | A = key & $7F or 0; Z/N reflect | A | none |
 | `delay_ms_a` | `delay.asm` | A = ms (1..255; 0→256) | — | A, X, Y | none |
 | `print_byte_dec` | `print_num.asm` | A = byte | "DDD" via ECHO | A, X | none |
 
@@ -139,7 +147,10 @@ In your project Makefile:
 
 Validation: every routine here is exercised by shipping projects under
 `sketchs/apple1/` (e.g. `game_sokoban`, `game_chess`) and by
-`tools/test_*.py` smoke harnesses.
+`tools/test_*.py` smoke harnesses, and executed directly by the micro-tests
+`t18`-`t20` in [`../test/micro/`](../test/micro/): the caller supplies `ECHO`
+and `KBD`/`KBDCR` (the modules never include `apple1.inc`), so a driver can
+point them at a capturing stub and at RAM and assert every output.
 
 ## Source of truth (asm ↔ C)
 

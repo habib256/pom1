@@ -330,11 +330,11 @@ std::string jsonQuoted(const std::string& s)
 const char* kBenchCSpecApple1c = R"json({
   "cfg": "/dev/cc65/apple1_c.cfg",
   "incDirs": ["/dev/lib/apple1c", "/dev/lib/telemetry"],
-  "cSources": [
-    { "path": "/dev/lib/apple1c/apple1io.c", "name": "apple1io.c" }
-  ],
+  "cSources": [],
   "asmSources": [
-    { "path": "/dev/lib/apple1c/apple1io_asm.s", "name": "apple1io_asm.s" }
+    { "path": "/dev/lib/apple1c/apple1io_asm.s", "name": "apple1io_asm.s" },
+    { "path": "/dev/lib/apple1c/apple1io_str.s", "name": "apple1io_str.s" },
+    { "path": "/dev/lib/apple1c/apple1io_key.s", "name": "apple1io_key.s" }
   ]
 }
 )json";
@@ -355,7 +355,6 @@ const char* kBenchCSpecGen2c = R"json({
     { "path": "/dev/lib/gen2c/gen2_sprengine.c", "name": "gen2_sprengine.c" },
     { "path": "/dev/lib/gen2c/gen2_geom.c", "name": "gen2_geom.c" },
     { "path": "/dev/lib/gen2c/gen2_lores.c", "name": "gen2_lores.c" },
-    { "path": "/dev/lib/apple1c/apple1io.c", "name": "apple1io.c" },
     { "path": "/dev/lib/gfx/gfx_line.c", "name": "gfx_line.c" },
     { "path": "/dev/lib/gfx/gfx_rect.c", "name": "gfx_rect.c" },
     { "path": "/dev/lib/gfx/gfx_circle.c", "name": "gfx_circle.c" },
@@ -371,7 +370,9 @@ const char* kBenchCSpecGen2c = R"json({
     { "path": "/dev/lib/gen2c/gen2_blit.s", "name": "gen2_blit.s" },
     { "path": "/dev/lib/gen2c/gen2_hgr_x2.s", "name": "gen2_hgr_x2.s" },
     { "path": "/dev/lib/gen2c/gen2_sprmask.s", "name": "gen2_sprmask.s" },
-    { "path": "/dev/lib/apple1c/apple1io_asm.s", "name": "apple1io_asm.s" }
+    { "path": "/dev/lib/apple1c/apple1io_asm.s", "name": "apple1io_asm.s" },
+    { "path": "/dev/lib/apple1c/apple1io_str.s", "name": "apple1io_str.s" },
+    { "path": "/dev/lib/apple1c/apple1io_key.s", "name": "apple1io_key.s" }
   ]
 }
 )json";

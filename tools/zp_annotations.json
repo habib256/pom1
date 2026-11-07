@@ -24,6 +24,7 @@
   "files": {
     "a1io/a1io.asm": "register selector",
     "apple1/print.asm": "baseline pair — `.ifndef`-guarded duplicate of the `zp.inc` slots (aliases when `zp.inc` is included first)",
+    "apple1c/apple1io_str.s": "cc65-track; imports cc65's `ptr1` only (`woz_puts` string pointer)",
     "basicrt/basicrt_float.s": "standalone binary32 software-float runtime state (FP accumulators + scratch)",
     "basicrt/basicrt_gen2.s": "BASIC-compiler runtime, GEN2 backend — whole `rt_*` seam, link-exclusive with `basicrt_tms.s`",
     "basicrt/basicrt_tms.s": "BASIC-compiler runtime, TMS backend — whole `rt_*` seam, link-exclusive with `basicrt_gen2.s`; drives `tms9918m2.asm`'s `pix_*`/`ln_*`",

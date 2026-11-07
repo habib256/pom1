@@ -21,8 +21,8 @@ Fixed-point trig, 16-bit Galois LFSR, decimal output, modulo-360.
 | Symbol                 | Description                                              |
 |------------------------|----------------------------------------------------------|
 | `roll_lfsr`            | advance 16-bit Galois LFSR (taps `$B400`)                |
-| `print_decimal`        | print `arg_lo:arg_hi` as unsigned decimal (1..5 digits)  |
-| `div_arg_by_10`        | `arg_lo:hi /= 10` unsigned, returns remainder in A       |
+| `print_decimal`        | print `arg_lo:arg_hi` as unsigned decimal (1..5 digits); 0 prints "0" through the same loop |
+| `div_arg_by_10`        | `arg_lo:hi /= 10` unsigned, returns remainder in A; X = 0, Y and `tmp` untouched (remainder kept in A: 21 bytes, 22/28 cycles a bit) |
 | `mod360_arg`           | `arg_lo:hi mod 360`                                      |
 | `mod360_tmp`           | `tmp:tmp2 mod 360`                                       |
 | `norm360`              | `th_lo:th_hi mod 360`                                    |
@@ -101,7 +101,7 @@ Tiny PRNG used by arcade games. `.include "prng16.asm"` exposes:
 
 | Symbol   | Description                                                      |
 |----------|------------------------------------------------------------------|
-| `prng16` | 16-bit Galois LFSR (taps 16, 14, 13, 11). Returns A = new `prng_lo`. |
+| `prng16` | 16-bit Galois LFSR (taps 16, 14, 13, 11). Returns A = new `prng_lo` (N/Z from it, C = the bit shifted out); X, Y preserved. 14 bytes, 19/20 cycles + RTS (high byte kept in A, as in the pom2games edition). |
 
 Reserves its own ZP slots `prng_lo / prng_hi` via `.ifndef` guard with the
 same alias-on-tight-ZP convention as `prng8.asm`. **Same canonical names
