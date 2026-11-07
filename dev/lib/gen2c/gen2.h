@@ -128,7 +128,9 @@ void gen2_hgr_init_clear(void);
  *     woz_mon();                                   /- no-return -/           */
 void gen2_text_restore(void);
 
-/* Fill the HIRES page-1 framebuffer ($2000-$3FFF) with `fill` (0 = black). */
+/* Fill the current HIRES draw page ($2000-$3FFF, or $4000-$5FFF after
+ * gen2_set_draw_page(2)) with `fill` (0 = black). Unrolled asm, ~46 000
+ * cycles; self-modifying, so it runs from RAM only (gen2_hgr_clear_asm.s). */
 void gen2_hgr_clear(unsigned char fill);
 
 /* Fast byte-aligned rectangle fill of HIRES page 1, via a hand-written 6502

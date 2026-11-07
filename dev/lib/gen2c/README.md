@@ -20,7 +20,7 @@ mode itself (`gen2_hgr_init()` does this).
 | Function | Effect |
 |---|---|
 | `gen2_hgr_init()`            | graphics + HIRES + page 1 + full screen (call first) |
-| `gen2_hgr_clear(fill)`       | fill the current draw page (`$2000` or `$4000`, 8 KB; `0` = black) — **asm** |
+| `gen2_hgr_clear(fill)`       | fill the current draw page (`$2000` or `$4000`, 8 KB; `0` = black) — **asm**, unrolled (~46 000 cycles) |
 | `gen2_hgr_fill_rect(y0,rows,col0,ncols,val)` | **asm** byte-fill a rectangle (fast targeted erase) |
 | `gen2_hgr_fill_pixrect(x,y,w,h)` / `gen2_hgr_clear_pixrect(...)` | **asm** fill / erase a PIXEL rectangle (solid blocks/sprites) |
 | `gen2_hgr_plot(x, y)` / `gen2_hgr_unplot(x, y)` | set / clear a white pixel, `x:0..279 y:0..191` — **asm** |
@@ -87,6 +87,10 @@ cost millions of cycles for one line of text):
   clips and passes `x/xr/y/h/mode`; the asm derives columns + edge masks. **~10×
   faster than a per-pixel `gen2_hgr_plot` double loop** — a 6×6 block is one call
   instead of 36. This is the primitive for block/tile/sprite games like Snake.
+- **`gen2_hgr_clear`** — eight absolute `STA abs,Y` per turn, the store pages
+  patched once per group of eight pages (pom2games `HGR_CLEAR_LOOP`): ~46 000
+  cycles per 8 KB page instead of ~90 000, no zero page. **Self-modifying —
+  RAM only**; gen2c programs run from RAM at `$6000`, never link it into a ROM.
 - **`gen2_colorize_asm`** — behind `gen2_hgr_colorize`. GEN2 HIRES has NO
   per-pixel colour; colour is an NTSC artifact of the bit pattern + the byte's
   high bit. So colour text is drawn WHITE, then this pass rewrites each byte
@@ -103,7 +107,7 @@ and `plot`/`unplot` also the `gen2_col7`/`gen2_mask7` x-lookup tables — that
 | Member | Routines | Zero page it owns |
 |---|---|---|
 | `gen2_mode_asm.s` / `gen2_lores_init_asm.s` / `gen2_mode_clear_asm.s` | `gen2_hgr_init` + `gen2_text_restore` / `gen2_lores_init` / `gen2_hgr_init_clear` (from `../gen2/gen2_init.asm`) | — |
-| `gen2_hgr_clear_asm.s` | `gen2_hgr_clear` | — |
+| `gen2_hgr_clear_asm.s` | `gen2_hgr_clear` (self-modifying) | — |
 | `gen2_text_params.s` | the `gen2_g_*` / `gen2_t_*` text block | 13 |
 | `gen2_carrier_params.s` | the `gen2_z_ce/co/hi` colour carriers | 3 |
 | `gen2_text16_asm.s` | `gen2_puts_run`, `gen2_blit_glyph`, `gen2_blit_glyph_color` | — (cc65 scratch) |
@@ -220,8 +224,8 @@ into its own runtime archive.
 2. **Don't clear the framebuffer with a naïve 16-bit pointer loop.**
    `for (i = 0; i < 8192; i++) p[i] = 0;` is ~20× slower (it drags in cc65's
    16-bit pointer-increment helper) and blanks the screen for seconds. Use
-   `gen2_hgr_clear()` (asm in `gen2_hgr_clear_asm.s`), which fills a page at a
-   time with an 8-bit index.
+   `gen2_hgr_clear()` (asm, `gen2_hgr_clear_asm.s`): eight unrolled absolute
+   stores per 8-bit index step, ~46 000 cycles for the whole page.
 
 Card hardware reference (soft switches, HST0, beam timing) lives in the POM1
 documentation set; for asm-level detail and the canonical equates see the asm
