@@ -38,7 +38,7 @@ GEN2C_RECT_SRCS    := $(GEN2C)/gen2_rect.c      # fill_rect / fill_pixrect / cle
 # consumers of this variable link both — exactly the bytes they linked before.
 GEN2C_TEXT_SRCS    := $(GEN2C)/gen2_text.c $(GEN2C)/gen2_text_num.c
 GEN2C_SPRITES_SRCS := $(GEN2C)/gen2_sprites.c   # hgr_blit / hgr_blit7
-GEN2C_X2_SRCS      := $(GEN2C)/gen2_hgr_x2.s    # gen2_hgr_inflate_x2 — hand-asm (the .c miscompiles under -Oirs; .c kept as host-only ref)
+GEN2C_X2_SRCS      := $(GEN2C)/gen2_hgr_x2.s    # gen2_hgr_inflate_x2 — hand-asm (the C miscompiles under -Oirs; gen2_hgr_x2_ref.c is the host-only ref)
 GEN2C_X2BLIT_SRCS  := $(GEN2C)/gen2_hgr_blit_x2.c # gen2_hgr_blit_x2 (au-vol; needs X2 + CORE, owns a 256 B buffer)
 GEN2C_PRESHIFT_SRCS:= $(GEN2C)/gen2_preshift.c  # hgr_sprite (Buzzard-Bait 7-phase pre-shift; needs only CORE -- reuses gen2_blit7_run)
 GEN2C_SPRMASK_SRCS := $(GEN2C)/gen2_sprmask.s   # masked pre-shifted blit + save-under/restore kernels (needs only CORE)

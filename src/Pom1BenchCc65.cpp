@@ -315,7 +315,7 @@ std::string jsonQuoted(const std::string& s)
 // symbol references them.
 //   - gen2c is split into per-family modules (init/pixel/rect/text/sprites/
 //     hgr_blit_x2/preshift/sprmask/sprengine/geom/lores) + the hot-path asm
-//     gen2_blit.s and the hand-asm gen2_hgr_x2.s (x2 inflate; its .c
+//     gen2_blit.s and the hand-asm gen2_hgr_x2.s (x2 inflate; its C twin
 //     miscompiles under -Oirs).
 //   - the shared apple1c text base rides along with GEN2 so C programs can
 //     also print to the WOZ terminal / read the keyboard.

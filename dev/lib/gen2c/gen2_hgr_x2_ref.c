@@ -1,4 +1,4 @@
-/* gen2_hgr_x2.c — mono ×1 sprite → ×2 single-colour inflate (gen2_hgr_inflate_x2).
+/* gen2_hgr_x2_ref.c — mono ×1 sprite → ×2 single-colour inflate (gen2_hgr_inflate_x2).
  *
  * On HIRES a sprite has no CHOSEN colour: at ×1 its colour is a pure NTSC artifact
  * (Woz's trick), parity-dependent and uncontrollable — but compact, the mono bytes
@@ -27,7 +27,12 @@
  * to all-zero on the 6502. Confirmed juillet 2026 by reading the -Oirs asm. The
  * asm is fast and immune; this C stays only to cross-check the algorithm on the
  * host (hgr_inflate_x2_smoke vs HgrSpriteBlit::magnifyColor2x). `#if !__CC65__`
- * keeps it out of every cc65 build so it can never clash with the .s symbol. */
+ * keeps it out of every cc65 build so it can never clash with the .s symbol.
+ *
+ * Named *_ref.c, not gen2_hgr_x2.c, on purpose: cl65 writes the intermediate
+ * assembler file NEXT TO THE SOURCE (gen2_hgr_x2.s) whatever -o says, then
+ * deletes it — so compiling a same-stem .c in place silently destroys the
+ * hand-written .s beside it. Never give a .c the stem of a .s in this dir. */
 #if !defined(__CC65__)
 void gen2_hgr_inflate_x2(const unsigned char *mono, unsigned char wbytes,
                          unsigned char h, unsigned char color, unsigned char *out)

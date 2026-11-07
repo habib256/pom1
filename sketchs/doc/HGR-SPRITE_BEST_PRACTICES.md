@@ -184,7 +184,7 @@ python3 sketchs/gen2/demo_sprite_animals/gen_x2.py   # imprime banks + métadonn
    supprime le corps qui pose les pixels → sprite ×2 tout noir **on-target**
    (l'hôte compile juste, donc `hgr_inflate_x2_smoke` — un pin hôte — ne le voyait
    pas). La cible utilise donc une **implémentation asm** :
-   `dev/lib/gen2c/gen2_hgr_x2.s` (le `.c` reste en **référence hôte** derrière
+   `dev/lib/gen2c/gen2_hgr_x2.s` (`gen2_hgr_x2_ref.c` reste en **référence hôte** derrière
    `#if !defined(__CC65__)`). Pin on-target : `dev/lib/test/micro/t13_c_inflate_x2.c`
    (`ctest lib_micro_tests`). ⇒ **Préfère de toute façon baker le ×2 hors-ligne**
    (§6) : zéro coût runtime.
@@ -310,7 +310,7 @@ et trouerait les recouvrements.
 | Demo animé (8 ×2, 2 px, incrémental, trim) | `sketchs/gen2/demo_sprite_animals/GEN2Animals.c` |
 | Générateur banks ×2 + trim | `sketchs/gen2/demo_sprite_animals/gen_x2.py` |
 | Runtime blit / inflate / API | `dev/lib/gen2c/gen2.h`, `gen2_sprites.c`, `gen2_blit.s` |
-| Inflate ×2 asm (fix `-Oirs`) | `dev/lib/gen2c/gen2_hgr_x2.s` (+ `.c` réf hôte) |
+| Inflate ×2 asm (fix `-Oirs`) | `dev/lib/gen2c/gen2_hgr_x2.s` (+ `gen2_hgr_x2_ref.c` réf hôte) |
 | Pré-shift générique (mono) | `dev/lib/gen2c/gen2_preshift.c` (`gen2_hgr_sprite`) |
 | Catalogue mono ×1 | `dev/lib/gen2/sprites/` + `tools/build_hgr_sprites.py` |
 | Éditeur de sprites | `src/hgrsprite/` (`HgrSpriteBlit::magnifyColor2x`) |

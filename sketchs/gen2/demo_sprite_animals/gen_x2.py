@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bake the four Fauna mono masters into their x2 single-colour HGR forms.
 
-Byte-for-byte port of gen2_hgr_inflate_x2 (dev/lib/gen2c/gen2_hgr_x2.c) so the
+Byte-for-byte port of gen2_hgr_inflate_x2 (dev/lib/gen2c/gen2_hgr_x2_ref.c) so the
 demo needs NO runtime inflate: the x2 bytes are embedded as C constants. Keeping
 the demo off gen2_hgr_x2.o also lets it link under the in-app DevBench (whose
 GEN2-C link set doesn't pull that module). Masters come verbatim from

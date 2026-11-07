@@ -1,6 +1,6 @@
 ; gen2_hgr_x2.s — hand-asm gen2_hgr_inflate_x2 (mono x1 -> x2 single-colour).
 ; -----------------------------------------------------------------------------
-; The C form of this function (gen2_hgr_x2.c, kept as the HOST reference for the
+; The C form of this function (gen2_hgr_x2_ref.c, kept as the HOST reference for the
 ; hgr_inflate_x2_smoke cross-check) is MISCOMPILED by cc65 2.18 -Oirs: the
 ; optimiser drops the whole pixel-setting body, so every x2 sprite inflates to
 ; all-zero on the 6502. Rather than fight the optimiser with #pragma optimize
