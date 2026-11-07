@@ -94,6 +94,17 @@ EXPECT: ADDR B0 B1 ...       hex bytes expected at ADDR (repeatable)
 | `t08_shadowcast.s` | `games/rogue/shadowcast` — FOV + index math |
 | `t09_c_sprite_dodge.c` | `tms9918c` (C) — `tms_set_sprite` / SAT terminator |
 | `t10_m1_upload_name_at.s` | `tms9918/tms9918m1` — `name_at_rc` + `vdp_upload_a` |
+| `t18_hgr_clear_tables.s` | `gen2/hgr_clear` + the RAM-built tables (`hgr_scanline_ram`, `HGR_PLOT_TABLES_RAM`, `hgr_div7_ram`) |
+| `t19_hgr_flip_pages.s` | `gen2/hgr_flip` + `gen2/hgr_pages` — the two double-buffering schemes |
+| `t20_hgr_xor.s` | `gen2/hgr_xor` — XOR rectangle / pre-shifted sprite, drawn twice = restored |
+| `t21_hgr_clear_rows.s` | `gen2/hgr_clear_rows` — viewport / HUD / visible / row clears keep holes, HUD and the other page |
+| `t22_hgr_plot16_line16.s` | `gen2/hgr_plot16` + `hgr_line16` — 280-px X, clipping, XOR keeps the palette bit |
+| `t23_hgr_plot_hist.s` / `t24_hgr_plot_hist_fast.s` | `gen2/hgr_plot_hist` — erase history, plain and FAST (`pl_erase_to`, `pl_sprite`) |
+| `t25_hgr_hud8.s` | `gen2/hgr_hud8` — differential HUD fields (the 0 − 65535 = +1 wrap trap) |
+
+`t18`–`t25` link with [`micro/micro_gen2.cfg`](micro/micro_gen2.cfg) (code at
+`$6000`, `BSS` at `$9000`, preset 11): the GEN2 modules and their tables do not
+fit `micro.cfg`'s `$0300-$0DFF` + 256-byte `BSS`.
 
 Each header's `GUARDS:` block names the exact bug class it pins (e.g. `t06` pins
 the shared-ZP argument window whose clobber let a `Maze3D` bug survive for
