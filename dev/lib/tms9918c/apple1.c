@@ -5,7 +5,8 @@
  *   (https://github.com/nippur72/apple1-videocard-lib).
  * Upstream license: unspecified at time of fork (2026-05). Preserve attribution.
  *
- * Almost identical to dev/lib/apple1c/apple1io.c -- ON PURPOSE. The DevBench
+ * The C twin of dev/lib/apple1c/apple1io_str.s + apple1io_key.s (hand-written
+ * asm there since 2026-11) -- the duplication is ON PURPOSE. The DevBench
  * copies build sources into its scratch directory BY BASENAME (a relative
  * .include across lib directories breaks in-Bench builds) and this file's
  * path is pinned by dev/bench/tms9918c.json, src/Pom1BenchHost.cpp and

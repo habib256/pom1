@@ -15,7 +15,7 @@
  *
  * POM1-LIB-MICRO-TEST
  * MODE: gen2
- * LIBS: gen2c/gen2_hgr_x2.s apple1c/apple1io.c apple1c/apple1io_asm.s
+ * LIBS: gen2c/gen2_hgr_x2.s apple1c/apple1io_asm.s apple1c/apple1io_str.s apple1c/apple1io_key.s
  * CFG: ../cc65/apple1_gen2_c.cfg
  * PRESET: 11
  * LOAD: 6000
