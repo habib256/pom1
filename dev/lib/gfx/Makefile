@@ -4,6 +4,7 @@
 # Output = two cc65 LIBRARY ARCHIVES (ar65), one per video card:
 #
 #   gfx-gen2.lib = gfx geometry (line/rect/circle/ellipse) + gfx_num (dec/hex) + gfx_backend_gen2   (GEN2 HGR,   280x192)
+#                  -- its gfx_line is the asm gfx_line_gen2.s, not gfx_line.c
 #   gfx-tms.lib  = gfx geometry (line/rect/circle/ellipse) + gfx_num (dec/hex) + gfx_backend_tms    (TMS9918 bm, 256x192)
 #
 # WHY AN ARCHIVE (not a list of .o on the link line). ld65 pulls only the
@@ -50,6 +51,11 @@ tms:  gfx-tms.lib
 # ellipse code via ld65 dead-strip (per-.o granularity).
 gfx_line.o: gfx_line.c gfx.h
 	$(CL65) $(CFLAGS) $(GFXINC) -o $@ $<
+# GEN2's gfx_line: the same contract in asm (incremental Bresenham on the gen2c
+# tables, ~13x faster than gfx_line.c plotting per pixel). It REPLACES
+# gfx_line.o in gfx-gen2.lib; the TMS archive keeps the portable C.
+gfx_line_gen2.o: gfx_line_gen2.s
+	$(CL65) $(CFLAGS) -o $@ $<
 gfx_rect.o: gfx_rect.c gfx.h
 	$(CL65) $(CFLAGS) $(GFXINC) -o $@ $<
 gfx_circle.o: gfx_circle.c gfx.h
@@ -91,11 +97,12 @@ gfx_text_backend_tms.o: gfx_text_backend_tms.c gfx.h
 
 # Shared per-card object list (every program either gets these via dead-strip
 # or skips them — that's the whole point of the split).
-GFX_NEUTRAL_OBJS := gfx_line.o gfx_rect.o gfx_circle.o gfx_ellipse.o \
+GFX_SHARED_OBJS  := gfx_rect.o gfx_circle.o gfx_ellipse.o \
                     gfx_num_dec.o gfx_num_hex.o gfx_text.o
+GFX_NEUTRAL_OBJS := gfx_line.o $(GFX_SHARED_OBJS)
 
 # --- archives (rm first so ar65 a never accumulates stale members) ---
-gfx-gen2.lib: $(GFX_NEUTRAL_OBJS) gfx_backend_gen2.o gfx_backend_gen2_rect.o gfx_text_backend_gen2.o
+gfx-gen2.lib: gfx_line_gen2.o $(GFX_SHARED_OBJS) gfx_backend_gen2.o gfx_backend_gen2_rect.o gfx_text_backend_gen2.o
 	rm -f $@
 	$(AR65) a $@ $^
 gfx-tms.lib: $(GFX_NEUTRAL_OBJS) gfx_backend_tms.o gfx_backend_tms_rect.o gfx_text_backend_tms.o
@@ -110,5 +117,7 @@ check: gfx-gen2.lib gfx-tms.lib
 	@echo "== gfx-tms.lib  modules =="; $(AR65) t gfx-tms.lib
 	@echo "[gfx] compile-verify OK (both backends)."
 
+# Never `rm *.s` here: gfx_line_gen2.s is a hand-written source. (cl65 used
+# to leave intermediate .s files beside the .c; it deletes them itself.)
 clean:
-	rm -f *.o *.s *.lib
+	rm -f *.o *.lib

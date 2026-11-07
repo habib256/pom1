@@ -385,8 +385,9 @@ void gen2_hgr_putx(unsigned x, unsigned char y, unsigned value);
 
 /* --- Vector primitives (white, HIRES) -------------------------------------
  * Inclusive pixel endpoints (x:0..279, y:0..191), clipped to the screen. The
- * straight runs use the fast pixel-rectangle path; line/circle walk the LUT
- * plot. The Light Corridor demo hand-rolled all of these in raw asm — here they
+ * straight runs use the fast pixel-rectangle path; a diagonal line is an asm
+ * incremental Bresenham (gfx/gfx_line_gen2.s, ~74 cycles a pixel), and a
+ * circle walks the LUT plot. The Light Corridor demo hand-rolled all of these in raw asm — here they
  * are once, in the lib. */
 
 /* Horizontal / vertical runs (inclusive). Fast: one STA run per scanline. */
