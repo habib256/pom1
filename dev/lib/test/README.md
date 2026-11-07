@@ -94,6 +94,8 @@ EXPECT: ADDR B0 B1 ...       hex bytes expected at ADDR (repeatable)
 | `t08_shadowcast.s` | `games/rogue/shadowcast` — FOV + index math |
 | `t09_c_sprite_dodge.c` | `tms9918c` (C) — `tms_set_sprite` / SAT terminator |
 | `t10_m1_upload_name_at.s` | `tms9918/tms9918m1` — `name_at_rc` + `vdp_upload_a` |
+| `t18_gfx_utoa.s` | `gfx/gfx_num_dec.s` + `gfx_num_signed.s` — the one decimal converter, wide sweep vs an ASCII-counter oracle |
+| `t19_gfx_hexstr.s` | `gfx/gfx_num_hex.s` — `gfx_hexstr`, wide sweep vs a nibble-counter oracle |
 
 Each header's `GUARDS:` block names the exact bug class it pins (e.g. `t06` pins
 the shared-ZP argument window whose clobber let a `Maze3D` bug survive for

@@ -22,7 +22,7 @@ TMS9918C := $(LIBDIR)/tms9918c
 GFX      := $(LIBDIR)/gfx
 
 include $(APPLE1C)/apple1c.mk      # APPLE1C_SRCS / APPLE1C_INCS
-include $(GEN2C)/gen2c.mk          # GEN2C_ALL_SRCS / GEN2C_INCS
+include $(GEN2C)/gen2c.mk          # GEN2C_LIB / GEN2C_INCS
 include $(TMS9918C)/tms9918c.mk    # TMS9918C_ALL_SRCS / TMS9918C_INCS
 
 CL65    := cl65
@@ -36,24 +36,26 @@ GEN2CFG := $(CC65DIR)/apple1_gen2_c.cfg
 TMSCFG  := $(CC65DIR)/codetank_c_data.cfg
 CRT0    := $(CC65DIR)/crt0_pom1.s
 
-.PHONY: all gen2 tms clean
+.PHONY: all gen2 tms clean FORCE
 .DEFAULT_GOAL := all
 all: gen2 tms
 
-# --- GEN2 HGR variant: -DCARD_GEN2, links gfx-gen2.lib + the gen2c runtime ---
+# --- GEN2 HGR variant: -DPOM1_GFX_GEN2, links gen2c.lib (the gen2c runtime +
+# the GEN2 half of gfx, one archive: only the referenced members are linked) ---
 gen2: $(PROJECT)_gen2.bin
-$(GFX)/gfx-gen2.lib:
-	$(MAKE) -C $(GFX) gen2
-$(PROJECT)_gen2.bin: $(PROJECT).c $(GFX)/gfx-gen2.lib $(GEN2CFG)
+$(GEN2C_LIB): FORCE
+	@$(MAKE) --no-print-directory -C $(GEN2C) lib
+FORCE:
+$(PROJECT)_gen2.bin: $(PROJECT).c $(GEN2C_LIB) $(GEN2CFG)
 	$(CL65) $(CFLAGS) -DPOM1_GFX_GEN2 -C $(GEN2CFG) \
 	    $(GEN2C_INCS) $(APPLE1C_INCS) -I $(GFX) \
-	    $(PROJECT).c $(GEN2C_ALL_SRCS) $(APPLE1C_SRCS) $(GFX)/gfx-gen2.lib -o $@
+	    $(PROJECT).c $(APPLE1C_SRCS) $(GEN2C_LIB) -o $@
 	@ls -l $@
 
 # --- TMS9918 bitmap variant: default (no -D), links gfx-tms.lib + tms9918c ---
 tms: $(PROJECT)_tms.bin
-$(GFX)/gfx-tms.lib:
-	$(MAKE) -C $(GFX) tms
+$(GFX)/gfx-tms.lib: FORCE
+	@$(MAKE) --no-print-directory -C $(GFX) tms
 $(PROJECT)_tms.bin: $(PROJECT).c $(GFX)/gfx-tms.lib $(TMSCFG) $(CRT0)
 	$(CL65) $(CFLAGS) -DPOM1_GFX_TMS -C $(TMSCFG) \
 	    $(TMS9918C_INCS) -I $(GFX) \

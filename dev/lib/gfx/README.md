@@ -33,9 +33,12 @@ ambiguity to resolve at runtime.
 | `gfx_rect.c` | `gfx_rect` (shared geometry) |
 | `gfx_circle.c` | `gfx_circle` (shared geometry) |
 | `gfx_ellipse.c` | `gfx_ellipse` (shared geometry) |
-| `gfx_num_dec.c` | `gfx_utoa` / `gfx_itoa` (shared int→ASCII, decimal) |
-| `gfx_num_hex.c` | `gfx_hexstr` (shared int→ASCII, hex, divide-free) |
-| `gfx_text.c` | **axis 3** — shared 8×8 cell-cursor façade (`gfx_gotoxy` / `gfx_putc` / `gfx_text` / `gfx_putu` / `gfx_puti` / `gfx_putx`); owns the cursor + advance/wrap, draws via the per-card cell backend |
+| `gfx_num_dec.s` | `gfx_utoa` + `gfx_u16_dec`, **the one** 16-bit binary→decimal converter of every C runtime (asm, repeated subtraction, no cc65 `udiv16`; gen2c's `_gen2_utoa` is an alias of it) |
+| `gfx_num_signed.s` | `gfx_itoa` (asm; `-` + magnitude through the same converter) |
+| `gfx_num_hex.s` | `gfx_hexstr` (asm, 64 B vs 168 B for the former C) |
+| `gfx_text.c` | **axis 3** — shared 8×8 cell-cursor façade (`gfx_gotoxy` / `gfx_putc` / `gfx_text`); owns the cursor + advance/wrap, draws via the per-card cell backend |
+| `gfx_putu.c` / `gfx_puti.c` / `gfx_putx.c` | numbers at the cursor, one member each, so a string-only program links no converter |
+| `gfx.mk` | the source lists (neutral / GEN2 / TMS), shared by this `Makefile` and `../gen2c/Makefile` |
 | `gfx_text_backend_gen2.c` | GEN2 cell backend — `gfx_cell_glyph` → `gen2_hgr_puts8` (native 8×8), 35×24; `gfx_cell_color` is a no-op (8×8 cells are white) |
 | `gfx_text_backend_tms.c` | TMS9918 cell backend — `gfx_cell_glyph` → `screen2_putc`, 32×24; `gfx_cell_color` maps to the per-cell `FG_BG` attribute |
 | `gfx_backend_gen2.c` | GEN2 backend — wraps `gen2_hgr_plot/hline/vline`, 280×192 |
@@ -56,7 +59,7 @@ gfx_gotoxy(2u, 2u);  gfx_text("SCORE ");  gfx_putu(score);   /* same on both car
 ```
 
 The shared layer owns the cursor, the advance/wrap, and the number formatting
-(via `gfx_utoa`/`gfx_itoa`/`gfx_hexstr`); each card supplies just `gfx_cell_glyph`
+(`gfx_putu`/`gfx_puti`/`gfx_putx`, each its own member, via `gfx_utoa`/`gfx_itoa`/`gfx_hexstr`); each card supplies just `gfx_cell_glyph`
 (one 8×8 blit) + `gfx_cell_color` + the `gfx_text_cols`/`gfx_text_rows` extent.
 GEN2 maps a cell to `gen2_hgr_puts8` (35×24); TMS to `screen2_putc` (32×24).
 The `sketchs/portable/hello_gfx_text/` demo builds the SAME source for both
@@ -68,9 +71,11 @@ rich per-card text:
 - **Colour.** TMS honours a per-cell `FG_BG` attribute via `gfx_cell_color`; GEN2
   8×8 cells are white (its colour is the NTSC artifact trick on the 16×16 doubled
   glyphs — reach for `gen2_hgr_puts_color` directly).
-- **GEN2's hot HUD path.** `gen2_hgr_putu_field` keeps its hand-written asm
-  `gen2_utoa` (avoids cc65's runtime 16-bit soft-divide). Do **not** reroute it
-  through `gfx_putu`/`gfx_utoa` — that would regress the flicker-free HUD primitive.
+- **One converter.** `gfx_utoa` is hand-written 6502 (ported from pom2games
+  `math/dec.asm` `u16_to_dec`, ~31 % faster than the former `gen2_utoa`, which
+  is now an alias of it), so GEN2's flicker-free `gen2_hgr_putu_field` and the
+  TMS `printlib` share one routine. No private zero page, no self-modifying
+  code, no DATA writes: it runs from CodeTank ROM.
 - **16×16 doubled glyphs** (`gen2_hgr_puts`) and TMS **name-table text mode** stay
   card-specific; the façade is the lowest common denominator (monospaced 8×8).
 
@@ -114,6 +119,9 @@ decimal soft-`/10` of `gfx_utoa`/`itoa`, which are dead in GEN2 since it keeps
 its asm `gen2_utoa`). Splitting `gfx_hexstr` into its own divide-free module
 (`gfx_num_hex.c`, separate from `gfx_num_dec.c`) recovered that part: `gen2_hgr_putx`
 now drags only `gfx_num_hex.c` and leaves the decimal soft-`/10` dead-stripped.
+(Since November 2026 both converters are asm — `gfx_num_dec.s` / `gfx_num_hex.s`
+— and the soft `/10` is gone altogether; `gen2_utoa` is an alias of `gfx_utoa`'s
+core.)
 Everything still fits (no ROM overflow).
 
 **Behaviour.** GEN2 output is pixel-identical (verbatim ports). On TMS,
@@ -137,8 +145,8 @@ modules a program *references* out of a `.lib`. The card libs now forward to
 `gfx_*` (see Rewiring below), so a program references exactly the `gfx_*` modules
 its draw calls reach and ld65 dead-strips the rest. Force-listing the `.c` sources
 instead force-links the whole layer — **+2888 bytes** of dead code (cc65's soft
-mul/divide for the ellipse + `gfx_num`). The per-family split (`gfx_num_hex.c`
-separate from `gfx_num_dec.c`; `gfx_backend_*_rect.c` separate from the line
+mul/divide for the ellipse + `gfx_num`). The per-family split (`gfx_num_hex.s`
+separate from `gfx_num_dec.s`; `gfx_backend_*_rect.c` separate from the line
 backend) keeps a lines-only or hex-only program from dragging the decimal
 soft-`/10` or the fill path.
 
@@ -155,7 +163,11 @@ Wired touch points (copy these as the template for the rest):
   The Bench compiles the gfx sources **from source** (like `gen2.c`) so edits
   apply live and a sketch can immediately `#include "gfx.h"` and draw vectors;
   its binaries are throwaway, so the dead-code trade-off doesn't matter there.
-- **`sketchs/gen2/demo_bounces/Makefile`** — GEN2 example (links `gfx-gen2.lib`).
+- **`sketchs/gen2/demo_bounces/Makefile`** — GEN2 example. GEN2 Makefile programs
+  link `../gen2c/gen2c.lib`, which carries this layer's neutral + GEN2 members
+  (gen2c and gfx call each other, and ld65 does not rescan an earlier library,
+  so one archive is the order-proof link); `gfx-gen2.lib` stays for consumers
+  that list the gen2c sources as objects.
 - `dev/lib/gfx/Makefile` builds both archives via `ar65` (run from this dir).
 
 ## Troubleshooting

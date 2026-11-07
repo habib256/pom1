@@ -1,7 +1,7 @@
 ; gen2_sprmask.s -- masked pre-shifted sprite kernels for GEN2 HGR (cc65).
 ;
 ; The SPRMASK family: the save-under complement to the XOR pre-shift engine
-; (gen2_blit.s _gen2_xs_run). XOR is self-erasing but TRASHES a non-uniform
+; (gen2_preshift_asm.s _gen2_xs_run). XOR is self-erasing but TRASHES a non-uniform
 ; background while the sprite overlaps it (decor shows through the sprite as
 ; toggled garbage). These kernels instead do a MASKED blit
 ;

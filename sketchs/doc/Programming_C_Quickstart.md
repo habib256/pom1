@@ -181,9 +181,10 @@ void main(void)
    in the old monolithic `gen2.c` used to pull pixel + blit + lores.
    That runtime is now split into per-family modules — `gen2_init.c`,
    `gen2_pixel.c`, `gen2_rect.c`, `gen2_text.c`, `gen2_sprites.c`,
-   `gen2_geom.c`, `gen2_lores.c`, plus the hot `gen2_blit.s` (see
-   `dev/lib/gen2c/gen2c.mk`) — so you link only the families you use.
-   Use the per-family Makefile variables.
+   `gen2_geom.c`, `gen2_lores.c`, ... plus one asm member per hot kernel
+   (`gen2_*_asm.s`) — shipped as the `gen2c.lib` archive (see
+   `dev/lib/gen2c/gen2c.mk`), so ld65 links only what you call.
+   Link the archive, not the sources.
 5. **Soft-switch reads must STORE, not (void)-cast.** cc65 `-Oirs`
    elides a `(void)volatile_read`. `gen2.h`'s macros use `gen2_ss_sink`
    so the read survives. Roll your own macro the wrong way and you'll

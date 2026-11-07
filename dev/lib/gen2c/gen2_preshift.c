@@ -8,7 +8,7 @@
  * kernel (gen2_blit7_run) at column x/7. No per-pixel shifting at all.
  *
  * This is a pure C clipping/selection wrapper around the asm kernels in
- * gen2_blit.s. Speed matters here: a single-buffer XOR program must fit its
+ * gen2_preshift_asm.s / gen2_blit7_asm.s. Speed matters here: a single-buffer XOR program must fit its
  * erase+redraw inside V-blank (~4550 cyc) or the beam catches it mid-update
  * (flicker), so this path is tuned the Buzzard-Bait way:
  *   - x/7 and x%7 come from the gen2_col7[] / gen2_phase7[] TABLES, not cc65's
@@ -63,7 +63,7 @@ void gen2_hgr_sprite(unsigned x, unsigned char y,
 }
 
 /* XOR-only fast path: a THIN C entry that just stows the args in zero page and
- * jumps to the all-asm worker (gen2_xs_run in gen2_blit.s). All the per-call cost
+ * jumps to the all-asm worker (gen2_xs_run in gen2_preshift_asm.s). All the per-call cost
  * the cc65 wrapper above pays -- the x/7 + x%7 (here table lookups, but still),
  * the phase*h*stride multiply, the 16-bit edge-clip ternaries -- moves into asm,
  * so an erase+redraw pair fits in V-blank and single-buffer animation is

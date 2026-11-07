@@ -22,7 +22,7 @@ data is in [`sprites/`](sprites/). **Tutorial:** [step-by-step GEN2 HGR assembly
   `sketchs/gen2/demo_a1_crazycycle/`.
 - **`gen2_init.asm`** — `gen2_hgr_init` / `gen2_lores_init`: read all four GEN2
   soft-switch pairs into a known state (Bernie Q8 — latch survives RESET). Call
-  before any HGR/LORES drawing in asm; C links the same routines via `gen2_blit.s`.
+  before any HGR/LORES drawing in asm; C links the same routines via the gen2c archive members `gen2_mode_asm.s` / `gen2_lores_init_asm.s` / `gen2_mode_clear_asm.s`.
 
 ## HGR data tables + sub-byte rendering
 

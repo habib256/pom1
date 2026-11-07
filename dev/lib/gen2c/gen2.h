@@ -132,7 +132,7 @@ void gen2_text_restore(void);
 void gen2_hgr_clear(unsigned char fill);
 
 /* Fast byte-aligned rectangle fill of HIRES page 1, via a hand-written 6502
- * inner loop (gen2_blit.s). Fills `rows` scanlines from y0, byte columns
+ * inner loop (gen2_fill_rect_asm.s). Fills `rows` scanlines from y0, byte columns
  * [col0, col0+ncols), with `val` (0 = erase). Horizontally byte-granular
  * (7px/byte, so col = x/7, ncols = how many 7px-wide bytes). This is the fast
  * way to erase the area behind text / a sprite without clearing the whole
@@ -147,7 +147,7 @@ void gen2_hgr_fill_rect(unsigned char y0, unsigned char rows,
 unsigned char *gen2_hgr_row(unsigned char y);
 
 /* Fill / erase a PIXEL-aligned rectangle [x, x+w) × [y, y+h) via a hand-written
- * 6502 inner loop (gen2_blit.s) — unlike gen2_hgr_fill_rect these take pixel x/w,
+ * 6502 inner loop (gen2_pixrect_asm.s) — unlike gen2_hgr_fill_rect these take pixel x/w,
  * not byte columns, so partial edge bytes are handled. fill = white, clear =
  * black. This is the fast way to draw/erase solid blocks (game tiles, sprites,
  * bars): one call replaces a per-pixel gen2_hgr_plot double loop (e.g. a 6×6
@@ -409,7 +409,7 @@ void gen2_hgr_circle(unsigned xc, unsigned char yc, unsigned char r);
 void gen2_hgr_ellipse(unsigned x0, unsigned char y0, unsigned x1, unsigned char y1);
 
 /* Draw a string in one of the four NTSC artifact COLOURS the GEN2 HIRES screen
- * can show (it has no per-pixel colour). Drawn in ONE tinted pass (gen2_blit.s
+ * can show (it has no per-pixel colour). Drawn in ONE tinted pass (gen2_text16_asm.s
  * gen2_blit_glyph_color ORs the colour's carrier bit per pixel directly — no
  * white-then-recolorize round trip), and only the glyph itself is touched, so a
  * coloured label can sit right next to other content without bleeding a tint

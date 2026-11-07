@@ -16,7 +16,7 @@
  * flags default clear, gen2_draw_page2 zero = page 1, and the page bases
  * (for which 0 is never a legal value) are lazily defaulted at their read
  * sites (gen2_hgr_row / gen2_build_tables here, gen2_lores.c for LORES, and
- * _gen2_hgr_clear in gen2_blit.s — the one asm reader of gen2_hgr_base). */
+ * _gen2_hgr_clear in gen2_hgr_clear_asm.s — the one asm reader of gen2_hgr_base). */
 
 #include "gen2.h"
 #include "gen2_internal.h"
@@ -25,7 +25,7 @@
  * its value is meaningless. cc65 -Oirs drops a volatile read cast to void, so
  * the macros store the read into this sink — a store cc65 cannot prove dead, so
  * the (volatile) load that feeds it is always emitted. The whole-mode init
- * routines gen2_hgr_init / gen2_lores_init live in asm (gen2_blit.s) for the
+ * routines gen2_hgr_init / gen2_lores_init live in asm (gen2_mode_asm.s and siblings) for the
  * same reason; see the note there and gen2.h. */
 volatile unsigned char gen2_ss_sink;
 
@@ -35,7 +35,7 @@ volatile unsigned char gen2_ss_sink;
  * gen2_set_draw_page. BSS (no initializer — see the header): 0 means "unset",
  * lazily defaulted to $20 (page 1) at every read site that can run before
  * gen2_set_draw_page — here, gen2_build_tables, and _gen2_hgr_clear in
- * gen2_blit.s. 0 is never a legal base, so the encoding is unambiguous. */
+ * gen2_hgr_clear_asm.s. 0 is never a legal base, so the encoding is unambiguous. */
 unsigned char gen2_hgr_base;
 
 /* Apple II interleaved HIRES scanline base, in the CURRENT draw page:
