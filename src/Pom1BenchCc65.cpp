@@ -367,6 +367,8 @@ const char* kBenchCSpecGen2c = R"json({
   ],
   "asmSources": [
     { "path": "/dev/lib/gen2c/gen2_blit.s", "name": "gen2_blit.s" },
+    { "path": "/dev/lib/gen2c/gen2_tables.s", "name": "gen2_tables.s" },
+    { "path": "/dev/lib/gen2c/gen2_page.s", "name": "gen2_page.s" },
     { "path": "/dev/lib/gen2c/gen2_hgr_x2.s", "name": "gen2_hgr_x2.s" },
     { "path": "/dev/lib/gen2c/gen2_sprmask.s", "name": "gen2_sprmask.s" },
     { "path": "/dev/lib/gfx/gfx_line_gen2.s", "name": "gfx_line_gen2.s" },

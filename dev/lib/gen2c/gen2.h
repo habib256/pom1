@@ -503,8 +503,9 @@ void gen2_wait_vbl(void);
  *
  *   gen2_set_draw_page(page)  picks where EVERY drawing primitive writes (HIRES
  *                             and LORES alike); page is 1 or 2. Cheap but not
- *                             free — it re-derives the scanline tables, so set it
- *                             ONCE per frame, not per primitive. The per-pixel
+ *                             free (~2 300 cycles: it moves the scanline tables
+ *                             to the other page), so set it ONCE per frame, not
+ *                             per primitive. The per-pixel
  *                             plot/blit/fill hot paths are unchanged.
  *   gen2_show_page()          flips the card to display the CURRENT draw page
  *                             (the $C254/$C255 soft switch).

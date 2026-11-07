@@ -128,7 +128,8 @@ extern void gen2_msu_run(void);         /* save-under + masked draw, one pass   
 #pragma zpsym("gen2_ms_spr")
 #pragma zpsym("gen2_ms_under")
 
-/* --- Cross-module globals (defined in gen2_init.c) -------------------------- */
+/* --- Cross-module globals: the HIRES tables are BSS in gen2_tables.s, the
+ * LORES table + state in gen2_init.c ---------------------------------------- */
 extern unsigned char gen2_rowlo[192];          /* HIRES scanline base low byte  */
 extern unsigned char gen2_rowhi[192];          /* HIRES scanline base high byte */
 extern unsigned char gen2_col7[280];           /* x / 7 (byte column)           */
@@ -140,7 +141,8 @@ extern unsigned char gen2_lo_base;             /* LORES page base ($04 or $08;
                                                   BSS 0 = unset, lazy -> $04)  */
 extern unsigned char gen2_lo_ready;            /* LORES tables built once       */
 
-/* --- Cross-module helpers (defined in gen2_init.c) -------------------------- */
-extern void gen2_build_tables(void);           /* idempotent table build        */
+/* --- Cross-module helpers ---------------------------------------------------- */
+extern void gen2_build_tables(void);           /* idempotent table build (asm,
+                                                  gen2_tables.s)               */
 
 #endif /* GEN2_INTERNAL_H */

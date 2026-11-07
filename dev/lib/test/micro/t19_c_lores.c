@@ -22,7 +22,7 @@
  *
  * POM1-LIB-MICRO-TEST
  * MODE: gen2
- * LIBS: gen2c/gen2_init.c gen2c/gen2_blit.s gen2c/gen2_lores_tab.s gen2c/gen2_lores_clr.s gen2c/gen2_lores_dot.s gen2c/gen2_lores_run.s apple1c/apple1io.c apple1c/apple1io_asm.s
+ * LIBS: gen2c/gen2_init.c gen2c/gen2_blit.s gen2c/gen2_tables.s gen2c/gen2_page.s gen2c/gen2_lores_tab.s gen2c/gen2_lores_clr.s gen2c/gen2_lores_dot.s gen2c/gen2_lores_run.s apple1c/apple1io.c apple1c/apple1io_asm.s
  * CFG: ../cc65/apple1_gen2_c.cfg
  * PRESET: 11
  * LOAD: 6000

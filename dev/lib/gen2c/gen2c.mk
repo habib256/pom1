@@ -25,7 +25,10 @@
 
 # CORE: tables, soft-switch sink, draw-page setter, wait_vbl, hgr_row,
 # the shared asm fast paths (gen2_blit.s). Always link this.
-GEN2C_CORE_SRCS    := $(GEN2C)/gen2_init.c $(GEN2C)/gen2_blit.s
+# gen2_tables.s = the lookup tables + gen2_build_tables + gen2_hgr_row (asm);
+# gen2_page.s = gen2_set_draw_page / gen2_show_page (asm).
+GEN2C_CORE_SRCS    := $(GEN2C)/gen2_init.c $(GEN2C)/gen2_blit.s \
+                      $(GEN2C)/gen2_tables.s $(GEN2C)/gen2_page.s
 
 # Drawing families — pick the ones your program actually calls.
 GEN2C_PIXEL_SRCS   := $(GEN2C)/gen2_pixel.c     # gen2_hgr_plot/unplot

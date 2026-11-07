@@ -362,7 +362,8 @@ encodings** —
 - [`gfx/gfx_text.c`](gfx/gfx_text.c) — cursor statics kept genuinely
   uninitialized; BSS zero = home position.
 - [`gen2c/gen2_init.c`](gen2c/gen2_init.c) — `gen2_hgr_base` is BSS with a
-  lazy default at the use sites (`if (!gen2_hgr_base) gen2_hgr_base = 0x20`):
+  lazy default at the use sites (`if (!gen2_hgr_base) gen2_hgr_base = 0x20`,
+  in asm in `gen2_tables.s` / `gen2_blit.s`):
   zero is not a valid page base, so BSS-zero means "not set yet".
 
 ## Cross-library zero-page map

@@ -58,10 +58,11 @@ for (;;) {
 }
 ```
 
-`gen2_set_draw_page` redirects **all** primitives (HIRES + LORES) by re-deriving
-the scanline tables they index — so it is set **once per frame**, not per call,
-and the per-pixel hot paths stay byte-for-byte identical (the page costs a table
-refresh at the flip, never a cycle per pixel). Demo:
+`gen2_set_draw_page` redirects **all** primitives (HIRES + LORES) by moving
+the scanline tables they index to the other page (asm, `gen2_page.s`: ~2 300
+cycles, an `EOR #$60` over the 192 high bytes) — so it is set **once per
+frame**, not per call, and the per-pixel hot paths stay byte-for-byte identical
+(the page costs a table refresh at the flip, never a cycle per pixel). Demo:
 `sketchs/gen2/demo_bounces` (`gen2_set_draw_page` / `gen2_show_page`).
 
 ### Assembly fast paths (`gen2_blit.s`)
@@ -97,7 +98,8 @@ cost millions of cycles for one line of text):
 
 These read scanline base addresses from the `gen2_rowlo`/`gen2_rowhi` tables —
 and `plot`/`unplot` also the `gen2_col7`/`gen2_mask7` x-lookup tables — that
-`gen2_init.c` builds once. **Any project that compiles any of the per-family C
+`gen2_build_tables()` builds once (asm, `gen2_tables.s`: ~17 000 cycles on
+first use; the C builder it replaced took ~237 000). **Any project that compiles any of the per-family C
 modules (see `gen2c.mk`) must also assemble `gen2_blit.s`** (the per-project
 Makefile / emit script and the POM1 Bench already do). Parameters travel
 through a zero-page block (`#pragma zpsym`), so no cc65 stack juggling.
@@ -173,7 +175,7 @@ GEN2 gfx archive once and link it (and add `-I ../gfx` for `gfx.h`):
 make -C ../gfx gen2          # builds ../gfx/gfx-gen2.lib (once)
 
 cl65 -t none -Oirs -C ../../cc65/apple1_gen2_c.cfg -I . -I ../apple1c -I ../gfx \
-     hello.c gen2_init.c gen2_pixel.c gen2_rect.c gen2_text.c gen2_sprites.c \
+     hello.c gen2_init.c gen2_tables.s gen2_page.s gen2_pixel.c gen2_rect.c gen2_text.c gen2_sprites.c \
      gen2_geom.c gen2_blit.s gen2_lores_tab.s gen2_lores_clr.s \
      gen2_lores_dot.s gen2_lores_run.s \
      ../apple1c/apple1io.c ../apple1c/apple1io_asm.s ../gfx/gfx-gen2.lib -o hello.bin
