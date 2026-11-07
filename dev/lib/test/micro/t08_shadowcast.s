@@ -59,9 +59,11 @@ idx:            .res 1          ; callback scratch
 map:            .res 64         ; 1 = opaque
 vis:            .res 64         ; callbacks set 1
 
-; .include-style libs, caller-owned callbacks below (like TMS_Rogue does):
-.include "multiply.asm"         ; umul4 for the slope cross-products
+; .include-style libs, caller-owned callbacks below (like TMS_Rogue does).
+; First include: their zero page, before the code that uses it. The routines
+; are emitted on demand by the second include, at the end.
 .include "shadowcast.asm"
+.include "multiply.asm"         ; umul4 for the slope cross-products
 
 MB = $0F00
 
@@ -127,3 +129,8 @@ is_opaque_at_cur:
         TAY
         LDA     map,Y           ; A = $01 (Z clear) iff opaque
         RTS
+
+; Second include: the routines, now that shadowcast_octants (main) and umul4
+; (shadowcast) have been referenced.
+.include "shadowcast.asm"
+.include "multiply.asm"

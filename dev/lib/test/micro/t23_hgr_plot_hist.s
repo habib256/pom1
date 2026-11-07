@@ -30,7 +30,6 @@ HGR_PLOT_HIST_ALL = 1
 .code
 .include "hgr_scanline.inc"
 .include "hgr_div7_ram.asm"
-.include "hgr_clear.asm"
 .include "hgr_plot_hist.asm"
 
 .segment "ENTRY"
@@ -91,3 +90,7 @@ start:
         LDA #$A5                ; magic written LAST
         STA MB
 spin:   JMP spin
+
+; On-demand libraries (dev/lib/README.md, "Assembled on demand"): after the callers.
+.code
+.include "hgr_clear.asm"

@@ -106,6 +106,10 @@ check_win:
 ; print_ptr_lo/hi aliases fold print.asm's ZP slots onto the project's
 ; existing str_lo/str_hi (consistent in all three Sokoban variants
 ; — text 4 KB, HGR, TMS9918).
+; Both are assembled on demand (dev/lib/README.md, "Assembled on demand"):
+; they emit only what was called ABOVE this point (the variant's code is
+; included before this file). A call added below fails the build with
+; "Symbol ... is undefined": move these includes after it.
 ; ---------------------------------------------
 print_ptr_lo = str_lo
 print_ptr_hi = str_hi

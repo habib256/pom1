@@ -33,7 +33,6 @@ MB = $0F00
 
 .code
 .include "hgr_scanline.inc"
-.include "hgr_clear.asm"
 .include "hgr_flip.asm"
 .include "hgr_clear_rows.asm"
 
@@ -95,3 +94,7 @@ start:
         LDA #$A5                ; magic written LAST
         STA MB
 spin:   JMP spin
+
+; On-demand libraries (dev/lib/README.md, "Assembled on demand"): after the callers.
+.code
+.include "hgr_clear.asm"

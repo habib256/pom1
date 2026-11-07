@@ -35,6 +35,13 @@
 ; Projects building 16x16 multipliers on top of umul8 (e.g. HGR4 Mandelbrot)
 ; declare their own extra accumulator slots (mul_res1..3) on top of these
 ; two — those stay project-local since the build-up logic is project-specific.
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): umul8 and
+; umul4 are each emitted only when referenced EARLIER in the program and not
+; yet defined, so include this file after the last caller (shadowcast.asm is a
+; caller of umul4: include it before this file). Included too early, the build
+; stops with "Symbol 'umul4' is undefined". The ZP pair above is always
+; reserved, so it can be included early for that and again at the end.
 ; ============================================================================
 
 .ifndef mul_tmp
@@ -43,8 +50,10 @@ mul_tmp:        .res 1
 mul_res0:       .res 1
 .endif
 
-.segment "CODE"
+.segment "CODE"                 ; unconditional: the caller's code after
+                                ; the include stays in CODE, as before
 
+.if .referenced(umul8) .and (.not .defined(umul8))
 umul8:
         STA     mul_tmp
         STX     mul_res0
@@ -61,7 +70,9 @@ umul8:
         TAX                     ; X = high byte
         LDA     mul_res0        ; A = low byte
         RTS
+.endif
 
+.if .referenced(umul4) .and (.not .defined(umul4))
 umul4:
         STA     mul_tmp         ; multiplicand 0..15
         TXA                     ; A = multiplier 0..15 (low nybble)
@@ -81,3 +92,4 @@ umul4:
         DEX
         BNE     @u4lp
         RTS
+.endif

@@ -110,21 +110,13 @@ draw_col:    .res 1  ; $16
 str_lo:      .res 1  ; $17
 str_hi:      .res 1  ; $18
 ; Undo state (single-step). Sokoban never calls hgr_tables.inc's
-; plot_pixel, so the cur_x/cur_y/mul_tmp/mul_res0 slots it would need
-; are reclaimed here.
+; plot_pixel, so the cur_x/cur_y slots it would need are reclaimed here
+; (plot_pixel is assembled on demand: not referenced, not emitted).
 prev_player_row: .res 1 ; $19
 prev_player_col: .res 1 ; $1A
 undo_avail:      .res 1 ; $1B  1 = execute_undo is valid, 0 = no move to undo
 had_push:        .res 1 ; $1C  1 = last move was a push (box needs undo too)
 moves:         .res 1  ; $1D  move counter (saturates at $FF, shown next to level #)
-
-; hgr_tables.inc references these for its (unused) plot_pixel routine —
-; alias them onto the undo bytes so the assembler resolves the symbols.
-; plot_pixel is never called, so the aliasing is harmless.
-cur_x    = prev_player_row
-cur_y    = prev_player_col
-mul_tmp  = undo_avail
-mul_res0 = had_push
 
 ; --- Code at $0280 ---
 .code
@@ -1402,6 +1394,7 @@ str_title:
 str_win:
         .byte $0D, " CLEARED! KEY=NEXT", $0D, 0
 
+; Shared libraries last: they emit only what the code above referenced
+; (dev/lib/README.md, "Assembled on demand").
 .include "hgr_tables.inc"
-.include "multiply.asm"
 .include "gen2_init.asm"

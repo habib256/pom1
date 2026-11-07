@@ -1,5 +1,11 @@
 ; ============================================================================
 ; prng16.asm -- 16-bit Galois LFSR ($B400 tap), shared by arcade games
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): prng16 is
+; emitted only when referenced EARLIER in the program and not yet defined, so
+; .include this file after the last call. Included too early, the build stops
+; with "Symbol '<routine>' is undefined" -- never a silent drop. dungeon.asm's
+; rand_mod calls prng16: include dungeon.asm first.
 ; ============================================================================
 ; Promoted from inline copies in 2 projects (mutualization Tier 2.2). State
 ; lives in `prng_lo / prng_hi` — same canonical name as `prng8.asm`, so a
@@ -43,6 +49,7 @@ prng_hi:        .res 1
 ; 19/20 cycles (no tap / tap) instead of 16/23 -- the same mean, a flatter
 ; worst case. Same state transition, same return: A = new prng_lo, N/Z from
 ; it, C = the bit shifted out, X/Y preserved.
+.if .referenced(prng16) .and (.not .defined(prng16))
 prng16:
         LDA     prng_hi
         LSR     A               ; bit 0 of prng_hi -> C
@@ -52,3 +59,4 @@ prng16:
 @store: STA     prng_hi
         LDA     prng_lo
         RTS
+.endif
