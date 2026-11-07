@@ -44,11 +44,18 @@
 ;                          Walls AND opaque doors should both return $01.
 ;                          Clobbers A, Y; preserves X.
 ;
-; Multiply primitive: caller must `.include "multiply.asm"` before this
-; library so `umul4` (4×4 → 8-bit) is linkable. shadowcast uses umul4 for
+; Multiply primitive: caller must `.include "multiply.asm"` AFTER this
+; library so `umul4` (4×4 → 8-bit) is emitted. shadowcast uses umul4 for
 ; every slope cross-multiplication; with SHADOW_COLS, SHADOW_ROWS and
 ; fov_r all bounded by 15, the slope numerators / denominators stay in
 ; 0..15 and the products fit in one byte (15*15 = 225).
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): the code and
+; tables below are emitted only when shadowcast_octants was referenced EARLIER
+; in the program, once. Include this file after the call (and multiply.asm
+; after this file). Included too early, the build stops with "Symbol
+; 'shadowcast_octants' is undefined" -- never a silent drop. The ZP block is
+; reserved at every include, as before.
 ;
 ; ----------------------------------------------------------------------------
 ; Lib-owned ZP (allocated via `.ifndef` guard so callers can pre-alias
@@ -106,6 +113,7 @@ cast_xprod:      .res 1          ; cross-product LHS scratch for slope cmp
 
 .segment "CODE"
 
+.if .referenced(shadowcast_octants) .and (.not .defined(shadowcast_octants))
 shadowcast_octants:
         LDA     #0
         STA     oct_idx
@@ -455,3 +463,4 @@ octant_xx:      .byte   0,    1,   $FF,   0,    0,   $FF,   1,    0
 octant_xy:      .byte   1,    0,    0,   $FF, $FF,   0,     0,    1
 octant_yx:      .byte $FF,    0,    0,   $FF,   1,    0,    0,    1
 octant_yy:      .byte   0,   $FF, $FF,    0,    0,    1,    1,    0
+.endif  ; shadowcast_octants

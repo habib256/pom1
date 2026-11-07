@@ -107,8 +107,10 @@ while tiny helpers and pure data are cheaper pasted inline.
 ### Model A — textual `.include` (no separate compilation)
 
 The file is `.include`d into your program's **single** translation unit, as if
-pasted at that point. Nothing is dead-stripped — you get all of it — so this fits
-small routines, equates and data.
+pasted at that point. `ld65` strips nothing here, so the routine libs strip
+themselves: each routine is **assembled on demand** — emitted only if your
+program called it before the include (see [below](#assembled-on-demand-include-after-the-callers)).
+This fits small routines, equates and data.
 
 - **All `.inc` files** — pure equates / macros / data tables, always textual:
   every card's `<card>.inc` (`apple1.inc`, `gen2.inc`, `tms9918.inc`, `sid.inc`,
@@ -121,6 +123,88 @@ small routines, equates and data.
   [`apple1/zp.inc`](apple1/zp.inc) — `.include "zp.inc"` once, before any other
   ZP `.res`. ⚠ It is a **positional contract** ($00-$07 in fixed order); see the
   DANGER banner in that file. Pinned by `apple1/test/`.
+
+### Assembled on demand: include after the callers
+
+Every routine of a Model A routine lib is wrapped in
+
+    .if .referenced(name) .and (.not .defined(name))
+    name:   ...
+    .endif
+
+so a program pays only for the routines it calls: before this, HGR_Sokoban and
+HGR_BBFontShow carried `umul8` + `umul4` (50 bytes) and called neither, the three
+Rogue builds carried `umul8`, which nothing in the tree calls, and every GEN2 asm
+sketch carried all four `gen2_init.asm` entries (~144 bytes) for the one it used.
+
+**The rule: `.include` the library AFTER its last caller** — in practice at the
+end of the program, next to the data. `.referenced` is evaluated where the
+`.if` stands and ca65 does not look ahead, so only references made *before* the
+include count. Between libraries the same holds: the calling library comes
+first — `menu.asm` before `kbd.asm`, `dungeon.asm` before `prng16.asm`,
+`shadowcast.asm` before `multiply.asm`, `at.asm` before `acia.asm`.
+
+**Too early fails loudly, never silently.** The routine is not emitted, and the
+call that comes after the include names a symbol nothing defines:
+
+    ../../../dev/lib/games/rogue/shadowcast.asm(173): Error: Symbol 'umul4' is undefined
+    make: *** [HGR_Rogue.o] Error 1
+
+(HGR_Rogue with `multiply.asm` moved above `shadowcast.asm`, its caller.)
+
+That is ca65 on a single translation unit; a separate object that `.import`s
+the routine gets `ld65: Unresolved external` instead. What counts as a reference: any
+expression naming the symbol — `JSR`, `JMP`, `.addr` jump tables, `#<(name-1)`,
+`.export name`, `.assert`. Two cases to know:
+
+- A reference written inside a `.proc` / `.scope` does not count for the global
+  symbol until the scope closes — it still fails loudly (undefined symbol);
+  write `::name` to reference the global one directly.
+- **Code that falls through into a library routine, or reaches it without
+  naming it, is the one way to get it wrong silently.** Pin it right before the
+  include with `.assert name = *, error, "..."`: an `.assert` is a reference
+  (the routine is emitted) and checks at link time that it really is the next
+  byte (`sketchs/tms9918/tool_logo/TMS_Logo_16k.asm` does it for
+  `print_str_ax`). The libraries' own fall-throughs are handled inside them:
+  `wait_key` → `kbd_take`, `clear_hgr` → `hgr_fill_page`, `at_send_cmd` →
+  `at_send_cr`, `gen2_hgr_init_clear`'s tail JMP — the tail is emitted with
+  either entry, and an entry emitted by a later include than its tail ends on a
+  `JMP` instead of falling through.
+
+**Include guards, and the two-include pattern.** The `.not .defined(name)` half
+makes every guarded file safe to include any number of times: each routine is
+emitted at the first include that follows a reference, and never twice. What a
+file declares rather than emits — ZP slots (each `.ifndef`-guarded), equates,
+macros, `HGR_*` switches — sits under a `_NAME_LOADED_` guard or its own
+`.ifndef`, and comes with the first include. That is the pattern when a library
+also provides something needed EARLY (a ZP label referenced before its
+definition assembles as absolute, and a macro must exist before its use):
+
+    .include "shadowcast.asm"    ; top: its zero page
+    .include "multiply.asm"
+    ...  code that calls shadowcast_octants ...
+    .include "shadowcast.asm"    ; end: the routines it now needs
+    .include "multiply.asm"      ;      (umul4, called by shadowcast)
+
+(`dev/lib/test/micro/t08_shadowcast.s`; `gen2/hgr_text8.asm` and
+`gen2/hgr_plot_hist.asm` use it the same way.) A module whose header does not
+mention "Assembled on demand" emits everything it contains, as before.
+
+Guarded today: `apple1/` (`print`, `kbd`, `delay`, `print_num`), `m6502/`
+(`multiply`, `prng8`, `prng16`), `text40/` (`menu`, `repeat`), `games/rogue/`
+(`dungeon`, `shadowcast`), `gen2/` (`gen2_init`, `hgr_clear`, `hgr_plot`,
+`hgr_text8`'s `hgr_puts8` / `hgr_puts8_at`, `subbyte_fill`, `hgr_pages`,
+`hgr_plot_hist`), `tms9918/tms9918_xfer`, and the peripheral drivers `sd/sd`,
+`a1io/a1io`, `gt6144/gt6144`, `wifi/acia` + `at`, `sid/sid_init` + `sid_play`.
+`gen2_init.asm` keeps an explicit selection for the gen2c archive members
+(`GEN2_INIT_SELECT`, see its header). Pinned by the micro-tests
+`t50`/`t51` (`kbd.asm`, both late-entry paths; `multiply.asm` emits nothing or
+`umul4` alone) and `t52` (`hgr_clear` + `gen2_init` across two includes).
+
+**Model B objects do not benefit** — `ld65` links an object whole, so an
+`.ifref` inside a separately assembled `.asm` sees only that file's own
+references. What trims them is splitting into per-routine objects or archive
+members, as the C runtimes and `gen2c` already do.
 
 ### Model B — separately-compiled object (`.o`) linked by `ld65`
 
@@ -297,7 +381,9 @@ documented in [`../cc65/`](../cc65/README.md)).
       LIB := -I ../../lib/apple1 -I ../../lib/m6502 -I ../../lib/gen2
 
   Then in the `.asm`: `.include "apple1.inc"` / `.include "zp.inc"` /
-  `.include "print.asm"` … Nothing is dead-stripped — you assemble all of it.
+  `.include "print.asm"` … Put the routine libs' `.include` after your last
+  call: they assemble only what was referenced before them (see
+  [Assembled on demand](#assembled-on-demand-include-after-the-callers)).
 
 - **Separately-compiled asm objects (Model B).** Heavy `.asm` carrying
   `.export`/`.import` (e.g. `tms9918m1.asm`, `math.asm`) go in

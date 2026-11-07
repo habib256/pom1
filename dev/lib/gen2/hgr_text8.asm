@@ -52,8 +52,12 @@
 ;               40 B once, against 13 B per site for the LDA/STA sequence.
 ;               HGR_TEXT8_AT_PAGE = <label>: copy that byte into ht_page
 ;               first (double-buffered programs keeping their own page).
-;               Assembled only when referenced (.ifref): include this file
-;               a second time after the last caller to get it.
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): hgr_puts8
+; and hgr_puts8_at are emitted only when referenced EARLIER in the program and
+; not yet defined. The core (ZP, hgr_putc8, rev7_tab, the macro) comes with
+; the first include; include this file a second time after the last caller to
+; get them. Too early: "Symbol 'hgr_puts8' is undefined".
 ;
 ; Caller provides hgr_lo / hgr_hi (include hgr_scanline.inc). The module
 ; allocates its own ZP (~12 B) and pulls rev7.inc (shared, guarded).
@@ -216,27 +220,6 @@ hgr_putc8:
         LDA ht_a
         RTS
 
-; ----------------------------------------------------------------------------
-; hgr_puts8: print the NUL-terminated string at ht_src_lo/hi. Clobbers A,Y.
-; ----------------------------------------------------------------------------
-.if !HGR_TEXT8_NO_PUTS
-hgr_puts8:
-        LDA ht_src_hi
-        PHA                     ; keep the caller's source pointer
-        LDY #0
-@lp:    LDA (ht_src_lo),Y
-        BEQ @done
-        JSR hgr_putc8           ; preserves Y
-        INY
-        BNE @lp
-        INC ht_src_hi           ; Y wrapped: continue with the next 256 bytes
-        JMP @lp
-@done:  PLA
-        STA ht_src_hi
-        LDA #0                  ; keep the historical NUL return value
-        RTS
-.endif
-
 .if !HGR_TEXT8_HGR_ORDER
 .include "rev7.inc"
 .endif
@@ -292,4 +275,28 @@ hgr_puts8_at:
 .endif
         JMP hgr_puts8
 .endif
+.endif
+
+; ----------------------------------------------------------------------------
+; hgr_puts8: print the NUL-terminated string at ht_src_lo/hi. Clobbers A,Y.
+; Outside the load guard and after its caller hgr_puts8_at: emitted at the
+; first include that follows a reference to it.
+; ----------------------------------------------------------------------------
+.if (!HGR_TEXT8_NO_PUTS) .and .referenced(hgr_puts8) .and (.not .defined(hgr_puts8))
+.code
+hgr_puts8:
+        LDA ht_src_hi
+        PHA                     ; keep the caller's source pointer
+        LDY #0
+@lp:    LDA (ht_src_lo),Y
+        BEQ @done
+        JSR hgr_putc8           ; preserves Y
+        INY
+        BNE @lp
+        INC ht_src_hi           ; Y wrapped: continue with the next 256 bytes
+        JMP @lp
+@done:  PLA
+        STA ht_src_hi
+        LDA #0                  ; keep the historical NUL return value
+        RTS
 .endif

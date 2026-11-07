@@ -1,5 +1,11 @@
 ; ============================================================================
 ; sd.asm -- byte-level VIA handshake for the P-LAB microSD card
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): each routine
+; is emitted only when referenced EARLIER in the program and not yet defined,
+; so .include this file after the last call. Included too early, the build
+; stops with "Symbol '<routine>' is undefined" -- never a silent drop.
+; sd_send_byte comes with sd_send_str (its caller).
 ; ============================================================================
 ; Half-duplex byte channel over the 65C22 VIA at $A000. Mirrors the
 ; protocol the SD CARD OS ROM uses internally, but exposed as Wozmon-
@@ -57,6 +63,7 @@ sd_str_hi:      .res 1
 ; sd_via_init -- one-time VIA setup: DDRB = bit-0 only, DDRA = output,
 ;                CPU_STROBE = 0, PORTA = 0.
 ; ----------------------------------------------------------------------------
+.if .referenced(sd_via_init) .and (.not .defined(sd_via_init))
 sd_via_init:
         LDA     #SD_DDRB_INIT           ; bit 0 (CPU_STROBE) = output
         STA     SD_VIA_DDRB
@@ -66,10 +73,12 @@ sd_via_init:
         STA     SD_VIA_PORTB            ; CPU_STROBE = 0
         STA     SD_VIA_PORTA
         RTS
+.endif
 
 ; ----------------------------------------------------------------------------
 ; sd_send_byte -- A = byte. Send via half-duplex handshake.
 ; ----------------------------------------------------------------------------
+.if (.referenced(sd_send_byte) .or .referenced(sd_send_str)) .and (.not .defined(sd_send_byte))
 sd_send_byte:
         STA     SD_VIA_PORTA            ; latch byte on PORTA (DDRA = $FF set elsewhere)
         LDA     #$FF
@@ -82,10 +91,12 @@ sd_send_byte:
         LDA     #$00
         STA     SD_VIA_PORTB            ; drop CPU_STROBE → completes handshake
         RTS
+.endif
 
 ; ----------------------------------------------------------------------------
 ; sd_recv_byte -- request next byte from MCU. Returns A = byte.
 ; ----------------------------------------------------------------------------
+.if .referenced(sd_recv_byte) .and (.not .defined(sd_recv_byte))
 sd_recv_byte:
         ; Switching DDRA to input makes the MCU load the next response byte onto
         ; PORTA and raise MCU_STROBE (see MicroSD.cpp: DDRA==$00 ->
@@ -108,10 +119,12 @@ sd_recv_byte:
         STA     SD_VIA_DDRA             ; restore default output
         PLA
         RTS
+.endif
 
 ; ----------------------------------------------------------------------------
 ; sd_send_str -- A=lo, X=hi → ASCIIZ. Sends every byte including the NUL.
 ; ----------------------------------------------------------------------------
+.if .referenced(sd_send_str) .and (.not .defined(sd_send_str))
 sd_send_str:
         STA     sd_str_lo
         STX     sd_str_hi
@@ -124,3 +137,4 @@ sd_send_str:
         INY
         BNE     @lp
 @done:  RTS
+.endif

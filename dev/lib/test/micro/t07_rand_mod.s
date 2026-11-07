@@ -28,9 +28,6 @@
 .include "apple1.inc"
 .include "zp.inc"               ; canonical tmp + prng_lo/prng_hi slots
 
-; .include-style libs (module-local symbols, like every real consumer):
-.include "prng16.asm"           ; zp.inc pre-declared prng_lo/hi -> no dup
-.include "dungeon.asm"          ; rand_mod (needs prng16 + tmp)
 
 MB = $0F00
 
@@ -76,3 +73,8 @@ main:
         LDA     #$A5
         STA     MB
 spin:   JMP     spin
+
+; .include-style libs (module-local symbols, like every real consumer), after
+; the callers: they emit on demand (dev/lib/README.md, "Assembled on demand").
+.include "dungeon.asm"          ; rand_mod (needs prng16 + tmp)
+.include "prng16.asm"           ; zp.inc pre-declared prng_lo/hi -> no dup

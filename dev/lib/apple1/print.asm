@@ -1,5 +1,10 @@
 ; ============================================================================
 ; print.asm -- ASCIIZ string output for Apple-1 (Wozmon ECHO at $FFEF)
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): print_str_ax
+; is emitted only when referenced EARLIER in the program and not yet defined,
+; so .include this file after the last call. Included too early, the build
+; stops with "Symbol '<routine>' is undefined" -- never a silent drop.
 ; ============================================================================
 ; Single tiny routine that was previously copy-pasted into ~15 projects:
 ; print a NUL-terminated string via Wozmon ECHO. Lives in dev/lib/apple1/
@@ -51,6 +56,7 @@ print_ptr_hi:   .res 1
 
 .segment "CODE"
 
+.if .referenced(print_str_ax) .and (.not .defined(print_str_ax))
 print_str_ax:
         STA     print_ptr_lo
         STX     print_ptr_hi
@@ -64,3 +70,4 @@ print_str_ax:
         INC     print_ptr_hi    ; Y wrapped → advance pointer to next page
         BNE     @lp             ; always taken (high byte just got non-zero)
 @done:  RTS
+.endif

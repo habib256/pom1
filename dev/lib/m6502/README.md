@@ -127,9 +127,6 @@ squares it, and prints the result as decimal:
 .include "apple1.inc"          ; ECHO
 .include "zp.inc"              ; declares mul_tmp/mul_res0 ($04/$05),
                               ;          prng_lo/prng_hi ($06/$07)
-.include "multiply.asm"        ; umul8 / umul4
-.include "prng16.asm"          ; prng16
-.include "print_num.asm"       ; print_byte_dec (from lib/apple1)
 
 reset:  LDA #$A5               ; seed the LFSR — must be nonzero
         STA prng_lo
@@ -141,7 +138,17 @@ reset:  LDA #$A5               ; seed the LFSR — must be nonzero
         JSR umul8              ; A = product low, X = product high
         JSR print_byte_dec     ; print the low byte as "DDD"
         JMP WOZMON
+
+; After the callers: assembled on demand, so this emits umul8 but not umul4.
+.include "multiply.asm"        ; umul8 / umul4
+.include "prng16.asm"          ; prng16
+.include "print_num.asm"       ; print_byte_dec (from lib/apple1)
 ```
+
+The `.include`-style libs are **assembled on demand** (dev/lib/README.md,
+"Assembled on demand"): each routine is emitted only if it was referenced
+before the include, so they go after the last call. Too early fails the build
+(`Error: Symbol 'umul8' is undefined`), it never drops a routine silently.
 
 `math.asm` is the exception — it carries a CODE segment and `.export`s, so it is
 **separately compiled** to `math.o` and put on the linker line (via the project's

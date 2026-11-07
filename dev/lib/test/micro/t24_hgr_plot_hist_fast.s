@@ -39,7 +39,6 @@ HGR_PLOT_HIST_FAST = 1
 .code
 .include "hgr_scanline.inc"
 .include "hgr_div7_ram.asm"
-.include "hgr_clear.asm"
 .include "hgr_plot_hist.asm"    ; zero page here, routines after the callers
 
 .segment "ENTRY"
@@ -140,3 +139,4 @@ rows:   .byte $03, $01
 
 .code
 .include "hgr_plot_hist.asm"
+.include "hgr_clear.asm"         ; hgr_fill_page, on demand: after the callers

@@ -76,6 +76,11 @@ sample_all_adc:
         CPY #8
         BNE @lp
         RTS
+
+; Again after the last call: the routines are assembled on demand
+; (dev/lib/README.md, "Assembled on demand"); the include above
+; brought the equates and ZP only.
+.include "a1io.asm"
 ```
 
 In your project Makefile:

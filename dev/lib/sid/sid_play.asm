@@ -1,5 +1,10 @@
 ; ============================================================================
 ; sid_play.asm -- voice-1 note triggering for SID jingles + SFX
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): each routine
+; is emitted only when referenced EARLIER in the program and not yet defined,
+; so .include this file after the last call. Included too early, the build
+; stops with "Symbol '<routine>' is undefined" -- never a silent drop.
 ; ============================================================================
 ; Three small routines targeting voice 1 (the most common single-voice
 ; usage). Voices 2 and 3 follow the same pattern — duplicate and adjust
@@ -44,6 +49,7 @@
 ; ----------------------------------------------------------------------------
 ; sid_v1_note -- A = note index, set V1 frequency. No gate trigger.
 ; ----------------------------------------------------------------------------
+.if .referenced(sid_v1_note) .and (.not .defined(sid_v1_note))
 sid_v1_note:
         TAX
         LDA     sid_notes_lo,X
@@ -51,21 +57,26 @@ sid_v1_note:
         LDA     sid_notes_hi,X
         STA     SID_V1_FREQHI
         RTS
+.endif
 
 ; ----------------------------------------------------------------------------
 ; sid_v1_gate -- A = waveform mask, write A | SID_GATE to SID_V1_CR.
 ;                Triggers ADSR attack. Implicit retrigger if the gate
 ;                was already on (SID re-enters attack on every gate edge).
 ; ----------------------------------------------------------------------------
+.if .referenced(sid_v1_gate) .and (.not .defined(sid_v1_gate))
 sid_v1_gate:
         ORA     #SID_GATE
         STA     SID_V1_CR
         RTS
+.endif
 
 ; ----------------------------------------------------------------------------
 ; sid_v1_off -- write 0 to SID_V1_CR. ADSR enters release phase.
 ; ----------------------------------------------------------------------------
+.if .referenced(sid_v1_off) .and (.not .defined(sid_v1_off))
 sid_v1_off:
         LDA     #$00
         STA     SID_V1_CR
         RTS
+.endif

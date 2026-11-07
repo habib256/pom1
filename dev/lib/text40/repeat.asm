@@ -1,5 +1,11 @@
 ; ============================================================================
 ; repeat.asm -- repeat-character output for borders, padding, separators
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"):
+; repeat_char_ax is emitted only when referenced EARLIER in the program and
+; not yet defined, so .include this file after the last call. Included too
+; early, the build stops with "Symbol '<routine>' is undefined" -- never a
+; silent drop.
 ; ============================================================================
 ;   repeat_char_ax -- print A (low 7 bits) X times via ECHO.
 ;     Inputs:   A = character (bit 7 ignored — set internally)
@@ -19,6 +25,7 @@
 
 .segment "CODE"
 
+.if .referenced(repeat_char_ax) .and (.not .defined(repeat_char_ax))
 repeat_char_ax:
         CPX     #0
         BEQ     @done                   ; X = 0 → no-op
@@ -29,3 +36,4 @@ repeat_char_ax:
         DEX
         BNE     @lp
 @done:  RTS
+.endif

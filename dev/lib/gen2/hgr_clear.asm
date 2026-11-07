@@ -24,6 +24,14 @@
 ; must run from RAM. Never .include it into code a CodeTank / Juke-Box
 ; cartridge runs in place from ROM (no ROM program includes it today).
 ;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): clear_hgr
+; and hgr_fill_page are emitted only when referenced EARLIER in the program
+; and not yet defined, so .include this file after the last call (the macro
+; and the switch above are available from the first include, which may come
+; early: include it again at the end). Included too early, the build stops
+; with "Symbol 'clear_hgr' is undefined" -- never a silent drop. clear_hgr
+; brings hgr_fill_page (it falls into it).
+;
 ; Ported from the pom2games Apple II edition (lib/apple2/hgr.asm
 ; HGR_CLEAR_LOOP, lib/hgr/hgr_clear.asm); the framebuffer layout is the same.
 ; =============================================
@@ -78,10 +86,15 @@ _HGR_CLEAR_LOADED_ = 1
 HGR_CLEAR_SMALL = 0
 .endif
 
+.endif  ; _HGR_CLEAR_LOADED_
+
+; The routines: outside the load guard, each emitted at the first include
+; that follows a reference to it, in the caller's current segment.
 .if HGR_CLEAR_SMALL
 ; HGR_CLEAR_SMALL = 1: the original 23-byte loop, for a program with no room
 ; for the 56 extra bytes (HGR_Bestiary fills its 4 KB to the byte). ~90 500
 ; cycles, needs ZP ptr_lo / ptr_hi (trashed), no hgr_fill_page.
+.if .referenced(clear_hgr) .and (.not .defined(clear_hgr))
 clear_hgr:
         LDA #$00
         TAY
@@ -96,13 +109,19 @@ clear_hgr:
         CPX #$40
         BNE @clr
         RTS
+.endif
 .else
+.if .referenced(clear_hgr) .and (.not .defined(clear_hgr))
 clear_hgr:
         LDA #$00
         LDX #$20
+.ifdef hgr_fill_page
+        JMP hgr_fill_page       ; emitted by an earlier include
+.endif                          ; (otherwise it follows: fall through)
+.endif
+.if (.referenced(hgr_fill_page) .or .referenced(clear_hgr)) .and (.not .defined(hgr_fill_page))
 hgr_fill_page:
         HGR_CLEAR_LOOP
         RTS
 .endif
-
-.endif  ; _HGR_CLEAR_LOADED_
+.endif

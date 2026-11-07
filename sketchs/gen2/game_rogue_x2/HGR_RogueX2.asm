@@ -7257,15 +7257,13 @@ expl_torch_pat:                                 ; slot 52 — torch
         .byte $78, $F0, $E0, $00, $00, $00, $00, $00
 
 ; ============================================================================
-; prng16 -- 16-bit Galois LFSR shared library (lib/m6502/prng16.asm).
-; Textually included rather than linked as a separate .o because the
-; library exposes neither .export nor .importzp directives — it expects
-; the caller's compilation unit to provide prng_lo/prng_hi as ZP slots
-; (we declare them in the .zeropage block above; the lib's .ifndef
-; guard then skips its own .res 1 alloc).
+; Shared game libraries, each assembled on demand (dev/lib/README.md,
+; "Assembled on demand"): a library emits a routine only once it has been
+; referenced, so each one comes AFTER its callers -- this file's code first,
+; then dungeon (calls prng16), shadowcast (calls umul4), prng16, multiply.
+; A library moved above its caller fails the build ("Symbol ... is
+; undefined"), it never assembles without the routine.
 ; ============================================================================
-.include "prng16.asm"
-
 
 ; ============================================================================
 ; dungeon -- procedural-generation primitives (lib/games/rogue/dungeon.asm).
@@ -7278,24 +7276,36 @@ expl_torch_pat:                                 ; slot 52 — torch
 
 
 ; ============================================================================
-; multiply -- umul8 (8x8 -> 16-bit) + umul4 (4x4 -> 8-bit) shared library.
-; The lib reserves its own mul_tmp / mul_res0 ZP slots via .ifndef guard.
-; umul4 is consumed by shadowcast.asm below for slope cross-multiplications.
-; ============================================================================
-.include "multiply.asm"
-
-
-; ============================================================================
 ; shadowcast -- recursive shadowcasting FOV (lib/games/rogue/shadowcast.asm).
 ; Expects the caller to provide:
 ;   - player_col, player_row, fov_r       (ZP — declared above)
 ;   - SHADOW_COLS, SHADOW_ROWS            (constants — declared above)
 ;   - mark_visible_at_cur, is_opaque_at_cur (subroutines — defined above)
-;   - umul4                               (from multiply.asm above)
+;   - umul4                               (from multiply.asm below)
 ; The lib's .ifndef guard allocates cur_x/cur_y/oct_*/cast_* in our
 ; .zeropage segment.
 ; ============================================================================
 .include "shadowcast.asm"
+
+
+; ============================================================================
+; prng16 -- 16-bit Galois LFSR shared library (lib/m6502/prng16.asm).
+; Textually included rather than linked as a separate .o because the
+; library exposes neither .export nor .importzp directives — it expects
+; the caller's compilation unit to provide prng_lo/prng_hi as ZP slots
+; (we declare them in the .zeropage block above; the lib's .ifndef
+; guard then skips its own .res 1 alloc). Called by rand_mod above.
+; ============================================================================
+.include "prng16.asm"
+
+
+; ============================================================================
+; multiply -- umul4 (4x4 -> 8-bit) from the shared library (umul8 is not
+; called, so it is not assembled). The lib reserves its own mul_tmp /
+; mul_res0 ZP slots via .ifndef guard. umul4 is consumed by shadowcast.asm
+; above for slope cross-multiplications.
+; ============================================================================
+.include "multiply.asm"
 
 
 ; ============================================================================

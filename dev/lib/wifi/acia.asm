@@ -1,5 +1,13 @@
 ; ============================================================================
 ; acia.asm -- ACIA 65C51 byte-level send/receive primitives
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): each routine
+; is emitted only when referenced EARLIER in the program and not yet defined,
+; so .include this file after the last call. Included too early, the build
+; stops with "Symbol '<routine>' is undefined" -- never a silent drop.
+; acia_send_byte comes with acia_send_str (its caller). at.asm calls
+; acia_send_byte / acia_send_str / acia_recv_byte: include this file once
+; before at.asm (its ZP pair) and again after it (the routines).
 ; ============================================================================
 ;   acia_init        -- A = baud rate code (ACIA_BAUD_*), set up 8N1 +
 ;                       internal clock + DTR enabled. Polled mode (no IRQ).
@@ -46,6 +54,7 @@ acia_str_hi:    .res 1
 ; ----------------------------------------------------------------------------
 ; acia_init -- A = baud rate code, set 8N1 + DTR.
 ; ----------------------------------------------------------------------------
+.if .referenced(acia_init) .and (.not .defined(acia_init))
 acia_init:
         ORA     #ACIA_CTL_8N1_INT       ; OR in 8N1 + internal clock framing
         STA     ACIA_CONTROL
@@ -54,10 +63,12 @@ acia_init:
         ; Drain a possible stale Rx byte by reading data once.
         LDA     ACIA_DATA
         RTS
+.endif
 
 ; ----------------------------------------------------------------------------
 ; acia_send_byte -- A = byte, blocks on TDRE, transmits.
 ; ----------------------------------------------------------------------------
+.if (.referenced(acia_send_byte) .or .referenced(acia_send_str)) .and (.not .defined(acia_send_byte))
 acia_send_byte:
         PHA
 @wait:  LDA     ACIA_STATUS
@@ -66,20 +77,24 @@ acia_send_byte:
         PLA
         STA     ACIA_DATA
         RTS
+.endif
 
 ; ----------------------------------------------------------------------------
 ; acia_recv_byte -- blocks on RDRF, returns A = received byte.
 ; ----------------------------------------------------------------------------
+.if .referenced(acia_recv_byte) .and (.not .defined(acia_recv_byte))
 acia_recv_byte:
 @wait:  LDA     ACIA_STATUS
         AND     #ACIA_ST_RDRF
         BEQ     @wait                   ; no byte yet
         LDA     ACIA_DATA               ; read consumes RDRF
         RTS
+.endif
 
 ; ----------------------------------------------------------------------------
 ; acia_recv_avail -- non-blocking. A = byte (Z=0) or 0 (Z=1).
 ; ----------------------------------------------------------------------------
+.if .referenced(acia_recv_avail) .and (.not .defined(acia_recv_avail))
 acia_recv_avail:
         LDA     ACIA_STATUS
         AND     #ACIA_ST_RDRF
@@ -89,10 +104,12 @@ acia_recv_avail:
                                         ; from @none — gate on ACIA_ST_RDRF if NUL is valid)
 @none:  LDA     #$00
         RTS                             ; A = 0, Z = 1
+.endif
 
 ; ----------------------------------------------------------------------------
 ; acia_send_str -- A=lo, X=hi → ASCIIZ ptr. Sends bytes raw (no bit-7).
 ; ----------------------------------------------------------------------------
+.if .referenced(acia_send_str) .and (.not .defined(acia_send_str))
 acia_send_str:
         STA     acia_str_lo
         STX     acia_str_hi
@@ -103,3 +120,4 @@ acia_send_str:
         INY
         BNE     @lp
 @done:  RTS
+.endif

@@ -35,7 +35,6 @@ HGR_FULL_WIDTH_TABLES = 1
 .code
 .include "hgr_scanline.inc"
 .include "hgr_plot_tables.inc"
-.include "hgr_clear.asm"
 .include "hgr_plot16.asm"
 .include "hgr_line16.asm"
 
@@ -122,3 +121,7 @@ plot:   STA hp_x                ; A/X = x, Y = y
         STX hp_x+1
         STY hp_y
         JMP hgr_plot16
+
+; On-demand libraries (dev/lib/README.md, "Assembled on demand"): after the callers.
+.code
+.include "hgr_clear.asm"

@@ -1,5 +1,11 @@
 ; ============================================================================
 ; a1io.asm -- A1-IO/RTC virtual-register reader
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"):
+; a1io_read_reg is emitted only when referenced EARLIER in the program and not
+; yet defined, so .include this file after the last call. Included too early,
+; the build stops with "Symbol '<routine>' is undefined" -- never a silent
+; drop.
 ; ============================================================================
 ; Single primitive that the entire register set hangs off:
 ;
@@ -37,6 +43,7 @@ a1io_target:    .res 1
 
 .segment "CODE"
 
+.if .referenced(a1io_read_reg) .and (.not .defined(a1io_read_reg))
 a1io_read_reg:
         STX     a1io_target
 @poll:  LDA     VIA_IRA                 ; consumes strobe; A bit 7 = strobe
@@ -47,3 +54,4 @@ a1io_read_reg:
         BNE     @poll                   ; not the reg we want; wait next period
         LDA     VIA_IRB                 ; latch the value
         RTS
+.endif

@@ -32,8 +32,6 @@ fpl:        .res 1
 fph:        .res 1
 cline:      .res 1
 row_tmp:    .res 1
-mul_tmp:    .res 1
-mul_res0:   .res 1
 
 .code
 
@@ -148,6 +146,7 @@ str_footer:
         .byte " CP437 IBM PC ORDER — ANY KEY", $0D, 0
 
 .include "bbfont_cp437.inc"
+; Shared libraries last: they emit only what the code above referenced
+; (dev/lib/README.md, "Assembled on demand").
 .include "hgr_tables.inc"
-.include "multiply.asm"
 .include "gen2_init.asm"

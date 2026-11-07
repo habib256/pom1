@@ -124,10 +124,6 @@ In your `.asm`:
 ```asm
 .include "apple1.inc"
 .include "zp.inc"
-.include "print.asm"
-.include "kbd.asm"
-.include "delay.asm"
-.include "print_num.asm"
 
 main:
         LDA #<msg
@@ -139,7 +135,21 @@ main:
         JMP WOZMON
 
 msg:    .byte "HELLO!", $0D, 0
+
+; The routine libs AFTER the last call: each one is assembled on demand,
+; so this program gets print_str_ax, wait_key (+ its tail) and delay_ms_a,
+; and nothing of poll_key / print_byte_dec.
+.include "print.asm"
+.include "kbd.asm"
+.include "delay.asm"
+.include "print_num.asm"
 ```
+
+The `.asm` routines are **assembled on demand** (dev/lib/README.md,
+"Assembled on demand"): a routine is emitted only if the program referenced
+it before the `.include`. Include them after your code; included too early,
+the build stops with `Error: Symbol 'wait_key' is undefined`. `apple1.inc` and
+`zp.inc` stay at the top (equates and ZP slots are needed before their use).
 
 In your project Makefile:
 

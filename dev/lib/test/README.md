@@ -121,6 +121,9 @@ EXPECT: ADDR B0 B1 ...       hex bytes expected at ADDR (repeatable)
 | `t42_c_tables.c` | `gen2c/gen2_tables.s` + `gen2_page.s` (C) — tables, `gen2_hgr_row` for all y, page flips incl. LORES |
 | `t43_c_rect.c` | `gen2c/gen2_pixrect_asm.s` + `gen2_fill_rect_asm.s` (C) — 60 pixel / byte rectangles vs a C reference |
 | `t44_c_inflate_x2_all.c` | `gen2c/gen2_hgr_x2.s` (C) — x2 inflate, all eight colour codes, guards, wbytes 0 writes nothing |
+| `t50_ondemand_kbd_wait_late.s` | `apple1/kbd` assembled on demand across two includes — `wait_key` emitted after its tail (`JMP kbd_take`); `multiply.asm` with no caller emits nothing |
+| `t51_ondemand_kbd_poll_late.s` | `apple1/kbd` — `poll_key` emitted after its tail (`BPL` / `JMP kbd_take`); `multiply.asm` emits `umul4` alone |
+| `t52_ondemand_gen2_late.s` | `gen2/hgr_clear` + `gen2/gen2_init` across two includes — `clear_hgr` → `JMP hgr_fill_page`, `gen2_hgr_init_clear` → the earlier `gen2_hgr_init`; unused entries not emitted |
 `t18`–`t25` link with [`micro/micro_gen2.cfg`](micro/micro_gen2.cfg) (code at
 `$6000`, `BSS` at `$9000`, preset 11): the GEN2 modules and their tables do not
 fit `micro.cfg`'s `$0300-$0DFF` + 256-byte `BSS`.

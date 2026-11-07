@@ -71,13 +71,15 @@
 
 ; The CodeTank ROM places this CODE segment at $4000 (upper bank). The
 ; user types `4000R` from Wozmon; we MUST land in `main` (cold-start),
-; not in wait_key (which would blocking-poll the keyboard and silently
-; return to Wozmon on the first key). Force a JMP main as the very first
-; bytes of the CODE segment, BEFORE the kbd.asm include below.
+; not in some routine. Force a JMP main as the very first bytes of the
+; CODE segment.
 .segment "CODE"
         jmp main
 
-.include "kbd.asm"              ; lib/apple1/kbd.asm: wait_key + poll_key
+; wait_key + poll_key come from lib/apple1/kbd.asm, included after the last
+; caller (next to print.asm): the library emits a routine only once it has
+; been referenced (dev/lib/README.md, "Assembled on demand"). The export
+; below is such a reference.
 .ifdef CODETANK_BUILD
 .export wait_key                ; resolve buffer_editor.o's .import (Chess.asm pattern)
 .endif
@@ -1677,9 +1679,14 @@ cmd_help:
 ; print_help_str lives in dev/lib/apple1/print.asm as print_str_ax. We
 ; alias its ZP slot to LOGO's mptr_lo:hi (same role as the original
 ; in-line implementation) before the .include so no extra ZP is burned.
+; The code above FALLS THROUGH into print_str_ax: the assert pins it as
+; the very next byte (and, being a reference, makes the on-demand library
+; emit it even if every JSR print_str_ax went away).
 print_ptr_lo = mptr_lo
 print_ptr_hi = mptr_hi
+        .assert print_str_ax = *, error, "print_str_ax must follow: the code above falls through into it"
 .include "print.asm"
+.include "kbd.asm"              ; wait_key + poll_key (callers all above)
 
 ; cmd_demo: built-in slideshow that runs each demo line through
 ;   parse_and_exec. Each line lives in CODE (read-only) and is copied

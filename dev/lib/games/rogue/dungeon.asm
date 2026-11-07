@@ -1,5 +1,11 @@
 ; ============================================================================
 ; dungeon.asm -- procedural-generation primitives for grid-based 6502 games
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): rand_mod is
+; emitted only when referenced EARLIER in the program and not yet defined, so
+; .include this file after the last call. Included too early, the build stops
+; with "Symbol '<routine>' is undefined" -- never a silent drop. rand_mod
+; calls prng16: include prng16.asm AFTER this file.
 ; ============================================================================
 ;
 ; Today this file holds the smallest, truly grid-agnostic helper from the
@@ -56,6 +62,7 @@
 
 .segment "CODE"
 
+.if .referenced(rand_mod) .and (.not .defined(rand_mod))
 rand_mod:
         STA     tmp
         JSR     prng16
@@ -64,3 +71,4 @@ rand_mod:
         BCS     @lp
         ADC     tmp             ; ...then take the last one back (C = 0 here)
         RTS
+.endif

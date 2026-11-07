@@ -93,6 +93,12 @@ main:
         LDA #250
         JSR delay_ms_a
         JSR sid_v1_off
+
+; Again after the last call: the routines are assembled on demand
+; (dev/lib/README.md, "Assembled on demand"); the include above
+; brought the equates and ZP only.
+.include "sid_init.asm"
+.include "sid_play.asm"
 ```
 
 In your project Makefile:

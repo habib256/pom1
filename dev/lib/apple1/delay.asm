@@ -1,5 +1,10 @@
 ; ============================================================================
 ; delay.asm -- approximate millisecond delay for Apple-1 (1.022727 MHz)
+;
+; Assembled on demand (dev/lib/README.md, "Assembled on demand"): delay_ms_a
+; is emitted only when referenced EARLIER in the program and not yet defined,
+; so .include this file after the last call. Included too early, the build
+; stops with "Symbol '<routine>' is undefined" -- never a silent drop.
 ; ============================================================================
 ; One routine, no ZP usage (uses X for outer count, Y for inner).
 ;
@@ -26,6 +31,7 @@
 
 .segment "CODE"
 
+.if .referenced(delay_ms_a) .and (.not .defined(delay_ms_a))
 delay_ms_a:
         TAX                     ; X = ms count
 @o:     LDY     #203            ; inner reload calibrated for ~1 ms @ 1.022 MHz
@@ -43,3 +49,4 @@ delay_ms_a:
         ; pom2games edition).
         .assert >(@bi+2) = >@i, error, "delay_ms_a inner branch crosses a page"
         .assert >(@bo+2) = >@o, error, "delay_ms_a outer branch crosses a page"
+.endif
