@@ -1,6 +1,7 @@
 /* gen2_rect.c — byte-aligned and pixel-aligned rectangle fills + colorize.
  *
- * Routes through gen2_blit.s for the inner loop. The C side clips the
+ * Routes through gen2_rect_run.s for the inner loops (gen2_hgr_cell through
+ * gen2_blit.s's cell entry). The C side clips the
  * rectangle and stuffs the parameter block; the asm derives byte columns +
  * edge masks and applies (byte & keep) | set on each scanline. */
 
@@ -8,7 +9,8 @@
 #include "gen2_internal.h"
 
 /* Fast rectangular byte-fill (assembly inner loop). See gen2.h. Clips the
- * rectangle to the screen, then hands the on-screen part to gen2_fill_rect_asm. */
+ * rectangle to the screen, then hands the on-screen part to gen2_fill_rect_run
+ * (gen2_rect_run.s). */
 void gen2_hgr_fill_rect(unsigned char y0, unsigned char rows,
                         unsigned char col0, unsigned char ncols,
                         unsigned char val)
@@ -22,7 +24,7 @@ void gen2_hgr_fill_rect(unsigned char y0, unsigned char rows,
     gen2_f_col0 = col0;
     gen2_f_cols = ncols;
     gen2_f_val  = val;
-    gen2_fill_rect_asm();
+    gen2_fill_rect_run();
 }
 
 /* Shared core for fill_pixrect (set=1, white) and clear_pixrect (set=0, erase).
@@ -42,7 +44,7 @@ static void gen2_pixrect(unsigned x, unsigned char y,
     gen2_r_y0   = y;
     gen2_r_rows = h;
     gen2_r_mode = set;
-    gen2_pixrect_asm();
+    gen2_pixrect_run();
 }
 
 /* Fill the inclusive box (x0,y0)-(x1,y1), corners in any order, through the
@@ -63,7 +65,7 @@ void gen2_hgr_fill_box(unsigned x0, unsigned char y0, unsigned x1, unsigned char
     gen2_r_y0   = y0;
     gen2_r_rows = (unsigned char)(y1 - y0 + 1u);
     gen2_r_mode = 1u;
-    gen2_pixrect_asm();
+    gen2_pixrect_run();
 }
 
 void gen2_hgr_fill_pixrect(unsigned x, unsigned char y, unsigned char w, unsigned char h)

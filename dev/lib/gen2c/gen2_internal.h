@@ -34,6 +34,10 @@ extern void gen2_unplot_asm(void);
 extern unsigned gen2_r_x, gen2_r_xr;
 extern unsigned char gen2_r_y0, gen2_r_rows, gen2_r_mode;
 extern void gen2_pixrect_asm(void);
+/* gen2_rect_run.s: the paired-store rectangle kernels gen2_rect.c calls (same
+ * parameter blocks as gen2_fill_rect_asm / gen2_pixrect_asm above). */
+extern void gen2_fill_rect_run(void);
+extern void gen2_pixrect_run(void);
 
 /* gen2_hgr_cell parameter block (8x8-grid cell blitter, see gen2_rect.c). */
 extern unsigned char gen2_c_cx, gen2_c_cy, gen2_c_set;

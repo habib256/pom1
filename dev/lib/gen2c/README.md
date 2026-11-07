@@ -75,16 +75,18 @@ cost millions of cycles for one line of text):
   passes the glyph's starting byte column + bit mask (one division per *glyph*),
   then the asm walks the 16 doubled pixels of each row advancing the column/mask
   incrementally — zero per-pixel division. ~10× faster text.
-- **`gen2_fill_rect_asm`** — the inner loop of `gen2_hgr_fill_rect`: stores `val`
-  into a rectangle of whole framebuffer bytes. Erasing the band behind a digit
-  this way beats per-pixel `gen2_hgr_unplot` by a wide margin.
+- **`gen2_fill_rect_run`** (`gen2_rect_run.s`) — the inner loop of
+  `gen2_hgr_fill_rect`: stores `val` into a rectangle of whole framebuffer
+  bytes, two per loop pass. Erasing the band behind a digit this way beats
+  per-pixel `gen2_hgr_unplot` by a wide margin.
 - **`gen2_plot_asm` / `gen2_unplot_asm`** — the bodies of `gen2_hgr_plot` /
   `gen2_hgr_unplot`. The byte column (`x/7`) and bit mask (`1<<x%7`) come from the
   `gen2_col7` / `gen2_mask7` lookup tables instead of per-pixel division — ~4×
   faster per pixel.
-- **`gen2_pixrect_asm`** — behind `gen2_hgr_fill_pixrect` / `clear_pixrect`. Draws
-  or erases a whole PIXEL rectangle in one call: a left partial byte, a tight
-  `STA` run of full bytes, and a right partial byte, per scanline. The C side just
+- **`gen2_pixrect_run`** (`gen2_rect_run.s`) — behind `gen2_hgr_fill_pixrect` /
+  `clear_pixrect` / `fill_box`. Draws or erases a whole PIXEL rectangle in one
+  call: a left partial byte, the full bytes stored in pairs, and a right partial
+  byte, per scanline (a 140×16 fill: ~5 100 cycles, call included). The C side just
   clips and passes `x/xr/y/h/mode`; the asm derives columns + edge masks. **~10×
   faster than a per-pixel `gen2_hgr_plot` double loop** — a 6×6 block is one call
   instead of 36. This is the primitive for block/tile/sprite games like Snake.

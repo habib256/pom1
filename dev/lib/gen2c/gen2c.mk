@@ -32,7 +32,7 @@ GEN2C_CORE_SRCS    := $(GEN2C)/gen2_init.c $(GEN2C)/gen2_blit.s \
 
 # Drawing families — pick the ones your program actually calls.
 GEN2C_PIXEL_SRCS   := $(GEN2C)/gen2_pixel.c     # gen2_hgr_plot/unplot
-GEN2C_RECT_SRCS    := $(GEN2C)/gen2_rect.c      # fill_rect / fill_pixrect / clear_pixrect / colorize
+GEN2C_RECT_SRCS    := $(GEN2C)/gen2_rect.c $(GEN2C)/gen2_rect_run.s # fill_rect / fill_pixrect / clear_pixrect / colorize (+ their asm kernels)
 # TEXT = two modules: gen2_text.c (glyph core: puts / puts_color / puts8 +
 # BBFont) + gen2_text_num.c (putu / putu_field / puti / putx / putu8). Split so
 # an ARCHIVE link (rt.lib — the DevBench, or a Makefile linking a .lib) drops
