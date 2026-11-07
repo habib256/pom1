@@ -106,6 +106,11 @@ EXPECT: ADDR B0 B1 ...       hex bytes expected at ADDR (repeatable)
 | `t28_apple1_delay.s` | `apple1/delay` — `delay_ms_a` cycle budget, timed by the A1-IO VIA's Timer 1 |
 | `t29_sid_player_notes.s` | `sid/sid_player` — frequency of all 96 notes (12-note table + octave shift) |
 | `t30_math_div10.s` | `m6502/math` — `div_arg_by_10` over 516 dividends, self-checked |
+| `t31_tms_xfer.s` | `tms9918/tms9918_xfer` — store-and-pad helpers + 16-bit fill/copy (fenceposts, registers, flags) |
+| `t32_tms_text_charmap.s` | `tms9918/tms9918_text` — pre-reversed `upload_charmap` + fills |
+| `t33_tms_m2_glyph.s` | `tms9918/tms9918m2` + `text_bitmap` — init, `plot_set`, `clear_bitmap`, glyph blits |
+| `t34_m1_upload16_clear.s` | `tms9918/tms9918m1` — 16-bit `vdp_upload` + `clear_name_table` |
+| `t35_m1_pair_sei.s` | `tms9918/tms9918m1` built with `TMS_PAIR_SEI = 1` — the I flag survives the masked pairs |
 
 `t18`–`t25` link with [`micro/micro_gen2.cfg`](micro/micro_gen2.cfg) (code at
 `$6000`, `BSS` at `$9000`, preset 11): the GEN2 modules and their tables do not

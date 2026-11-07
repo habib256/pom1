@@ -1,5 +1,5 @@
 ; ============================================================================
-; t18_tms_xfer.s — micro-test: tms9918_xfer.asm (store helpers + fill/copy)
+; t31_tms_xfer.s — micro-test: tms9918_xfer.asm (store helpers + fill/copy)
 ; ============================================================================
 ; GUARDS: the shared port helpers every TMS9918 module now goes through.
 ;   - vdp_write_a / vdp_ctrl_a keep A, X, Y and the N/V/Z/C flags (callers

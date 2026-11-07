@@ -1884,12 +1884,15 @@ bench::BuildResult Pom1BenchHost::build(int target, const std::string& src, cons
                 { "arm_5s_trigger",   "tms9918_5strigger.asm" },
                 { "wait_5s_trigger",  "tms9918_5strigger.asm" },
                 { "vdp_write_a",      "tms9918_helpers.asm"   },
+                { "vdp_ctrl_a",       "tms9918_helpers.asm"   },
                 { "vdp_set_write_xy", "tms9918_helpers.asm"   },
                 // The VDP access primitives themselves. They were missing, so
                 // a program that points the chip at VRAM without calling one
                 // of the two init routines linked nothing at all.
                 { "vdp_set_write",    "tms9918m1.asm"         },
                 { "vdp_set_read",     "tms9918m1.asm"         },
+                { "vdp_upload_a",     "tms9918m1.asm"         },
+                { "vdp_upload",       "tms9918m1.asm"         },
                 { "vdp_hi",           "tms9918m1.asm"         },
                 { "vdp_lo",           "tms9918m1.asm"         },
                 { "clear_name_table", "tms9918m1.asm"         },

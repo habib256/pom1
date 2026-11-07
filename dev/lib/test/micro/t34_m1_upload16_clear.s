@@ -1,5 +1,5 @@
 ; ============================================================================
-; t21_m1_upload16_clear.s — micro-test: tms9918m1 vdp_upload + clear_name_table
+; t34_m1_upload16_clear.s — micro-test: tms9918m1 vdp_upload + clear_name_table
 ; ============================================================================
 ; GUARDS:
 ;   - vdp_upload (new: 16-bit X:A count, no 256-byte limit) moves exactly

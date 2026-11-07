@@ -1,5 +1,5 @@
 ; ============================================================================
-; t22_m1_pair_sei.s — micro-test: TMS_PAIR_SEI = 1 (IRQ-masked control pairs)
+; t35_m1_pair_sei.s — micro-test: TMS_PAIR_SEI = 1 (IRQ-masked control pairs)
 ; ============================================================================
 ; GUARDS: the opt-in IRQ wrapper of tms9918.inc (TMS_PAIR_BEGIN/END, rule (b)
 ;   of its IRQ caveat), as built into tms9918m1's vdp_set_write/vdp_set_read.

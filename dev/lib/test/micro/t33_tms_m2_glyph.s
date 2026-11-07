@@ -1,5 +1,5 @@
 ; ============================================================================
-; t20_tms_m2_glyph.s — micro-test: tms9918m2 init/plot/clear + text_bitmap
+; t33_tms_m2_glyph.s — micro-test: tms9918m2 init/plot/clear + text_bitmap
 ; ============================================================================
 ; GUARDS: the Mode-2 driver after its move to the shared port helpers
 ;   (vdp_ctrl_a / vdp_write_a / vdp_fill / vdp_fill_blank) and the glyph

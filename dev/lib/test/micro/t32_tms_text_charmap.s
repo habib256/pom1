@@ -1,5 +1,5 @@
 ; ============================================================================
-; t19_tms_text_charmap.s — micro-test: tms9918_text upload_charmap + fill
+; t32_tms_text_charmap.s — micro-test: tms9918_text upload_charmap + fill
 ; ============================================================================
 ; GUARDS: the build-time bit-reversed font (charmap_tms.inc, generated from
 ;   roms/charmap.rom by tools/build_charmap_tms.py) and the unpadded,
