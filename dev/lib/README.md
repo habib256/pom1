@@ -131,7 +131,7 @@ whichever objects your program never references. Cross-TU zero-page is shared vi
 `.importzp` (and `zp.inc` emits the matching `.exportzp`).
 
 - **Heavy asm objects** — `m6502/math.asm`, `tms9918/tms9918m1.asm` /
-  `tms9918m2.asm`, `games/chess/chess_engine.asm`, `gen2c/gen2_blit.s`.
+  `tms9918m2.asm`, `games/chess/chess_engine.asm`, the `gen2c/gen2_*_asm.s` kernel members.
 - **Every cc65 C runtime** — [`apple1c/`](apple1c/), [`gen2c/`](gen2c/),
   [`tms9918c/`](tms9918c/). Each ships a `.mk` fragment that splits the runtime
   into **per-family** objects (e.g. `gen2_text.o`, `gen2_sprites.o`) so a program
@@ -171,7 +171,7 @@ generate one track from the other.
 stale copy:
 
 - The **asm track** expresses the bare metal — smallest ROM, cycle-exact hot
-  paths, beam-racing (`gen2_blit.s`, `gen2_sync.asm`), and pairs with the
+  paths, beam-racing (`gen2c/gen2_*_asm.s`, `gen2_sync.asm`), and pairs with the
   Apple-1-as-teaching-machine assembly tutorials in POM1's user documentation.
 - The **C track** (cc65) lowers the barrier: a beginner writes a GEN2 / TMS9918
   game without learning 6502, backed by the matching cc65 tutorials in that same
@@ -300,7 +300,7 @@ documented in [`../cc65/`](../cc65/README.md)).
   `.include "print.asm"` … Nothing is dead-stripped — you assemble all of it.
 
 - **Separately-compiled asm objects (Model B).** Heavy `.asm` carrying
-  `.export`/`.import` (e.g. `tms9918m1.asm`, `math.asm`, `gen2_blit.s`) go in
+  `.export`/`.import` (e.g. `tms9918m1.asm`, `math.asm`) go in
   `EXTRA_ASM`. `Makefile.common` assembles each to its own `.o` with the same
   `$(LIB)` includes and puts it on the `ld65` line, so `ld65` dead-strips it if
   unreferenced:
@@ -362,8 +362,7 @@ encodings** —
 - [`gfx/gfx_text.c`](gfx/gfx_text.c) — cursor statics kept genuinely
   uninitialized; BSS zero = home position.
 - [`gen2c/gen2_init.c`](gen2c/gen2_init.c) — `gen2_hgr_base` is BSS with a
-  lazy default at the use sites (`if (!gen2_hgr_base) gen2_hgr_base = 0x20`,
-  in asm in `gen2_tables.s` / `gen2_blit.s`):
+  lazy default at the use sites (`if (!gen2_hgr_base) gen2_hgr_base = 0x20`):
   zero is not a valid page base, so BSS-zero means "not set yet".
 
 ## Cross-library zero-page map
@@ -412,6 +411,7 @@ both park names in the same low region — check before combining:
 |---|---|---|---|
 | [`a1io/a1io.asm`](a1io/a1io.asm) | `a1io_target` | — | register selector |
 | [`apple1/print.asm`](apple1/print.asm) | `print_ptr_lo`, `print_ptr_hi` | — | baseline pair — `.ifndef`-guarded duplicate of the `zp.inc` slots (aliases when `zp.inc` is included first) |
+| [`apple1c/apple1io_str.s`](apple1c/apple1io_str.s) | — | `ptr1` | cc65-track; imports cc65's `ptr1` only (`woz_puts` string pointer) |
 | [`basicrt/basicrt_float.s`](basicrt/basicrt_float.s) | `FA[4]`, `FB[4]`, `asgn`, `aexp[2]`, `amnt[4]`, `bsgn`, `bexp[2]`, `bmnt[4]`, `rsgn`, `rexp[2]`, `rmnt[4]`, `fcnt`, `prod[7]`, `dtmp[4]`, `sA[4]`, `sY[4]`, `sR[4]`, `sR2[4]`, `aX[4]`, `aT2[4]`, `aP[4]`, `aOff[4]`, `aFlg`, `rndSeed[4]`, `rndTmp[4]` (`FA`, `FB` `.exportzp`'d) | — | standalone binary32 software-float runtime state (FP accumulators + scratch) |
 | [`basicrt/basicrt_gen2.s`](basicrt/basicrt_gen2.s) | `rt_px[2]`, `rt_py[2]`, `rt_x0[2]`, `rt_y0[2]`, `rt_x1[2]`, `rt_y1[2]`, `rt_a[2]`, `rt_b[2]`, `rt_onerr_lo`, `rt_onerr_hi`, `ptr_lo`, `ptr_hi`, `tptr[2]`, `lrcolor`, `lrtmp`, `lrvy`, `lrvy2`, `m_prod[2]`, `m_rem[2]`, `m_sign`, `ln_dx[2]`, `ln_dy[2]`, `ln_sx[2]`, `ln_sy[2]`, `ln_err[2]`, `ln_e2[2]`, `ln_tmp[2]`, `pen` (`rt_px`, `rt_py`, `rt_x0`, `rt_y0`, `rt_x1`, `rt_y1`, `rt_a`, `rt_b`, `rt_onerr_lo`, `rt_onerr_hi`, `pen` `.exportzp`'d) | — | BASIC-compiler runtime, GEN2 backend — whole `rt_*` seam, link-exclusive with `basicrt_tms.s` |
 | [`basicrt/basicrt_tms.s`](basicrt/basicrt_tms.s) | `rt_px[2]`, `rt_py[2]`, `rt_x0[2]`, `rt_y0[2]`, `rt_x1[2]`, `rt_y1[2]`, `rt_a[2]`, `rt_b[2]`, `rt_onerr_lo`, `rt_onerr_hi`, `m_prod[2]`, `m_rem[2]`, `m_sign`, `tmp`, `tmp2`, `lr_src[2]` (`rt_px`, `rt_py`, `rt_x0`, `rt_y0`, `rt_x1`, `rt_y1`, `rt_a`, `rt_b`, `rt_onerr_lo`, `rt_onerr_hi`, `tmp`, `tmp2` `.exportzp`'d) | `pix_x`, `pix_y`, `pen_color`, `ln_x0`, `ln_y0`, `ln_x1`, `ln_y1` | BASIC-compiler runtime, TMS backend — whole `rt_*` seam, link-exclusive with `basicrt_gen2.s`; drives `tms9918m2.asm`'s `pix_*`/`ln_*` |
@@ -424,21 +424,43 @@ both park names in the same low region — check before combining:
 | [`gen2/gen2_text_bitmap.asm`](gen2/gen2_text_bitmap.asm) | `tb_x0`, `tb_y0`, `tb_row`, `tb_col`, `tb_bits` | `pix_x`, `pix_y`, `tmp`, `tmp2`, `mptr_lo`, `mptr_hi` | `text_blit_glyph` GEN2 backend (same contract as `tms9918/text_bitmap.asm`) |
 | [`gen2/hgr_blit2.asm`](gen2/hgr_blit2.asm) | `bl_src[2]`, `bl_col`, `bl_sl`, `bl_h`, `bl_mode`, `bl_sp[2]`, `bl_y`, `bl_r`, `bl_lin_lo`, `bl_lin_hi`, `bl_page` | — |  |
 | [`gen2/hgr_clear.asm`](gen2/hgr_clear.asm) | caller defines `ptr_lo`, `ptr_hi` (textual include) | — | `clear_hgr` trashes both (same pair as `hgr_plot.asm` — intended shared) |
+| [`gen2/hgr_clear_rows.asm`](gen2/hgr_clear_rows.asm) | `hc_row`, `hc_end`, `hc_ptr[2]` | — |  |
+| [`gen2/hgr_hud8.asm`](gen2/hgr_hud8.asm) | `hh_fld[2]`, `hh_val[2]` | — |  |
+| [`gen2/hgr_line16.asm`](gen2/hgr_line16.asm) | `h16_x0[2]`, `h16_y0`, `h16_x1[2]`, `h16_y1`, `h16_dx[2]`, `h16_dy`, `h16_sx`, `h16_sy`, `h16_err[2]`, `h16_e2[2]` | — |  |
 | [`gen2/hgr_plot.asm`](gen2/hgr_plot.asm) | caller defines `cur_x`, `cur_y`, `ptr_lo`, `ptr_hi` (textual include) | — | `plot_pixel` preserves `cur_x`/`cur_y`; needs the `hgr_lo/hi/col/mask` tables alongside |
+| [`gen2/hgr_plot16.asm`](gen2/hgr_plot16.asm) | `hp_x[2]`, `hp_y`, `hp_ptr[2]`, `hp_mask`, `hp_mode`, `hp_color` | — |  |
+| [`gen2/hgr_plot_hist.asm`](gen2/hgr_plot_hist.asm) | `pl_x0`, `pl_y0`, `pl_x1`, `pl_y1`, `pl_x`, `pl_y`, `pl_dx`, `pl_dy`, `pl_err`, `pl_cnt`, `pl_m`, `pl_pg`, `pl_ptr[2]`, `pl_hl[2]`, `pl_hh[2]`, `pl_hb[2]`, `pl_cur`, `pl_sp[2]`, `pl_n[2]` | — |  |
 | [`gen2/hgr_sprite16.asm`](gen2/hgr_sprite16.asm) | `sp_ptr[2]`, `sp_x`, `sp_y`, `sp_cm_ev`, `sp_cm_od`, `sp_cbit`, `sp_rb[8]`, `sp_i`, `sp_b`, `sp_px`, `sp_col`, `sp_col0`, `sp_wout`, `sp_lin_lo`, `sp_lin_hi`, `sp_yy`, `sp_t` | — |  |
 | [`gen2/hgr_text8.asm`](gen2/hgr_text8.asm) | `ht_col`, `ht_sl`, `ht_left`, `ht_wrap`, `ht_font_lo`, `ht_font_hi`, `ht_rev`, `ht_src_lo`, `ht_src_hi`, `ht_a`, `ht_t`, `ht_g_lo`, `ht_g_hi`, `ht_lin_lo`, `ht_lin_hi`, `ht_end`, `ht_cm_ev`, `ht_cm_od`, `ht_cbit`, `ht_page` | — |  |
+| [`gen2/hgr_xor.asm`](gen2/hgr_xor.asm) | `hx_ptr[2]`, `hx_data[2]`, `hx_x`, `hx_y`, `hx_w`, `hx_h`, `hx_page`, `hx_first`, `hx_last`, `hx_lm`, `hx_rm`, `hx_row`, `hx_index` | — |  |
 | [`gen2/subbyte_fill.asm`](gen2/subbyte_fill.asm) | `sb_ptr_lo`, `sb_ptr_hi` | — | sub-byte HGR fill pointer |
-| [`gen2c/gen2_blit.s`](gen2c/gen2_blit.s) | `_gen2_g_glyph[2]`, `_gen2_g_col`, `_gen2_g_mask`, `_gen2_g_y`, `_gen2_f_y0`, `_gen2_f_rows`, `_gen2_f_col0`, `_gen2_f_cols`, `_gen2_f_val`, `_gen2_p_x[2]`, `_gen2_p_y`, `_gen2_r_x[2]`, `_gen2_r_xr[2]`, `_gen2_r_y0`, `_gen2_r_rows`, `_gen2_r_mode`, `_gen2_c_cx`, `_gen2_c_cy`, `_gen2_c_set`, `_gen2_z_col0`, `_gen2_z_ncols`, `_gen2_z_y0`, `_gen2_z_rows`, `_gen2_z_ce`, `_gen2_z_co`, `_gen2_z_hi`, `gr_colL`, `gr_colR`, `gr_keepL`, `gr_setL`, `gr_setF`, `gr_keepR`, `gr_setR`, `gr_or`, `gbc_bit`, `gbc_car0`, `gbc_car1`, `gbc_car2`, `gbc_car3`, `gbc_m0`, `gbc_m1`, `gbc_m2`, `_gen2_t_col`, `_gen2_t_bit`, `_gen2_t_n`, `_gen2_t_color`, `_gen2_t_s[2]`, `_gen2_t_font[2]`, `_gen2_u_lo`, `_gen2_u_hi`, `_gen2_u_ptr[2]`, `_gen2_b_col`, `_gen2_b_mask`, `_gen2_b_w`, `_gen2_b_h`, `_gen2_b_stride`, `_gen2_b_y`, `_gen2_b_mode`, `_gen2_b_src[2]`, `b_srcidx`, `_gen2_xs_x[2]`, `_gen2_xs_y`, `_gen2_xs_spr[2]` (`_gen2_g_glyph`, `_gen2_g_col`, `_gen2_g_mask`, `_gen2_g_y`, `_gen2_f_y0`, `_gen2_f_rows`, `_gen2_f_col0`, `_gen2_f_cols`, `_gen2_f_val`, `_gen2_p_x`, `_gen2_p_y`, `_gen2_r_x`, `_gen2_r_xr`, `_gen2_r_y0`, `_gen2_r_rows`, `_gen2_r_mode`, `_gen2_c_cx`, `_gen2_c_cy`, `_gen2_c_set`, `_gen2_z_col0`, `_gen2_z_ncols`, `_gen2_z_y0`, `_gen2_z_rows`, `_gen2_z_ce`, `_gen2_z_co`, `_gen2_z_hi`, `_gen2_t_col`, `_gen2_t_bit`, `_gen2_t_n`, `_gen2_t_color`, `_gen2_t_s`, `_gen2_t_font`, `_gen2_u_lo`, `_gen2_u_hi`, `_gen2_u_ptr`, `_gen2_b_col`, `_gen2_b_mask`, `_gen2_b_w`, `_gen2_b_h`, `_gen2_b_stride`, `_gen2_b_y`, `_gen2_b_mode`, `_gen2_b_src`, `_gen2_xs_x`, `_gen2_xs_y`, `_gen2_xs_spr` `.exportzp`'d) | `ptr1`, `ptr2`, `tmp1`, `tmp2`, `tmp3`, `tmp4` | cc65-track hot-path kernels; imports cc65's `ptr1`/`ptr2`/`tmp1`-`tmp4` (none.lib `zeropage.o`), plus `_gen2_*` C-ABI argument slots |
+| [`gen2c/gen2_blit7_asm.s`](gen2c/gen2_blit7_asm.s) | — | `_gen2_b_col`, `_gen2_b_w`, `_gen2_b_h`, `_gen2_b_stride`, `_gen2_b_y`, `_gen2_b_mode`, `_gen2_b_src`, `ptr1` |  |
+| [`gen2c/gen2_blit_asm.s`](gen2c/gen2_blit_asm.s) | — | `_gen2_b_col`, `_gen2_b_mask`, `_gen2_b_w`, `_gen2_b_h`, `_gen2_b_stride`, `_gen2_b_y`, `_gen2_b_mode`, `_gen2_b_src`, `ptr1`, `ptr2`, `tmp1`, `tmp2`, `tmp3`, `tmp4` |  |
+| [`gen2c/gen2_blit_params.s`](gen2c/gen2_blit_params.s) | `_gen2_b_col`, `_gen2_b_mask`, `_gen2_b_w`, `_gen2_b_h`, `_gen2_b_stride`, `_gen2_b_y`, `_gen2_b_mode`, `_gen2_b_src[2]` (all `.exportzp`'d) | — |  |
+| [`gen2c/gen2_carrier_params.s`](gen2c/gen2_carrier_params.s) | `_gen2_z_ce`, `_gen2_z_co`, `_gen2_z_hi` (all `.exportzp`'d) | — |  |
+| [`gen2c/gen2_cell_asm.s`](gen2c/gen2_cell_asm.s) | — | `_gen2_r_x`, `_gen2_r_xr`, `_gen2_r_y0`, `_gen2_r_rows`, `_gen2_r_mode` | owns no ZP — `_gen2_c_cx`/`_gen2_c_cy`/`_gen2_c_set` alias `_gen2_r_x`/`_gen2_r_y0`/`_gen2_r_mode` |
+| [`gen2c/gen2_colorize_asm.s`](gen2c/gen2_colorize_asm.s) | `_gen2_z_col0`, `_gen2_z_ncols`, `_gen2_z_y0`, `_gen2_z_rows` (all `.exportzp`'d) | `_gen2_z_ce`, `_gen2_z_co`, `_gen2_z_hi`, `ptr1`, `tmp1`, `tmp2` |  |
+| [`gen2c/gen2_fill_rect_asm.s`](gen2c/gen2_fill_rect_asm.s) | `_gen2_f_y0`, `_gen2_f_rows`, `_gen2_f_col0`, `_gen2_f_cols`, `_gen2_f_val` (all `.exportzp`'d) | `ptr1`, `tmp1`, `tmp2`, `tmp3` |  |
 | [`gen2c/gen2_hgr_x2.s`](gen2c/gen2_hgr_x2.s) | — | `sp`, `ptr1`, `ptr2`, `ptr3`, `ptr4`, `tmp1`, `tmp2`, `tmp3`, `tmp4` | cc65-track x2 inflate; cc65 scratch only (was 21 own bytes) |
 | [`gen2c/gen2_lores_clr.s`](gen2c/gen2_lores_clr.s) | — | `tmp1` | cc65-track LORES kernel; cc65 scratch only |
 | [`gen2c/gen2_lores_dot.s`](gen2c/gen2_lores_dot.s) | — | `sp`, `ptr1`, `ptr2`, `tmp1`, `tmp2`, `tmp3` | cc65-track LORES kernel; cc65 scratch only |
 | [`gen2c/gen2_lores_run.s`](gen2c/gen2_lores_run.s) | — | `sp`, `ptr1`, `ptr2`, `ptr3`, `tmp1`, `tmp2`, `tmp3`, `tmp4` | cc65-track LORES kernel; cc65 scratch only |
 | [`gen2c/gen2_lores_tab.s`](gen2c/gen2_lores_tab.s) | — | `tmp1` | cc65-track LORES row-table builder; clobbers `tmp1` only (internal ABI) |
 | [`gen2c/gen2_page.s`](gen2c/gen2_page.s) | — | `tmp2` | cc65-track draw-page flip; cc65 scratch only |
-| [`gen2c/gen2_rect_run.s`](gen2c/gen2_rect_run.s) | — | `_gen2_r_x`, `_gen2_r_xr`, `_gen2_r_y0`, `_gen2_r_rows`, `_gen2_r_mode`, `_gen2_f_y0`, `_gen2_f_rows`, `_gen2_f_col0`, `_gen2_f_cols`, `_gen2_f_val`, `ptr1`, `ptr2`, `ptr3`, `ptr4`, `tmp1`, `tmp2`, `tmp3`, `tmp4` | cc65-track rectangle kernels; cc65 scratch only (edge state in `tmp3`/`tmp4`/`ptr3`/`ptr4`) |
+| [`gen2c/gen2_pen_asm.s`](gen2c/gen2_pen_asm.s) | — | `ptr1`, `ptr2`, `tmp1`, `tmp2` |  |
+| [`gen2c/gen2_pixel_asm.s`](gen2c/gen2_pixel_asm.s) | `_gen2_p_x[2]`, `_gen2_p_y` (all `.exportzp`'d) | `ptr1`, `tmp1`, `tmp2` |  |
+| [`gen2c/gen2_pixrect_asm.s`](gen2c/gen2_pixrect_asm.s) | `_gen2_r_x[2]`, `_gen2_r_xr[2]`, `_gen2_r_y0`, `_gen2_r_rows`, `_gen2_r_mode` (all `.exportzp`'d) | `ptr1`, `ptr2`, `ptr3`, `ptr4`, `tmp1`, `tmp2`, `tmp3`, `tmp4` | pixel-rect kernel (paired full-byte stores); derived columns/masks/pair counts live in cc65 `tmp3`/`tmp4`/`ptr2`-`ptr4` (+ one BSS byte), not private slots |
+| [`gen2c/gen2_preshift_asm.s`](gen2c/gen2_preshift_asm.s) | `_gen2_xs_x[2]`, `_gen2_xs_y`, `_gen2_xs_spr[2]` (all `.exportzp`'d) | `_gen2_b_col`, `_gen2_b_w`, `_gen2_b_h`, `_gen2_b_stride`, `_gen2_b_y`, `_gen2_b_src`, `ptr1`, `ptr2`, `tmp1`, `tmp2`, `tmp3` |  |
 | [`gen2c/gen2_sprmask.s`](gen2c/gen2_sprmask.s) | `_gen2_ms_x[2]`, `_gen2_ms_y`, `_gen2_ms_spr[2]`, `_gen2_ms_under[2]`, `ms_col`, `ms_w`, `ms_h`, `ms_stride` (`_gen2_ms_x`, `_gen2_ms_y`, `_gen2_ms_spr`, `_gen2_ms_under` `.exportzp`'d) | `ptr1`, `ptr2`, `ptr3`, `ptr4`, `tmp1`, `tmp3`, `tmp4` | cc65-track masked-sprite kernel; imports cc65's `ptr1`-`ptr4`/`tmp1`-`tmp4` |
 | [`gen2c/gen2_tables.s`](gen2c/gen2_tables.s) | — | `tmp1`, `tmp2` | cc65-track table builder + `gen2_hgr_row`; cc65 scratch only |
+| [`gen2c/gen2_text16_asm.s`](gen2c/gen2_text16_asm.s) | — | `_gen2_g_glyph`, `_gen2_g_col`, `_gen2_g_mask`, `_gen2_g_y`, `_gen2_t_col`, `_gen2_t_bit`, `_gen2_t_n`, `_gen2_t_color`, `_gen2_t_s`, `_gen2_t_font`, `_gen2_z_ce`, `_gen2_z_co`, `_gen2_z_hi`, `ptr1`, `ptr2`, `ptr3`, `ptr4`, `tmp1`, `tmp2`, `tmp3`, `tmp4` | cc65-track 16x16 glyph kernels; owns no ZP — colour-blitter scratch aliased onto cc65 `ptr3`/`ptr4`/`tmp1`-`tmp3` |
+| [`gen2c/gen2_text8_asm.s`](gen2c/gen2_text8_asm.s) | — | `_gen2_g_glyph`, `_gen2_g_col`, `_gen2_g_mask`, `_gen2_g_y`, `_gen2_t_col`, `_gen2_t_bit`, `_gen2_t_n`, `_gen2_t_s`, `_gen2_t_font`, `ptr1`, `tmp1`, `tmp2`, `tmp3`, `tmp4` |  |
+| [`gen2c/gen2_text_params.s`](gen2c/gen2_text_params.s) | `_gen2_g_glyph[2]`, `_gen2_g_col`, `_gen2_g_mask`, `_gen2_g_y`, `_gen2_t_col`, `_gen2_t_bit`, `_gen2_t_n`, `_gen2_t_color`, `_gen2_t_s[2]`, `_gen2_t_font[2]` (all `.exportzp`'d) | — | gen2c text C-ABI argument block (`_gen2_g_*` / `_gen2_t_*`), shared by the 16x16 and 8x8 renderers |
+| [`gen2c/gen2_utoa_asm.s`](gen2c/gen2_utoa_asm.s) | — | `ptr1`, `tmp1`, `tmp2` | owns no ZP — legacy `_gen2_u_lo`/`_gen2_u_hi`/`_gen2_u_ptr` alias cc65 `tmp1`/`tmp2`/`ptr1` (asm callers only) |
 | [`gfx/gfx_line_gen2.s`](gfx/gfx_line_gen2.s) | — | `sp`, `ptr1`, `ptr2`, `ptr3`, `ptr4`, `tmp1`, `tmp2`, `tmp3`, `tmp4` | cc65-track GEN2 Bresenham; cc65 scratch only |
+| [`gfx/gfx_num_dec.s`](gfx/gfx_num_dec.s) | — | `ptr1`, `tmp1`, `tmp2`, `tmp3`, `tmp4` | the one 16-bit decimal converter; cc65 `ptr1`/`tmp1`-`tmp4` only (CodeTank-ROM safe) |
+| [`gfx/gfx_num_hex.s`](gfx/gfx_num_hex.s) | — | `ptr1`, `tmp1`, `tmp2` |  |
+| [`gfx/gfx_num_signed.s`](gfx/gfx_num_signed.s) | — | `ptr1`, `tmp1`, `tmp2` |  |
 | [`m6502/math.asm`](m6502/math.asm) | — | `tmp`, `tmp2`, `arg_lo`, `arg_hi`, `arg2_lo`, `arg2_hi`, `th_lo`, `th_hi` | caller-declared/`.exportzp`'d; owns no ZP itself (+ BSS `prod_lo/hi`, `sign_flag`, `lfsr_lo/hi`). `arg_*` are a shared argument/return window — NOT live across calls into other `arg_*` users |
 | [`m6502/multiply.asm`](m6502/multiply.asm) | `mul_tmp`, `mul_res0` | — | baseline pair — `.ifndef`-guarded duplicate of the `zp.inc` slots |
 | [`m6502/prng16.asm`](m6502/prng16.asm) | `prng_lo`, `prng_hi` | — | shared with `prng8.asm` **by design** (`.ifndef`-guarded): both stir ONE state pair — use one generator per program |

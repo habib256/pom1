@@ -1,15 +1,18 @@
 /* gen2_internal.h — private declarations shared by the per-family gen2c
- * modules (gen2_init.c, gen2_pixel.c, gen2_rect.c, gen2_text.c,
- * gen2_sprites.c, gen2_geom.c, the gen2_lores_*.s LORES family). NOT included by gen2.h, NOT
- * intended for consumer code.
+ * modules (gen2_init.c, gen2_pixel.c, gen2_rect.c, gen2_fill_rect.c,
+ * gen2_cell.c, gen2_colorize.c, gen2_text*.c, gen2_sprites.c, gen2_geom.c,
+ * the gen2_lores_*.s LORES family, ...). NOT included by gen2.h, NOT intended
+ * for consumer code.
  *
  * The gen2c runtime was historically one ~5 KB `gen2.c`. cc65's ld65 links a
  * whole .o file if any one symbol is referenced, so a text-only demo dragged
  * in pixel + rect + blit + lores. Splitting per family lets ld65 dead-strip
  * the unused families. This header carries:
  *   1. The `extern` declarations of the zero-page parameter blocks owned by
- *      `gen2_blit.s` (every module that touches a $gen2_*$ ZP var needs the
- *      matching `#pragma zpsym` so cc65 emits a zp store).
+ *      the per-routine asm members (gen2_*_asm.s / gen2_*_params.s — one
+ *      archive member per kernel, each owning the slots it needs; every
+ *      module that touches a gen2_* ZP var needs the matching
+ *      `#pragma zpsym` so cc65 emits a zp store).
  *   2. The cross-module globals (lookup tables, page bases) defined in
  *      `gen2_init.c`.
  *   3. The cross-module helpers (table-builder) defined in `gen2_init.c`. */
@@ -17,32 +20,36 @@
 #ifndef GEN2_INTERNAL_H
 #define GEN2_INTERNAL_H
 
-/* --- Zero-page parameter blocks (defined in gen2_blit.s) -------------------- */
+/* --- Zero-page parameter blocks (defined in the gen2_*_asm.s / *_params.s
+ *     archive members; the owning member is named per block) -------------- */
+/* gen2_text_params.s (g_*, t_*); kernels in gen2_text16_asm.s / gen2_text8_asm.s */
 extern const unsigned char *gen2_g_glyph;
 extern unsigned char gen2_g_col, gen2_g_mask, gen2_g_y;
 extern void gen2_blit_glyph(void);
 extern void gen2_blit_glyph_color(void);
 
+/* gen2_fill_rect_asm.s */
 extern unsigned char gen2_f_y0, gen2_f_rows, gen2_f_col0, gen2_f_cols, gen2_f_val;
 extern void gen2_fill_rect_asm(void);
 
+/* gen2_pixel_asm.s */
 extern unsigned gen2_p_x;
 extern unsigned char gen2_p_y;
 extern void gen2_plot_asm(void);
 extern void gen2_unplot_asm(void);
 
+/* gen2_pixrect_asm.s */
 extern unsigned gen2_r_x, gen2_r_xr;
 extern unsigned char gen2_r_y0, gen2_r_rows, gen2_r_mode;
 extern void gen2_pixrect_asm(void);
-/* gen2_rect_run.s: the paired-store rectangle kernels gen2_rect.c calls (same
- * parameter blocks as gen2_fill_rect_asm / gen2_pixrect_asm above). */
-extern void gen2_fill_rect_run(void);
-extern void gen2_pixrect_run(void);
 
-/* gen2_hgr_cell parameter block (8x8-grid cell blitter, see gen2_rect.c). */
+/* gen2_hgr_cell parameter block (8x8-grid cell blitter, see gen2_cell.c).
+ * gen2_cell_asm.s aliases these onto gen2_r_x / gen2_r_y0 / gen2_r_mode. */
 extern unsigned char gen2_c_cx, gen2_c_cy, gen2_c_set;
 extern void gen2_cell_asm(void);
 
+/* gen2_colorize_asm.s (box) + gen2_carrier_params.s (ce/co/hi, shared with
+ * the tinted glyph blitter) */
 extern unsigned char gen2_z_col0, gen2_z_ncols, gen2_z_y0, gen2_z_rows;
 extern unsigned char gen2_z_ce, gen2_z_co, gen2_z_hi;
 extern void gen2_colorize_asm(void);
@@ -53,10 +60,16 @@ extern const unsigned char *gen2_t_font;
 extern void gen2_puts_run(void);
 extern void gen2_puts_run8(void);
 
+/* Legacy decimal entry (gen2_utoa_asm.s): an ALIAS of the shared converter
+ * gfx_u16_dec (dev/lib/gfx/gfx_num_dec.s), and the u_* slots alias its cc65
+ * scratch (tmp1/tmp2/ptr1). C code must call gfx_utoa(buf, value) instead —
+ * cc65 may reuse that scratch between the stores and the call. */
 extern unsigned char gen2_u_lo, gen2_u_hi;
 extern char *gen2_u_ptr;
 extern void gen2_utoa(void);
 
+/* gen2_blit_params.s; kernels in gen2_blit_asm.s / gen2_blit7_asm.s /
+ * gen2_preshift_asm.s */
 extern unsigned char gen2_b_col, gen2_b_mask, gen2_b_w, gen2_b_h;
 extern unsigned char gen2_b_stride, gen2_b_y, gen2_b_mode;
 extern const unsigned char *gen2_b_src;
@@ -64,7 +77,8 @@ extern void gen2_blit_run(void);
 extern void gen2_blit7_run(void);
 extern void gen2_preshift_xor_run(void);   /* dedicated XOR fast path (no mode dispatch) */
 
-/* gen2_hgr_sprite_xor's all-asm worker: the C entry only stores these zp args. */
+/* gen2_hgr_sprite_xor's all-asm worker (gen2_preshift_asm.s): the C entry only
+ * stores these zp args. */
 extern unsigned gen2_xs_x;
 extern unsigned char gen2_xs_y;
 extern const gen2_sprite_t *gen2_xs_spr;

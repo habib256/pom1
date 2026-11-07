@@ -435,6 +435,8 @@ dblR:
 ; Mutualised text printer + HGR helpers + the six sprite data blocks.
 ; -----------------------------------------------------------------------------
 .include "print.asm"
+HGR_CLEAR_SMALL = 1                ; the 23-byte clear: the fast one (+56 B)
+                                   ; does not fit this 4 KB program
 .include "hgr_clear.asm"           ; clear_hgr (needs ZP ptr_lo/ptr_hi)
 .include "hgr_scanline.inc"        ; hgr_lo / hgr_hi scanline base tables
 

@@ -71,7 +71,10 @@ static void partA()
     for (const char* spec : { kBenchCSpecApple1c, kBenchCSpecGen2c,
                               kBenchCSpecTms9918c }) {
         const BenchCSpec s = benchCSpecParse(spec);
-        assert(s.ok && !s.cfg.empty() && !s.cSources.empty());
+        // apple1c has no C module left (its runtime is hand-written asm):
+        // a spec needs a cfg and at least one runtime module, of either kind.
+        assert(s.ok && !s.cfg.empty() &&
+               !(s.cSources.empty() && s.asmSources.empty()));
     }
     std::printf("bench_cc65_smoke: part A (pure parsers) OK\n");
 }

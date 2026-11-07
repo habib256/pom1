@@ -24,7 +24,7 @@
 ; the second when dy > dx, so only the minor step is decided, by the sign of
 ; D = 2*minor - major - 1, += 2*minor per pixel and -= 2*major per minor step.
 ; The pixel moves incrementally: a mask shift, the row reloaded on y steps only.
-; Pixel identity with gfx_line.c is pinned by dev/lib/test/micro/t18_c_line.c.
+; Pixel identity with gfx_line.c is pinned by dev/lib/test/micro/t39_c_line.c.
 ;
 ; OR drawing: bit 7 (palette) and the screen holes are preserved. Main RAM,
 ; non-reentrant, no self-modification (ROM-safe). Destroys A/X/Y, ptr1-ptr4,

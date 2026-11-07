@@ -1,5 +1,5 @@
 /* ===========================================================================
- * t23_c_inflate_x2_all.c — micro-test: gen2_hgr_inflate_x2, every colour
+ * t44_c_inflate_x2_all.c — micro-test: gen2_hgr_inflate_x2, every colour
  * ===========================================================================
  * GUARDS the byte-wise gen2_hgr_x2.s (16-entry spread table, palette bit on
  * non-zero output bytes only) against the C reference rule (gen2_hgr_x2_ref.c:
@@ -20,7 +20,7 @@
  *
  * POM1-LIB-MICRO-TEST
  * MODE: gen2
- * LIBS: gen2c/gen2_hgr_x2.s apple1c/apple1io.c apple1c/apple1io_asm.s
+ * LIBS: gen2c/gen2_hgr_x2.s apple1c/apple1io_asm.s apple1c/apple1io_str.s apple1c/apple1io_key.s
  * CFG: ../cc65/apple1_gen2_c.cfg
  * PRESET: 11
  * LOAD: 6000

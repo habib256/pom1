@@ -71,7 +71,8 @@ Run in POM1: **File → Load Memory → Hello.bin**, then `280R`.
 
 ```bash
 cl65 -t none -Oirs -C ../../../dev/cc65/apple1_c.cfg -I ../../../dev/lib/apple1c \
-     hello.c ../../../dev/lib/apple1c/apple1io.c ../../../dev/lib/apple1c/apple1io_asm.s \
+     hello.c ../../../dev/lib/apple1c/apple1io_asm.s ../../../dev/lib/apple1c/apple1io_str.s \
+     ../../../dev/lib/apple1c/apple1io_key.s \
      -o hello.bin
 ```
 

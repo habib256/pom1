@@ -5,7 +5,7 @@
  * 7-phase data (normally emitted by tools/build_preshift_sprites.py or the HGR
  * Paint "Sprite Bank" export), so you can just open it in DevBench and Run.
  *
- * gen2_hgr_sprite_xor() (dev/lib/gen2c/gen2_preshift.c + gen2_blit.s) is the
+ * gen2_hgr_sprite_xor() (dev/lib/gen2c/gen2_preshift.c + gen2_preshift_asm.s) is the
  * all-asm XOR fast path of the pre-shift engine, linked by the GEN2 HGR C Bench
  * target. A ball BOUNCES 1px at a time in both axes, SINGLE-BUFFER + V-blank sync
  * the Buzzard-Bait way -- flicker-free because the asm draw is fast enough to fit

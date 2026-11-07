@@ -6,7 +6,7 @@
 ; all-zero on the 6502. Rather than fight the optimiser with #pragma optimize
 ; (correct but slow naive codegen), the target build uses this hand-asm: fast,
 ; and immune to the miscompile. Pinned on-target by dev/lib/test/micro/
-; t13_c_inflate_x2.c and t23_c_inflate_x2_all.c (ctest lib_micro_tests) and
+; t13_c_inflate_x2.c and t44_c_inflate_x2_all.c (ctest lib_micro_tests) and
 ; cross-checked against the host C / the editor's magnifyColor2x by
 ; hgr_inflate_x2_smoke.
 ;

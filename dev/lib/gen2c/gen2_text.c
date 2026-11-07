@@ -4,11 +4,12 @@
  * gen2_puts_run8 (native 8x8). Both consume the same Beautiful Boot font
  * (kBBFontAscii below) and the same gen2_t_* zero-page parameter block.
  *
- * The number formatters (putu / putu_field / puti / putx / putu8) live in
- * gen2_text_num.c — split out so a string-only program does not pay for them
- * NOR for what they pull (gen2_rect via putu_field's erase, gfx_num_hex via
- * putx, cc65 soft multiply). This file must never call into gen2_text_num.c;
- * the dependency direction is numbers -> glyph core only. */
+ * The number writers live in their own modules — gen2_text_num.c (putu /
+ * puti / putu8), gen2_text_field.c (putu_field) and gen2_text_hex.c (putx) —
+ * so a string-only program does not pay for them NOR for what they pull (the
+ * decimal / hex converters, gen2_rect via putu_field's erase, cc65 soft
+ * multiply). This file must never call into them; the dependency direction is
+ * numbers -> glyph core only. */
 
 #include "gen2.h"
 #include "gen2_internal.h"
@@ -23,8 +24,8 @@ static const unsigned char kBBFontAscii[96u * 8u] = {
 #include "gen2_bbfont.inc"
 };
 
-/* See note in gen2_rect.c: gen2_set_carrier is duplicated as static so a text-
- * only program does not pull gen2_rect.c, and a graphics-only program does not
+/* See note in gen2_colorize.c: gen2_set_carrier is duplicated as static so a text-
+ * only program does not pull gen2_colorize.c, and a graphics-only program does not
  * pull gen2_text.c. */
 static unsigned char gen2_set_carrier(unsigned char color)
 {
@@ -40,7 +41,7 @@ static unsigned char gen2_set_carrier(unsigned char color)
 
 /* Shared body for gen2_hgr_puts (white) and gen2_hgr_puts_color (tinted): one
  * division sets the pen's byte column / bit, then the WHOLE string is rendered by
- * a single asm loop (gen2_blit.s _gen2_puts_run) — no per-character C overhead.
+ * a single asm loop (gen2_text16_asm.s _gen2_puts_run) — no per-character C overhead.
  * colorMode 0 = white blitter, 1 = colour blitter (carrier already in gen2_z_*).
  * Clipping matches the old per-char test (cx+15 <= 279): the leftmost 16px cell
  * fits only if x <= 264, and (264-x)/18 + 1 cells then fit — precomputed here so

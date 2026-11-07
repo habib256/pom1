@@ -279,7 +279,7 @@ parce que les animaux se recouvrent. `SET`/`CLEAR` sont opaques et corrects sous
 recouvrement (avec erase-all → draw-all, §4). XOR ne serait pas moins de blits
 et trouerait les recouvrements.
 
-> **Optimisation runtime partagée** : `_gen2_blit7_run` (`dev/lib/gen2c/gen2_blit.s`)
+> **Optimisation runtime partagée** : `_gen2_blit7_run` (`dev/lib/gen2c/gen2_blit7_asm.s`)
 > **hisse le test de mode hors de la boucle interne** (3 boucles spécialisées
 > SET/CLEAR/XOR au lieu de re-tester `b_mode` à chaque octet) → **+30 %** mesuré,
 > pour *tous* les appelants de `gen2_hgr_blit7`.
@@ -309,7 +309,7 @@ et trouerait les recouvrements.
 |---|---|
 | Demo animé (8 ×2, 2 px, incrémental, trim) | `sketchs/gen2/demo_sprite_animals/GEN2Animals.c` |
 | Générateur banks ×2 + trim | `sketchs/gen2/demo_sprite_animals/gen_x2.py` |
-| Runtime blit / inflate / API | `dev/lib/gen2c/gen2.h`, `gen2_sprites.c`, `gen2_blit.s` |
+| Runtime blit / inflate / API | `dev/lib/gen2c/gen2.h`, `gen2_sprites.c`, `gen2_blit_asm.s` / `gen2_blit7_asm.s` |
 | Inflate ×2 asm (fix `-Oirs`) | `dev/lib/gen2c/gen2_hgr_x2.s` (+ `gen2_hgr_x2_ref.c` réf hôte) |
 | Pré-shift générique (mono) | `dev/lib/gen2c/gen2_preshift.c` (`gen2_hgr_sprite`) |
 | Catalogue mono ×1 | `dev/lib/gen2/sprites/` + `tools/build_hgr_sprites.py` |

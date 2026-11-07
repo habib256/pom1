@@ -1,5 +1,5 @@
 /* ===========================================================================
- * t21_c_tables.c — micro-test: gen2c tables, gen2_hgr_row, draw page (asm)
+ * t42_c_tables.c — micro-test: gen2c tables, gen2_hgr_row, draw page (asm)
  * ===========================================================================
  * GUARDS gen2_tables.s + gen2_page.s, which replaced the C table builder,
  * gen2_hgr_row and gen2_set_draw_page of gen2_init.c. Every value is checked
@@ -21,7 +21,7 @@
  *
  * POM1-LIB-MICRO-TEST
  * MODE: gen2
- * LIBS: gen2c/gen2_init.c gen2c/gen2_blit.s gen2c/gen2_tables.s gen2c/gen2_page.s gen2c/gen2_lores_tab.s gen2c/gen2_lores_dot.s apple1c/apple1io.c apple1c/apple1io_asm.s
+ * LIBS: gen2c/gen2_init.c gen2c/gen2_tables.s gen2c/gen2_page.s gen2c/gen2_mode_asm.s gen2c/gen2_lores_tab.s gen2c/gen2_lores_dot.s apple1c/apple1io_asm.s apple1c/apple1io_str.s apple1c/apple1io_key.s
  * CFG: ../cc65/apple1_gen2_c.cfg
  * PRESET: 11
  * LOAD: 6000

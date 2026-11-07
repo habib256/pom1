@@ -14,6 +14,7 @@
 ;   vdp_set_read    -- prep VRAM read at vdp_lo:hi
 ;   vdp_upload_a    -- copy A bytes from (vdp_src_lo:hi) to VDP_DATA
 ;                      (caller must vdp_set_write first)
+;   vdp_upload      -- same with a 16-bit count in X:A (X = high byte)
 ;   name_at_rc      -- load vdp_lo:hi with name-table addr for (vdp_row,
 ;                      vdp_col) WITHOUT setting up the write (lets caller
 ;                      stage multiple writes via vdp_set_write later)
@@ -35,6 +36,11 @@
 ;   $2000-$201F  Colour table (32 entries — ONE colour byte per group of
 ;                8 chars; design tiles around char-id 0/8/16/24/...)
 ;   $3800-$3FFF  Sprite pattern table
+;
+; Port access goes through the private vdp_write_a / vdp_ctrl_a / vdp_fill /
+; vdp_fill_blank / vdp_copy* helpers of tms9918_xfer.asm (included at the end
+; of this file; 3-byte call sites, same 22c pacing as STA + JSR pad18).
+; `-D TMS_PAIR_SEI=1` masks IRQs around vdp_set_write/read's control pair.
 ; ============================================================================
 
         .import tms9918_pad18  ; silicon-strict pad18-v4 (helper from tms9918_pad.asm)
@@ -49,7 +55,7 @@
 
 ; --- exported routines -----------------------------------------------------
 .export init_vdp_g1, disable_sprites, clear_name_table, wipe_all_vram
-.export vdp_set_write, vdp_set_read, vdp_upload_a
+.export vdp_set_write, vdp_set_read, vdp_upload_a, vdp_upload
 .export name_at_rc, print_at_rc
 
 ; --- ZP layout -------------------------------------------------------------
@@ -92,27 +98,21 @@ init_vdp_g1:
         BNE     @rg_store
         AND     #$BF            ; force display OFF for the loop pass
 @rg_store:
-        STA     VDP_CTRL
+        JSR     vdp_ctrl_a      ; value (22c to the command byte)
         TXA
         ORA     #$80
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        STA     VDP_CTRL
+        JSR     vdp_ctrl_a      ; command: register X
         INX
         CPX     #8
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
         BNE     @rg
         JSR     wipe_all_vram   ; zero all 16 KB while display is still OFF
         JSR     disable_sprites ; SAT terminator with display still OFF
         ; --- Final: re-arm R1 with the table value (display ON typically).
-        ;     Display stays OFF until the cmd byte commits — threshold = 2c
-        ;     through both STAs, no inline pad needed.
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA zp/abs bridge)
+        ;     disable_sprites returns >= 26c after its last store.
         LDA     vdp1_regs+1
-        STA     VDP_CTRL
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA #imm bridge)
+        JSR     vdp_ctrl_a
         LDA     #$81            ; cmd = $80 | reg-1
-        STA     VDP_CTRL
-        RTS
+        JMP     vdp_ctrl_a      ; tail call: returns 16c after the store
 
 ; ----------------------------------------------------------------------------
 ; wipe_all_vram: zero ALL 16 KB of VRAM ($0000-$3FFF). Power-on VRAM is
@@ -130,20 +130,13 @@ init_vdp_g1:
 wipe_all_vram:
         JSR     tms9918_pad18   ; cushion before the addr-setup control writes
         LDA     #$00
-        STA     VDP_CTRL
-        JSR     tms9918_pad18
+        JSR     vdp_ctrl_a
         LDA     #$40            ; $00 | $40 = auto-increment write from $0000
-        STA     VDP_CTRL
-        JSR     tms9918_pad18   ; cmd byte -> first STA VDP_DATA cushion
+        JSR     vdp_ctrl_a      ; >= 30c to the first data store below
         LDA     #$00
         LDX     #64             ; 64 * 256 = 16384 bytes
-@wp:    LDY     #0
-@wb:    STA     VDP_DATA        ; no pad: ScreenOff drain ~2c << 9c inner gap
-        INY
-        BNE     @wb
-        DEX
-        BNE     @wp
-        RTS
+        LDY     #0
+        JMP     vdp_fill_blank  ; 9c/byte, no pad: display blanked (ScreenOff)
 
 ; ----------------------------------------------------------------------------
 ; disable_sprites: defensive SAT init at VRAM $1B00 (Mode I SAT base, R5=$36).
@@ -158,21 +151,15 @@ wipe_all_vram:
 disable_sprites:
         JSR     tms9918_pad18   ; MANUAL caller-gap cushion (18c)
         LDA     #$00
-        STA     VDP_CTRL
-        JSR     tms9918_pad18
+        JSR     vdp_ctrl_a
         LDA     #$5B            ; $1B | $40 = write at $1B00
-        STA     VDP_CTRL
-        JSR     tms9918_pad18
+        JSR     vdp_ctrl_a
         LDA     #$D0            ; SAT[0].Y = chain terminator
-        STA     VDP_DATA
-        JSR     tms9918_pad18
-        LDX     #127            ; SAT[1..127] = off-screen Y via auto-inc
-        LDA     #$D1
-@sat:   STA     VDP_DATA
-        JSR     tms9918_pad18
-        DEX
-        BNE     @sat
-        RTS
+        JSR     vdp_write_a
+        LDA     #$D1            ; SAT[1..127] = off-screen Y via auto-inc
+        LDX     #0
+        LDY     #127
+        JMP     vdp_fill        ; padded, 27c/byte
 
 ; ----------------------------------------------------------------------------
 ; clear_name_table: fill all 768 bytes of the name table at $1800-$1AFF
@@ -182,22 +169,13 @@ disable_sprites:
 clear_name_table:
         JSR     tms9918_pad18   ; MANUAL caller-gap cushion (18c)
         LDA     #$00
-        STA     VDP_CTRL
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA #imm bridge)
+        JSR     vdp_ctrl_a
         LDA     #$58            ; $18 | $40 = write at $1800
-        STA     VDP_CTRL
-        JSR     tms9918_pad18   ; addr-cmd → first STA VDP_DATA cushion
-        LDX     #$03            ; 3 * 256 = 768 bytes
+        JSR     vdp_ctrl_a
         LDA     #$00
-@np:    LDY     #$00
-@nb:    STA     VDP_DATA
-        JSR     tms9918_pad18   ; silicon-strict 18c (loop-back inner @nb,
-                                ; raw inner gap = STA+INY+BNE = 9c)
-        INY
-        BNE     @nb
-        DEX
-        BNE     @np
-        RTS
+        LDX     #$03            ; 3 * 256 = 768 bytes
+        LDY     #$00
+        JMP     vdp_fill        ; padded, 27c/byte (display may be ON)
         ; NOTE: does NOT touch R1 — caller responsibility. Wrapping in an
         ; internal display_off/display_on bracket regresses callers (notably
         ; Rogue) that use a non-default R1 like $C2 (sprite 16x16): every
@@ -212,14 +190,16 @@ clear_name_table:
 ; ----------------------------------------------------------------------------
 vdp_set_write:
         JSR     tms9918_pad18   ; MANUAL caller-gap cushion (18c)
+        TMS_PAIR_BEGIN
         LDA     vdp_lo
-        STA     VDP_CTRL
-        JSR     tms9918_pad18   ; silicon-strict 18c (LDA zp + ORA bridge)
+        JSR     vdp_ctrl_a
         LDA     vdp_hi
         ORA     #$40            ; bit 6 = write
-        STA     VDP_CTRL
-        JSR     tms9918_pad18   ; cushion: caller's first STA VDP_DATA lands
-        RTS                     ; ≥ 30c after the cmd byte (18c+6c+6c=30c gap)
+        JSR     vdp_ctrl_a      ; cmd byte: returns here 16c after it
+        TMS_PAIR_END
+        RTS                     ; caller's first data access lands >= 22c
+                                ; after the cmd byte. Same 76c a call as the
+                                ; old STA / JSR pad18 / RTS tail.
 
 ; ----------------------------------------------------------------------------
 ; vdp_set_read: prep VDP for reads at vdp_lo:hi.
@@ -227,31 +207,30 @@ vdp_set_write:
 ; ----------------------------------------------------------------------------
 vdp_set_read:
         JSR     tms9918_pad18   ; MANUAL caller-gap cushion (18c)
+        TMS_PAIR_BEGIN
         LDA     vdp_lo
-        STA     VDP_CTRL
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA zp/abs bridge)
+        JSR     vdp_ctrl_a
         LDA     vdp_hi          ; bit 6 = 0 → read
-        STA     VDP_CTRL
-        JSR     tms9918_pad18   ; cushion: caller's first LDA VDP_DATA lands
-        RTS                     ; ≥ 30c after the cmd byte
+        JSR     vdp_ctrl_a      ; cmd byte: returns here 16c after it
+        TMS_PAIR_END
+        RTS                     ; caller's first LDA VDP_DATA lands >= 22c
+                                ; after the cmd byte (read prefetch window)
 
 ; ----------------------------------------------------------------------------
 ; vdp_upload_a: copy A bytes from (vdp_src_lo:hi) to VDP_DATA.
 ;   Caller responsibility: vdp_set_write at the destination first.
 ;   Inputs:   A = byte count (1..256; 0 → 256 by wrap)
 ;             vdp_src_lo:hi = source pointer
-;   Clobbers: A, Y. X preserved.
+;   Clobbers: A, Y, tmp (= count). X preserved. 35c a byte (padded).
+;   = vdp_copy_short of tms9918_xfer.asm.
+;
+; vdp_upload: copy X:A bytes (X = high byte, A = low byte: a 16-bit count,
+;   no 256-byte limit) from (vdp_src_lo:hi) to VDP_DATA. 35c a byte
+;   (padded). vdp_src_hi advances by X (one per full page). Clobbers A, X,
+;   Y, tmp. = vdp_copy of tms9918_xfer.asm.
 ; ----------------------------------------------------------------------------
-vdp_upload_a:
-        STA     tmp             ; tmp = count (0 → 256)
-        LDY     #0
-@lp:    LDA     (vdp_src_lo),Y
-        STA     VDP_DATA
-        INY
-        CPY     tmp
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        BNE     @lp
-        RTS
+vdp_upload_a    = vdp_copy_short
+vdp_upload      = vdp_copy
 
 ; ----------------------------------------------------------------------------
 ; name_at_rc: compute name-table VRAM address for (vdp_row, vdp_col) and
@@ -298,11 +277,10 @@ name_at_rc:
 print_at_rc:
         PHA                     ; preserve char
         JSR     name_at_rc
-        JSR     vdp_set_write
+        JSR     vdp_set_write   ; returns >= 22c after its cmd byte
         PLA
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        STA     VDP_DATA
-        RTS
+        JSR     vdp_write_a     ; store 32c after the cmd byte; JSR+RTS keep
+        RTS                     ; the old 28c PLA-to-return (no timing drift)
 
 ; ============================================================================
 ; Mode 1 register table (Graphics I, standard layout used by every Mode-1
@@ -321,3 +299,9 @@ print_at_rc:
 ; ============================================================================
 vdp1_regs:
         .byte   $00, $C0, $06, $80, $00, $36, $07, $01
+
+; ----------------------------------------------------------------------------
+; Private port helpers + fill/copy (only the referenced ones assemble).
+; ----------------------------------------------------------------------------
+VDP_XFER_PTR    = vdp_src_lo
+.include "tms9918_xfer.asm"

@@ -11,8 +11,14 @@
 #     SRCS    := main.c $(APPLE1C_SRCS)
 #     INCS    := $(APPLE1C_INCS)
 #
-# Existing demo Makefiles that name the apple1c sources directly keep
-# working — this fragment is purely additive.
+# The runtime is three hand-written objects (no C): the Wozmon shim, the
+# string/hexword printers and the non-blocking key readers. Objects named on
+# a cl65 line are always linked; an ar65 archive of them (the DevBench's link)
+# pulls only the families a program calls. The finer sets below let a
+# Makefile name just what it uses.
 
-APPLE1C_SRCS := $(APPLE1C)/apple1io.c $(APPLE1C)/apple1io_asm.s
+APPLE1C_SHIM_SRCS := $(APPLE1C)/apple1io_asm.s   # woz_putc/print_hex/mon, apple1_getkey
+APPLE1C_STR_SRCS  := $(APPLE1C)/apple1io_str.s   # woz_puts, woz_print_hexword
+APPLE1C_KEY_SRCS  := $(APPLE1C)/apple1io_key.s   # apple1_iskeypressed, apple1_readkey
+APPLE1C_SRCS := $(APPLE1C_SHIM_SRCS) $(APPLE1C_STR_SRCS) $(APPLE1C_KEY_SRCS)
 APPLE1C_INCS := -I $(APPLE1C)

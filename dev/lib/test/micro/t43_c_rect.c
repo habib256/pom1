@@ -1,8 +1,8 @@
 /* ===========================================================================
- * t22_c_rect.c — micro-test: gen2c rectangle kernels (gen2_rect_run.s)
+ * t43_c_rect.c — micro-test: gen2c rectangle kernels (paired stores)
  * ===========================================================================
- * GUARDS _gen2_pixrect_run / _gen2_fill_rect_run, which replace gen2_blit.s's
- * _gen2_pixrect_asm / _gen2_fill_rect_asm with paired full-byte stores. 60
+ * GUARDS _gen2_pixrect_asm / _gen2_fill_rect_asm (gen2_pixrect_asm.s /
+ * gen2_fill_rect_asm.s) after their rewrite to paired full-byte stores. 60
  * rectangles (24 hand-picked: one byte, adjacent edges, 0/1/2/odd/even full
  * bytes between the edges, x = 255/256, the right edge 279, erase and fill,
  * byte fills of 1..40 columns incl. odd widths and bit-7 values; + 36 random)
@@ -19,7 +19,7 @@
  *
  * POM1-LIB-MICRO-TEST
  * MODE: gen2
- * LIBS: gen2c/gen2_init.c gen2c/gen2_blit.s gen2c/gen2_tables.s gen2c/gen2_page.s gen2c/gen2_rect_run.s apple1c/apple1io.c apple1c/apple1io_asm.s
+ * LIBS: gen2c/gen2_init.c gen2c/gen2_tables.s gen2c/gen2_page.s gen2c/gen2_mode_asm.s gen2c/gen2_hgr_clear_asm.s gen2c/gen2_pixrect_asm.s gen2c/gen2_fill_rect_asm.s apple1c/apple1io_asm.s apple1c/apple1io_str.s apple1c/apple1io_key.s
  * CFG: ../cc65/apple1_gen2_c.cfg
  * PRESET: 11
  * LOAD: 6000
@@ -135,11 +135,11 @@ static void kern_op(const op_t *o)
         gen2_f_col0 = (unsigned char)o->a;
         gen2_f_cols = (unsigned char)o->b;
         gen2_f_y0 = o->y0; gen2_f_rows = o->rows; gen2_f_val = o->m;
-        gen2_fill_rect_run();
+        gen2_fill_rect_asm();
     } else {
         gen2_r_x = o->a; gen2_r_xr = o->b;
         gen2_r_y0 = o->y0; gen2_r_rows = o->rows; gen2_r_mode = o->m;
-        gen2_pixrect_run();
+        gen2_pixrect_asm();
     }
 }
 

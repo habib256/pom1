@@ -1,5 +1,5 @@
 /* ===========================================================================
- * t20_c_sprmask.c — micro-test: gen2c masked sprite kernels ON-TARGET
+ * t41_c_sprmask.c — micro-test: gen2c masked sprite kernels ON-TARGET
  * ===========================================================================
  * GUARDS gen2_sprmask.s (the SPRMASK family under the sprite engine) after its
  * rewrite to down-counting loops, a setup that skips the product at phase 0
@@ -26,7 +26,7 @@
  *
  * POM1-LIB-MICRO-TEST
  * MODE: gen2
- * LIBS: gen2c/gen2_init.c gen2c/gen2_blit.s gen2c/gen2_tables.s gen2c/gen2_page.s gen2c/gen2_sprmask.s apple1c/apple1io.c apple1c/apple1io_asm.s
+ * LIBS: gen2c/gen2_init.c gen2c/gen2_tables.s gen2c/gen2_page.s gen2c/gen2_mode_asm.s gen2c/gen2_hgr_clear_asm.s gen2c/gen2_sprmask.s apple1c/apple1io_asm.s apple1c/apple1io_str.s apple1c/apple1io_key.s
  * CFG: ../cc65/apple1_gen2_c.cfg
  * PRESET: 11
  * LOAD: 6000

@@ -25,18 +25,15 @@ KEYDATA = $D010
 
 _woz_putc:
         ora     #$80            ; WozMon ECHO does not set bit 7; the PIA display
-        jsr     ECHO            ; latches only when PB7=1, so OR it in (cf. print.asm)
-        rts
+        jmp     ECHO            ; latches only when PB7=1, so OR it in (cf. print.asm)
 
-_woz_print_hex:
-        jsr     PRBYTE
-        rts
+; woz_print_hex(c): A = c is exactly PRBYTE's input, so the C symbol IS the ROM
+; entry -- no wrapper, the caller's JSR lands on $FFDC (was JSR PRBYTE / RTS).
+_woz_print_hex = PRBYTE
 
-_woz_mon:
-        jmp     WOZMON
+_woz_mon = WOZMON              ; never returns: the C call lands on the ROM entry
 
-_woz_mon_silent:
-        jmp     WOZ_RST
+_woz_mon_silent = WOZ_RST
 
 _apple1_getkey:
 wait:   lda     KEYCR

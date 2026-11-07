@@ -1,5 +1,5 @@
 /* ===========================================================================
- * t18_c_line.c — micro-test: GEN2 gfx_line (gfx/gfx_line_gen2.s) ON-TARGET
+ * t39_c_line.c — micro-test: GEN2 gfx_line (gfx/gfx_line_gen2.s) ON-TARGET
  * ===========================================================================
  * GUARDS the asm Bresenham that replaced gfx_line.c in gfx-gen2.lib: it must
  * light EXACTLY the pixels the portable C lit (same ties, same rejection of
@@ -25,7 +25,7 @@
  *
  * POM1-LIB-MICRO-TEST
  * MODE: gen2
- * LIBS: gen2c/gen2_init.c gen2c/gen2_blit.s gen2c/gen2_tables.s gen2c/gen2_page.s gen2c/gen2_pixel.c gen2c/gen2_rect.c gen2c/gen2_rect_run.s gen2c/gen2_geom.c gfx/gfx_line_gen2.s gfx/gfx_rect.c gfx/gfx_circle.c gfx/gfx_ellipse.c gfx/gfx_backend_gen2.c apple1c/apple1io.c apple1c/apple1io_asm.s
+ * LIBS: gen2c/gen2_init.c gen2c/gen2_tables.s gen2c/gen2_page.s gen2c/gen2_mode_asm.s gen2c/gen2_hgr_clear_asm.s gen2c/gen2_fill_rect.c gen2c/gen2_fill_rect_asm.s gen2c/gen2_pixel.c gen2c/gen2_pixel_asm.s gen2c/gen2_rect.c gen2c/gen2_pixrect_asm.s gen2c/gen2_geom.c gfx/gfx_line_gen2.s gfx/gfx_rect.c gfx/gfx_circle.c gfx/gfx_ellipse.c gfx/gfx_backend_gen2.c apple1c/apple1io_asm.s apple1c/apple1io_str.s apple1c/apple1io_key.s
  * CFG: ../cc65/apple1_gen2_c.cfg
  * PRESET: 11
  * LOAD: 6000

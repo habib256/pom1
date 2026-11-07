@@ -9,8 +9,9 @@
 ;
 ; Public symbols:
 ;   init_vdp_text   -- 8 registers + tail-call disable_sprites_text
-;   upload_charmap  -- copy 1 KB Apple-1 charmap (bit-reversed) to pattern
-;                      table at $0000. Display is blanked during the burst.
+;   upload_charmap  -- copy the 1 KB Apple-1 charmap (pre-reversed at build
+;                      time, charmap_tms.inc) to the pattern table at $0000.
+;                      Display is blanked during the burst (14c a byte).
 ;   clear_screen_text -- fill 960 bytes at $0800 with $20 (space)
 ;   vdp_set_write   -- prep VRAM auto-increment write at vdp_lo:hi
 ;   vdp_set_read    -- prep VRAM read at vdp_lo:hi
@@ -22,24 +23,26 @@
 ;                Same layout as tms9918m1.asm so a project never links both.
 ;
 ; Imports (caller must define):
-;   tmp                 -- 1 ZP scratch byte (used inside name_at_rc_text
-;                          and the bit-reverse loop of upload_charmap).
+;   tmp                 -- 1 ZP scratch byte (upload_charmap's copy count).
 ;
 ; Memory map (Text Mode F1, fixed by the register table below):
 ;   $0000-$03FF  Pattern table (1 KB = 128 chars * 8 bytes)
 ;   $0800-$0BBF  Name table   (40 cols * 24 rows = 960 bytes)
 ;   (no sprites, no colour table -- text mode uses R7 for fg/bg)
 ;
-; Silicon-strict timing: every STA VDP_DATA in this module is followed by
-; a paired STA/INX/CPX/BNE that already eats >= 8 cycles, OR by an explicit
-; pad. Text-mode active display serves dense CPU access slots in POM1's
-; openMSX tables (worst active gap ~8c), so this passes silicon-strict;
-; the real-silicon drop floor measured in active Mode I/II is ~16c
-; (doc/TMS9918_TRANSFER_WINDOWS.md). The display is blanked (R1 = $80)
-; during upload_charmap so the densest burst runs in a free zone anyway.
+; Silicon-strict timing: data stores go through vdp_write_a / vdp_fill
+; (22c store-to-store, the pad18 contract) except upload_charmap's 1 KB
+; burst, which runs with the display blanked (R1 = $80, a free zone) through
+; vdp_copy_blank at 14c a byte. The private helpers come from
+; tms9918_xfer.asm, included at the end of this file.
+; `-D TMS_PAIR_SEI=1` masks IRQs around vdp_set_write/read's control pair.
+;
+; Font: charmap_tms.inc is roms/charmap.rom bit-reversed by
+; tools/build_charmap_tms.py (Apple-1 ROM: bit 0 = leftmost pixel; TMS9918:
+; bit 7). Reversing it at build time instead of per byte at run time cut
+; upload_charmap from ~165 000 to ~14 500 cycles.
 ; ============================================================================
 
-        .import tms9918_pad18  ; silicon-strict pad18-v4 (helper from tms9918_pad.asm)
 .include "apple1.inc"
 .include "tms9918.inc"
 
@@ -84,138 +87,89 @@ init_vdp_text:
         BNE     @nomask
         AND     #$BF            ; R1: keep display OFF over uninit VRAM
 @nomask:
-        STA     VDP_CTRL
+        JSR     vdp_ctrl_a      ; value (22c to the command byte)
         TXA
         ORA     #$80
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        STA     VDP_CTRL
+        JSR     vdp_ctrl_a      ; command: register X
         INX
         CPX     #8
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
         BNE     @rg
         RTS
 
 ; ----------------------------------------------------------------------------
-; upload_charmap: copy the 1024-byte Apple-1 charmap to pattern table $0000,
-;   bit-reversing each row (Apple-1 = LSB toward left, TMS9918 = MSB toward
-;   left). Display is blanked during the burst so the silicon-strict access
-;   window is wide open. Pattern lifted from text_bitmap.asm:88-94.
+; upload_charmap: copy the 1024-byte Apple-1 charmap to pattern table $0000.
+;   The table is already in TMS order (bit 7 = leftmost pixel: charmap_tms.inc,
+;   generated from roms/charmap.rom), so the bytes go straight to VRAM. The
+;   display is blanked for the burst (a free zone: ScreenOff access slots),
+;   so the copy runs unpadded at 14c a byte -- ~14 500 cycles in all, against
+;   ~165 000 when every byte was bit-reversed (8 LSR/ROL rounds) and padded.
 ;
-;   Clobbers: A, X, Y, tmp, vdp_lo, vdp_hi, vdp_src_lo/hi.
+;   Clobbers: A, X, Y, tmp, vdp_src_lo/hi.
 ; ----------------------------------------------------------------------------
 upload_charmap:
         ; 1) Blank display (R1 = $80: 16K=1, blank=0/screen off, M1=0 — the
         ;    chip idles in blanked Graphics I during the burst; the mode
         ;    bits come back with the $D0 re-arm at the end).
         LDA     #$80
-        STA     VDP_CTRL
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA #imm bridge)
+        JSR     vdp_ctrl_a
         LDA     #$81            ; reg 1
-        STA     VDP_CTRL
-
+        JSR     vdp_ctrl_a
         ; 2) Set VRAM write pointer to $0000 (pattern table base).
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA #imm bridge)
         LDA     #$00
-        STA     VDP_CTRL
-        NOP
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA #imm bridge)
+        JSR     vdp_ctrl_a
         LDA     #$40            ; $00 | $40 = write at $0000
-        STA     VDP_CTRL
-
-        ; 3) Stream 1024 bytes = 4 pages * 256 bytes from charmap_table.
-        ;    Bit-reverse each byte: Apple-1 charmap.rom encodes bit 0 as
-        ;    leftmost pixel, but TMS9918 reads bit 7 as leftmost. Pattern
-        ;    cf. text_bitmap.asm:88-94 (LSR src -> C, ROL dst x 8). X is
-        ;    the page counter so we use vdp_lo as the inner bit counter
-        ;    (irrelevant during streaming -- VDP auto-increments the
-        ;    address it latched in step 2).
-        LDA     #<charmap_table
+        JSR     vdp_ctrl_a
+        ; 3) Stream 1024 bytes (display blanked: no pad).
+        LDA     #<tms_charmap
         STA     vdp_src_lo
-        LDA     #>charmap_table
+        LDA     #>tms_charmap
         STA     vdp_src_hi
-        LDX     #4              ; 4 pages
-@page:  LDY     #0
-@byte:  LDA     (vdp_src_lo),Y
-        STA     tmp             ; tmp = source byte
-        LDA     #8
-        STA     vdp_lo          ; bit counter
-        LDA     #0              ; A = destination accumulator
-@bitrev:
-        LSR     tmp
-        ROL
-        DEC     vdp_lo
-        BNE     @bitrev
-        STA     VDP_DATA        ; >> 8c since previous latch
-        INY
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        BNE     @byte
-        INC     vdp_src_hi      ; advance to next page
-        DEX
-        BNE     @page
-
+        LDX     #>1024          ; X:A = 1024
+        LDA     #<1024
+        JSR     vdp_copy_blank
         ; 4) Re-enable display (R1 = $D0).
         LDA     #$D0
-        STA     VDP_CTRL
-        NOP
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA #imm bridge)
+        JSR     vdp_ctrl_a
         LDA     #$81
-        STA     VDP_CTRL
-        RTS
+        JMP     vdp_ctrl_a      ; tail call
 
 ; ----------------------------------------------------------------------------
 ; clear_screen_text: fill the 960-byte name table at $0800 with $20 (space).
-;   Clobbers: A, X, Y.
+;   Display may be on: padded fill, 27c a byte. Clobbers: A, X, Y.
 ; ----------------------------------------------------------------------------
 clear_screen_text:
         LDA     #$00
-        STA     VDP_CTRL
-        NOP
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA #imm bridge)
+        JSR     vdp_ctrl_a
         LDA     #$48            ; $08 | $40 = write at $0800
-        STA     VDP_CTRL
-        ; 960 bytes = 3 pages of 256 + 192. Loop X = 3 full pages, then
-        ; tail of 192. Each STA VDP_DATA + INY/BNE = >= 8c.
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA #imm bridge)
+        JSR     vdp_ctrl_a
         LDA     #$20            ; space
-        LDX     #3
-@p:     LDY     #0
-@b:     STA     VDP_DATA
-        INY
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        BNE     @b
-        DEX
-        BNE     @p
-        ; Tail: 192 bytes
-        LDY     #192
-@t:     STA     VDP_DATA
-        DEY
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        BNE     @t
-        RTS
+        LDX     #>960           ; X:Y = 960
+        LDY     #<960
+        JMP     vdp_fill
 
 ; ----------------------------------------------------------------------------
 ; vdp_set_write: prep VDP for auto-incrementing writes at vdp_lo:hi.
 ; ----------------------------------------------------------------------------
 vdp_set_write:
+        TMS_PAIR_BEGIN
         LDA     vdp_lo
-        STA     VDP_CTRL
-        NOP                     ; +2c gap
+        JSR     vdp_ctrl_a
         LDA     vdp_hi
         ORA     #$40            ; bit 6 = write
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        STA     VDP_CTRL
+        JSR     vdp_ctrl_a      ; returns 16c after the cmd byte (was 6c)
+        TMS_PAIR_END
         RTS
 
 ; ----------------------------------------------------------------------------
 ; vdp_set_read: prep VDP for reads at vdp_lo:hi.
 ; ----------------------------------------------------------------------------
 vdp_set_read:
+        TMS_PAIR_BEGIN
         LDA     vdp_lo
-        STA     VDP_CTRL
-        NOP
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (before LDA zp/abs bridge)
+        JSR     vdp_ctrl_a
         LDA     vdp_hi          ; bit 6 = 0 -> read
-        STA     VDP_CTRL
+        JSR     vdp_ctrl_a
+        TMS_PAIR_END
         RTS
 
 ; ----------------------------------------------------------------------------
@@ -262,10 +216,9 @@ print_at_rc_text:
         PHA                     ; save char
         JSR     name_at_rc_text
         JSR     vdp_set_write
-        PLA
-        JSR     tms9918_pad18   ; +18c silicon-strict pad18-v4 (back-to-back VDP store)
-        STA     VDP_DATA
-        RTS
+        PLA                     ; vdp_set_write returned 22c after its cmd
+        JMP     vdp_write_a     ; byte: store lands 29c after it, then the
+                                ; helper's 12c pad + RTS
 
 ; ============================================================================
 ; Text Mode F1 register table.
@@ -283,15 +236,16 @@ vdpt_regs:
         .byte   $00, $D0, $02, $00, $00, $00, $00, $F0
 
 ; ============================================================================
-; charmap_table: 1024-byte 8x8 monochrome ASCII font, lifted from
-;   roms/charmap.rom. Format: 1 byte per row, LSB = leftmost pixel
-;   (Apple-1 native order). The upload routine bit-reverses each byte
-;   on the fly because TMS9918 reads bit 7 = leftmost.
-;
-;   Lives inside the driver so any project linking it gets the font for
-;   free. Adds 1 KB to the project's CODE segment -- callers that already
-;   reserve cassette-image headroom (CODE size $1D80 in 8 KB DRAM) absorb
-;   it without flinching.
+; tms_charmap: 1024-byte 8x8 monochrome font = roms/charmap.rom (the Apple-1
+;   character set, 128 glyphs) with every byte bit-reversed at build time by
+;   tools/build_charmap_tms.py, so bit 7 = leftmost pixel as the TMS9918
+;   reads it. Lives inside the driver so any project linking it gets the
+;   font for free (1 KB of CODE).
 ; ============================================================================
-charmap_table:
-        .incbin "../../../roms/charmap.rom"
+.include "charmap_tms.inc"
+
+; ----------------------------------------------------------------------------
+; Private port helpers + fill/copy (only the referenced ones assemble).
+; ----------------------------------------------------------------------------
+VDP_XFER_PTR    = vdp_src_lo
+.include "tms9918_xfer.asm"
