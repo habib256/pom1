@@ -982,7 +982,7 @@ static int runHeadless(pom1::CliPlan& plan)
         std::string err;
         if (emu.loadTape(plan.initialTapePath, err)) {
             if (plan.initialTapeAutoPlay) emu.playTape();
-            pom1::log().info("POM1", "Preloaded cassette: " + plan.initialTapePath);
+            pom1::log().debug("POM1", "Preloaded cassette: " + plan.initialTapePath);
         } else {
             pom1::log().error("POM1", "Failed to preload cassette '" +
                                       plan.initialTapePath + "': " + err);
@@ -1138,6 +1138,7 @@ int main(int argc, char* argv[])
     // in logs/pom1.log — the only one of the three that outlives the process.
     pom1::initDefaultTeeLogger();
     pom1::log().info("POM1", "v" POM1_VERSION_STRING " - Apple 1 Emulator (Dear ImGui)");
+    pom1::log().info("POM1", "GPL3 - VERHILLE Arnaud");
     if (pom1::sessionFileLog().isOpen())
         pom1::log().info("POM1", "session log: " + pom1::sessionFileLog().path());
 

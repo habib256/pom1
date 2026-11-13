@@ -1743,7 +1743,7 @@ void MainWindow_ImGui::pregenerateMissingPresetLayouts()
         ++generated;
     }
     if (generated > 0) {
-        pom1::log().info("Layout",
+        pom1::log().debug("Layout",
             "Pre-generated " + std::to_string(generated) +
             " preset layout file(s) under ini/");
     }

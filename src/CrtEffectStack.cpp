@@ -422,7 +422,7 @@ bool CrtEffectStack::initialize()
     glBindVertexArray(0);
 
     ready = true;
-    pom1::log().info("CRT", "Universal CRT effect stack ready");
+    pom1::log().debug("CRT", "Universal CRT effect stack ready");
     return true;
 }
 

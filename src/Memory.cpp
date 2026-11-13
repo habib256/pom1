@@ -1156,16 +1156,14 @@ int Memory::loadROM(const char* filename, uint16_t startAddress, size_t maxSize,
         return 1;
     }
 
-    for (size_t i = 0; i < fileContent.size(); ++i) {
-        mem[startAddress + i] = (uint8_t)fileContent[i];
-    }
+    // Byte-identical already (boot reloads BASIC + Monitor over initMemory()'s copy): skip, and log nothing.
+    if (std::memcmp(mem.data() + startAddress, fileContent.data(), fileContent.size()) == 0) return 0;
+    std::memcpy(mem.data() + startAddress, fileContent.data(), fileContent.size());
     markPagesDirty(startAddress, fileContent.size());
-    {
-        std::ostringstream oss;
-        oss << label << " loaded to 0x" << std::hex << std::uppercase << startAddress
-            << ": " << std::dec << fileContent.size() << " bytes";
-        pom1::log().info("Mem", oss.str());
-    }
+    std::ostringstream oss;
+    oss << label << " loaded to 0x" << std::hex << std::uppercase << startAddress
+        << ": " << std::dec << fileContent.size() << " bytes";
+    pom1::log().info("Mem", oss.str());
     return 0;
 }
 

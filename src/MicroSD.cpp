@@ -77,7 +77,7 @@ void MicroSD::reset()
 void MicroSD::setSDCardPath(const std::string& path)
 {
     sdCardRootPath = path;
-    pom1::log().info("SD", "SD card path set to: " + path);
+    pom1::log().debug("SD", "SD card path set to: " + path);
 }
 
 // ============================================================================

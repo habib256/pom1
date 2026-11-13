@@ -379,7 +379,9 @@ bool AudioDevice::initAudio()
     // Silicon often ends up at 48 kHz), cycle-accurate sources like SID
     // must use this value to avoid tempo drift.
     actualSampleRate = raw->sampleRate;
-    pom1::log().info("Audio",
+    // Quiet when the device honoured the request; a mismatch is worth seeing.
+    pom1::log().log(actualSampleRate == kSampleRate ? pom1::LogLevel::Debug : pom1::LogLevel::Info,
+        "Audio",
         std::string("miniaudio device: requested ") + std::to_string(kSampleRate) +
         " Hz, got " + std::to_string(actualSampleRate) + " Hz" +
         (actualSampleRate == kSampleRate ? "" : " (rate mismatch — sources will use the actual rate)"));

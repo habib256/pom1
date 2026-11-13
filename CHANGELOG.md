@@ -10,6 +10,24 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Changed — un terminal de démarrage plus court, chaque ROM une seule fois
+
+Au lancement, le terminal affiche la bannière, une ligne `GPL3 - VERHILLE
+Arnaud`, le chemin du journal de session et le chargement des ROMs — rien
+d'autre. Le reste du bavardage de démarrage (périphérique audio, moteur SID,
+chemin SD, image CFFA1, cassette préchargée, pile CRT ×4, layouts pré-générés)
+passe au niveau Debug : il reste entier dans `logs/pom1.log` et dans la Debug
+Console. La ligne audio repasse en Info quand le périphérique impose une autre
+fréquence que 44 100 Hz. « Welcome to POM1 », qui répétait la bannière, est
+supprimée.
+
+BASIC et le WOZ Monitor s'affichaient deux fois : `initMemory()` les charge,
+puis le profil ROM du preset (`MachineCoordinator`) les recharge sur des octets
+identiques. `Memory::loadROM` ne réécrit plus, et ne journalise plus, une ROM
+déjà en place octet pour octet ; une ROM différente (programme qui a écrasé
+`$E000`, autre BASIC) s'écrit et s'affiche comme avant. `memory_lines` ne
+bouge pas.
+
 ### Fixed — `--step N` ne publie plus l'instantané à chaque instruction
 
 Le job nightly `sanitizers (thread)` était rouge depuis le 7 novembre :
