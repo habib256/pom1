@@ -28,6 +28,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <string>
 #include <thread>
@@ -322,6 +323,68 @@ void testRunThenStepNeverStartsAsyncCpu()
 }
 
 // ---------------------------------------------------------------------------
+// D2 — stepCpu(N) is N calls to stepCpu(), only cheaper.
+//
+// `--step N` and the command port's `step N` used to call stepCpu() N times,
+// each publishing the whole snapshot twice. On a GEN2 machine under TSan that
+// was ~95 µs per instruction, and t39_c_line.c (9 M steps) and t41_c_sprmask.c
+// ran into the micro-test timeout every night. The batch publishes once per
+// 1 000 instructions; 2 503 steps cross two chunk boundaries and end inside a
+// third, so an off-by-one at a boundary shows up as a different PC or RAM.
+// Both controllers on the heap (261 KB each, against Windows' stack reserve)
+// and Deterministic: a Live worker runs the Monitor's reset for however long
+// the host takes to build the second machine, and the two then start apart.
+// ---------------------------------------------------------------------------
+void testBatchedStepMatchesSingleSteps()
+{
+    const unsigned char program[] = {
+        0xE6, 0x00,             // $0300 INC $00
+        0xA6, 0x00,             // $0302 LDX $00
+        0x9D, 0x00, 0x04,       // $0304 STA $0400,X
+        0x69, 0x07,             // $0307 ADC #$07
+        0xC8,                   // $0309 INY
+        0xD0, 0xF4,             // $030A BNE $0300
+        0xE6, 0x01,             // $030C INC $01
+        0x4C, 0x00, 0x03        // $030E JMP $0300
+    };
+    constexpr uint64_t kSteps = 2503;
+
+    constexpr auto kMode = EmulationController::ExecutionMode::Deterministic;
+    auto single  = std::make_unique<EmulationController>(nullptr, false, nullptr, kMode);
+    auto batched = std::make_unique<EmulationController>(nullptr, false, nullptr, kMode);
+    for (EmulationController* emu : {single.get(), batched.get()}) {
+        emu->stopCpu();
+        for (std::size_t k = 0; k < sizeof program; ++k)
+            emu->writeMemory(static_cast<uint16_t>(0x0300 + k), program[k]);
+        emu->writeMemory(0x0000, 0x00);
+        emu->writeMemory(0x0001, 0x00);
+        emu->jumpToPaused(0x0300);
+    }
+    for (uint64_t k = 0; k < kSteps; ++k) single->stepCpu();
+    batched->stepCpu(kSteps);
+
+    auto a = std::make_unique<EmulationSnapshot>();
+    auto b = std::make_unique<EmulationSnapshot>();
+    single->copySnapshot(*a);
+    batched->copySnapshot(*b);
+    assert(!a->cpuRunning && !b->cpuRunning);
+    assert(a->programCounter == b->programCounter);
+    assert(a->accumulator    == b->accumulator);
+    assert(a->xRegister      == b->xRegister);
+    assert(a->yRegister      == b->yRegister);
+    assert(a->stackPointer   == b->stackPointer);
+    assert(a->statusRegister == b->statusRegister);
+    assert(a->memory == b->memory);
+    assert(b->memory[0x0001] != 0x00);  // the loop really wrapped Y at least once
+
+    // A zero count executes nothing.
+    const uint16_t pc = b->programCounter;
+    batched->stepCpu(0);
+    batched->copySnapshot(*b);
+    assert(b->programCounter == pc);
+}
+
+// ---------------------------------------------------------------------------
 // E — card overrides and bounded numeric flags.
 // ---------------------------------------------------------------------------
 void testOverridesAndBounds()
@@ -452,6 +515,7 @@ int main()
     testPresetSelection();
     testDeferredActions();
     testRunThenStepNeverStartsAsyncCpu();
+    testBatchedStepMatchesSingleSteps();
     testOverridesAndBounds();
     testSaveTapePath();
     testPrintAndExitFlags();

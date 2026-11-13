@@ -10,6 +10,35 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Fixed — `--step N` ne publie plus l'instantané à chaque instruction
+
+Le job nightly `sanitizers (thread)` était rouge depuis le 7 novembre :
+`lib_micro_tests` dépassait la limite de 300 s sur `t39_c_line.c`
+(9 M pas) et `t41_c_sprmask.c` (4 M pas), et `t43_c_rect.c` passait à 281 s.
+Ce n'était ni un blocage ni une course : `--step N` (et le verbe `step N` du
+port de commande) appelait `stepCpu()` N fois, et chaque appel publiait
+l'instantané deux fois (dans `stopCpu()` puis après le pas). Sur une machine
+GEN2 une publication recopie le verrou de trame de 16 Ko ; sous TSan, chaque
+octet est instrumenté, d'où ~95 µs par instruction.
+
+`EmulationController::stepCpu(uint64_t count = 1)` exécute maintenant les
+`count` instructions par tranches de 1 000 (~une tranche d'émulation, pour que
+l'anneau de champs GEN2 voie toujours chaque bascule et qu'aucun thread ne
+reste bloqué derrière le lot entier) et publie une fois par tranche. En natif,
+t39 passe de 10,1 s à 0,8 s, la suite des 47 micro-tests de ~40 s à 11 s.
+Même machine : pour les 47 pilotes, les sections déterministes de
+l'instantané (MEM, CPU, TMS9918, GEN2VID, FLAGS…) sont identiques octet pour
+octet entre l'ancien et le nouveau binaire ; seules diffèrent celles qui
+diffèrent déjà entre deux exécutions de l'ancien (horloge RTC hôte, RAM
+aléatoire du GT-6144, graine de bruit de `RUN`). Épinglé par
+`cli_dispatcher_smoke` D2 : 2 503 pas en un lot contre 2 503 pas unitaires,
+registres et 64 Ko comparés.
+
+Cliquet relevé : `controller_lines` 3 414 → 3 422. Ces huit lignes sont la
+boucle par tranches et le commentaire qui dit pourquoi elle existe ;
+`controller_public_methods` ne bouge pas (la signature gagne un argument par
+défaut, pas une méthode).
+
 ### Changed — dev/lib : ce que la bibliothèque de pom2games avait de mieux, reporté
 
 Une comparaison de `dev/lib` avec la bibliothèque Apple II de pom2games (même

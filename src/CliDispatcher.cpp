@@ -1037,7 +1037,7 @@ void runDeferredActions(const std::vector<CliAction>& actions,
                                                  "--run $" + std::to_string(a.addressI));
                                              break;
             case CliAction::Kind::Paste:     runPaste(a, emu);   break;
-            case CliAction::Kind::Step:      for (int k = 0; k < a.countI; ++k) emu.stepCpu();
+            case CliAction::Kind::Step:      emu.stepCpu(static_cast<uint64_t>(a.countI));
                                              pom1::log().info("CLI",
                                                  "--step " + std::to_string(a.countI));
                                              break;
