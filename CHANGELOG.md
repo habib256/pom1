@@ -28,6 +28,17 @@ déjà en place octet pour octet ; une ROM différente (programme qui a écrasé
 `$E000`, autre BASIC) s'écrit et s'affiche comme avant. `memory_lines` ne
 bouge pas.
 
+### Fixed — `concurrent_frontends_smoke` s'exécute seul (`RUN_SERIAL`)
+
+Sous `ctest -j8` sur un Mac 8 cœurs, le test échouait environ une fois sur cinq
+malgré ses trois essais, sur `state-hold` 109-129 ms contre 100 ms. Une
+instrumentation temporaire de `PriorityMutex::unlock()` a nommé les détenteurs :
+`applyCardConfiguration` à 40-113 ms et `writeMemory()` — l'écriture d'UN
+octet — à 109 ms. Aucun travail n'explique ça : le thread détenteur était
+préempté par les sept autres processus de test. Le test est donc `RUN_SERIAL`
+(~0,5 s en série) ; la borne de 100 ms ne bouge pas. Cinq passes `-j8`
+consécutives à 126/126.
+
 ### Fixed — `--step N` ne publie plus l'instantané à chaque instruction
 
 Le job nightly `sanitizers (thread)` était rouge depuis le 7 novembre :
