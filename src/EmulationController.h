@@ -197,7 +197,7 @@ public:
     // compile-and-run reset lands on a cleared screen immediately instead of
     // burning three seconds on the startup theatre.
     void hardReset(bool animateBoot = true);
-    void stepCpu();
+    void stepCpu(uint64_t count = 1);   // exactly `count` instructions, CPU left stopped
     // Deterministic capture helper: pause the emulation thread, then run the CPU
     // for exactly `cycles` cycles synchronously (no real-time pacing) and publish
     // a snapshot. Lets the headless graphics-regression dump capture a frame at a

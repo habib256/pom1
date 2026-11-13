@@ -339,7 +339,7 @@ std::string CommandPort::execute(const std::string& line)
         // instructions" a wall-clock race — the same determinism bug that made
         // three TMS9918 micro-tests flap under TSan (see runDeferredActions).
         emu_.stopCpu();
-        for (uint64_t k = 0; k < n; ++k) emu_.stepCpu();
+        emu_.stepCpu(n);
         return "OK pc=$" + hexWord(takeSnapshot(emu_)->programCounter);
     }
 

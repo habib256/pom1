@@ -257,14 +257,22 @@ void EmulationController::hardReset(bool animateBoot)
     wakeCv.notify_all();
 }
 
-void EmulationController::stepCpu()
+void EmulationController::stepCpu(uint64_t count)
 {
-    stopCpu();
-    std::lock_guard<PriorityMutex> lock(stateMutex);
-    memory->clearWatchTrip();   // fresh slate so this step shows its own access
-    cpu->step();
-    emulatedCycles_ += static_cast<uint64_t>(cpu->getLastInstructionCycles());
-    publisher.publish(*memory, *cpu, runRequested.load());
+    // Same instructions as `count` single steps, one publish per ~slice: a
+    // per-step publish (16 KB GEN2 latch) cost ~95 us under TSan; pinned by
+    // cli_dispatcher_smoke D2.
+    if (count) stopCpu();
+    for (uint64_t chunk; count > 0; count -= chunk) {
+        chunk = std::min<uint64_t>(count, 1000);
+        std::lock_guard<PriorityMutex> lock(stateMutex);
+        for (uint64_t k = 0; k < chunk; ++k) {
+            memory->clearWatchTrip();   // fresh slate so each step shows its own access
+            cpu->step();
+            emulatedCycles_ += static_cast<uint64_t>(cpu->getLastInstructionCycles());
+        }
+        publisher.publish(*memory, *cpu, runRequested.load());
+    }
 }
 
 void EmulationController::stepOverCpu()

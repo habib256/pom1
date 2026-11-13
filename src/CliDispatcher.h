@@ -64,7 +64,7 @@ struct CliAction {
         Load,          // addressI + pathS : loadBinary(pathS, addressI)
         Run,           // addressI         : jumpTo(addressI)
         Paste,         // pathS            : feed file contents as keystrokes
-        Step,          // countI           : stepCpu() countI times
+        Step,          // countI           : stepCpu(countI) — exactly countI instructions
         TraceBrk,      // (no args)        : setCpuBrkTraceEnabled(true)
         Play,          // (no args)        : playTape()
         Rec,           // (no args)        : armCassetteRecord()
