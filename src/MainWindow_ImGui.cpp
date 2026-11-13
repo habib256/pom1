@@ -104,7 +104,6 @@ MainWindow_ImGui::~MainWindow_ImGui()
 
 void MainWindow_ImGui::createPom1()
 {
-    pom1::log().info("POM1", "Welcome to POM1 - Apple I Emulator");
     screen = std::make_unique<Screen_ImGui>();
     screen->setCrtEffects(&crtEffects);   // opt-in shader CRT (inert until enabled)
     emulation = std::make_unique<EmulationController>(screen.get(), /*initializeAudioHardware=*/true,
@@ -270,7 +269,7 @@ void MainWindow_ImGui::applyPendingCardConfiguration()
             : emulation->loadTape(preloadTapePath, err);
         if (ok) {
             if (preloadTapeAutoPlay) emulation->playTape();
-            pom1::log().info("POM1",
+            pom1::log().debug("POM1",
                 std::string("Preloaded cassette: ") + preloadTapePath);
         } else {
             pom1::log().error("POM1",

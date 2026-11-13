@@ -143,4 +143,5 @@ all four with warnings-as-errors, plus nightly sanitizer, fuzz and coverage jobs
 **One known flake:** `concurrent_frontends_smoke` measures lock hold and wait
 times, and a shared CI runner can blow them under load without anything being
 wrong (measured once in two runs). It is declared with `REPEAT UNTIL_PASS:3` for
-that reason — if it fails all three times, that is real.
+that reason, and `RUN_SERIAL` so a parallel `ctest -j` cannot be the load that
+blows them — if it fails all three times, that is real.

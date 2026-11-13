@@ -43,7 +43,7 @@ SID::SID(int outputSampleRate)
     : outputRate(outputSampleRate)
 {
     rebuildChip(currentModel.load(std::memory_order_relaxed));
-    pom1::log().info("SID",
+    pom1::log().debug("SID",
         std::string("libresidfp engine initialised (MOS6581 @ ") +
         std::to_string(outputRate) + " Hz)");
 }

@@ -389,7 +389,7 @@ bool CrtEffectStackMetal::initialize(void* device, void* commandQueue)
     }
 
     ready_ = true;
-    pom1::log().info("CRT", "Universal CRT effect stack ready (Metal)");
+    pom1::log().debug("CRT", "Universal CRT effect stack ready (Metal)");
     return true;
 }
 

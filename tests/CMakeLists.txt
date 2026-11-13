@@ -1969,9 +1969,19 @@ add_test(NAME concurrent_frontends_smoke COMMAND test_concurrent_frontends)
 # It matters beyond CI hygiene: a newcomer whose first pull request goes red on
 # an unrelated flake concludes they broke something. That is a contribution
 # barrier, so it is documented in CONTRIBUTING.md too.
+#
+# RUN_SERIAL — the retry cannot beat ctest's OWN load. Under `ctest -j8` on an
+# 8-core Mac (novembre 2026) all three attempts landed inside the same saturated
+# window and failed at state-hold 109-129 ms. Instrumenting unlock() named the
+# holders: applyCardConfiguration at 40-113 ms, and writeMemory() — a ONE-BYTE
+# poke — at 109 ms. No work explains that; the holding thread was preempted by
+# the seven other test processes sharing the cores. A wall-clock gate measures
+# the host unless it has the host, so this test runs alone (~0.5 s of serial
+# time). The bounds stay where they are.
 set_tests_properties(concurrent_frontends_smoke PROPERTIES
     TIMEOUT 30
     REPEAT UNTIL_PASS:3
+    RUN_SERIAL TRUE
     LABELS "concurrency;audio")
 
 # msbasic_smoke -- Microsoft BASIC 6502 on the Apple-1 ($E000, shares the window

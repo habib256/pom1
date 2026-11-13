@@ -58,7 +58,7 @@ bool CFFA1::openDiskImage(const std::string& path)
     diskFile.seekg(0, std::ios::beg);
     diskSizeBlocks = static_cast<uint32_t>(fileSize / 512);
     ataStatus = kStatusDRDY | kStatusDSC;
-    pom1::log().info("CF", "Disk image: " + path + " (" + std::to_string(diskSizeBlocks) +
+    pom1::log().debug("CF", "Disk image: " + path + " (" + std::to_string(diskSizeBlocks) +
                            " blocks, " + std::to_string(diskSizeBlocks / 2) + " KB)");
     return true;
 }
