@@ -456,6 +456,29 @@ void testSaveTapePath()
     assert(fmt.has_value());
     assert(fmt->saveTapeFormat == CliSaveTapeFormat::Aci);
     assert(!parse({"--save-tape-format", "mp3"}).has_value());
+
+    // AIFF: the phone container. A path already ending in .aiff/.aif keeps it.
+    assert(pom1::resolveSaveTapePath("out", CliSaveTapeFormat::Aiff) == "out.aiff");
+    assert(pom1::resolveSaveTapePath("out.AIF", CliSaveTapeFormat::Wav) == "out.AIF");
+    assert(pom1::resolveSaveTapePath("out.aiff", CliSaveTapeFormat::Aci) == "out.aiff");
+    auto aiff = parse({"--save-tape", "t", "--save-tape-format", "aiff"});
+    assert(aiff.has_value() && aiff->saveTapeFormat == CliSaveTapeFormat::Aiff);
+
+    // --save-tape-profile: Auto unless given; phone/smartphone/computer parse.
+    auto noProfile = parse({"--save-tape", "t.wav"});
+    assert(noProfile.has_value() &&
+           noProfile->saveTapeProfile == pom1::TapeExportProfile::Auto);
+    auto phone = parse({"--save-tape", "t.wav", "--save-tape-profile", "phone"});
+    assert(phone.has_value() &&
+           phone->saveTapeProfile == pom1::TapeExportProfile::Smartphone);
+    auto smart = parse({"--save-tape-profile", "Smartphone"});
+    assert(smart.has_value() &&
+           smart->saveTapeProfile == pom1::TapeExportProfile::Smartphone);
+    auto computer = parse({"--save-tape-profile", "computer"});
+    assert(computer.has_value() &&
+           computer->saveTapeProfile == pom1::TapeExportProfile::Computer);
+    assert(!parse({"--save-tape-profile", "loud"}).has_value());
+    assert(!parse({"--save-tape-profile"}).has_value());
 }
 
 // ---------------------------------------------------------------------------

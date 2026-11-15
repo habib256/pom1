@@ -7,8 +7,7 @@
  */
 #include "tms9918.h"
 
-volatile unsigned char *const VDP_DATA = (volatile unsigned char *)0xCC00u;
-volatile unsigned char *const VDP_REG  = (volatile unsigned char *)0xCC01u;
+/* VDP_DATA / VDP_REG are constants in tms9918.h — see why there. */
 
 /* Sink for observed status-port reads (TMS_IO_DELAY / tms_clear_collisions).
  * See utils.h for the cc65 -Oirs volatile-read-elision rationale. */

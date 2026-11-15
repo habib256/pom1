@@ -315,7 +315,7 @@ CassetteDeck_ImGui::render(const char* title,
         out.requestSaveDialog = true;
     }
     ImGui::SetWindowFontScale(1.0f);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save captured tape (ACI / WAV)");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save captured tape (ACI / WAV / AIFF)");
 
     ImGui::SameLine();
     ImGui::BeginDisabled(snap.cassetteRecordedTransitionCount == 0);

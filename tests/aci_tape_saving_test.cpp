@@ -137,6 +137,89 @@ bool verifyRoundTrip(const std::string& tapePath,
     return ok;
 }
 
+// The WRITE routine's timing, in CPU cycles, read back from the .aci the deck
+// saved — what the Woz ACI ROM actually produces on POM1's cycle-exact 6502.
+// Until now nothing pinned it: a CPU timing change could shift every bit of
+// every exported tape and only the round trip (which shares the error with
+// itself) would have run.
+//
+//   header half  592   one LDY $C000,X toggle per WDELAY pass ($C1E0-$C1EF)
+//                596   once per 256 halves: the outer loop's ADC #$FE / BCS
+//                      ($C1D5) when X wraps — real ROM behaviour
+//   start bit    180 then 238
+//   "0" half     238   "1" half 473
+//                226 / 461 on the first half of a byte's first bit (the next
+//                byte's LDA (zp,X) is fetched in the gap), 477 once on the
+//                very first data half
+//
+// [C] ACI ROM $C170-$C1F0 executed on POM1's 6502 (Klaus-tested). The same
+//     header/start/0/1 values as [D] RDK Apple-1 tape_roundtrip.rs
+//     aci_rom_timing @ 0ef0d79.
+//
+// No other value. Until November 2026 a 1184 appeared once per 256 halves:
+// the header toggles by READING $C000,X with X running through all 256
+// values, so it reads $C081 once per 256 — and POM1's $C081 returned the tape
+// input without flipping the output, merging two halves into one. [C] The
+// ROM's own header loop is the evidence that every $C0xx access toggles.
+// CassetteDevice::toggleOutputOnInputRead() is the fix, and why a READ (which
+// polls $C081 continuously) still does not start a recording.
+bool verifyWriteTiming(const std::string& aciPath, const std::vector<uint8_t>& pattern)
+{
+    std::FILE* f = std::fopen(aciPath.c_str(), "rb");
+    if (!f) { std::fprintf(stderr, "FAIL: cannot reopen %s\n", aciPath.c_str()); return false; }
+    std::vector<uint8_t> b;
+    uint8_t buf[4096];
+    for (size_t n; (n = std::fread(buf, 1, sizeof(buf), f)) > 0;) b.insert(b.end(), buf, buf + n);
+    std::fclose(f);
+    auto le32 = [&](size_t o) {
+        return uint32_t(b[o]) | (uint32_t(b[o + 1]) << 8) | (uint32_t(b[o + 2]) << 16) |
+               (uint32_t(b[o + 3]) << 24);
+    };
+    if (b.size() < 16) { std::fprintf(stderr, "FAIL: .aci too short\n"); return false; }
+    const uint32_t count = le32(12);
+    if (b.size() < 16ull + 4ull * count) { std::fprintf(stderr, "FAIL: .aci truncated\n"); return false; }
+    std::vector<uint32_t> d(count);
+    for (uint32_t i = 0; i < count; ++i) d[i] = le32(16 + 4 * i);
+
+    auto fail = [](const char* what, size_t i, uint32_t v) {
+        std::fprintf(stderr, "FAIL: ACI WRITE timing — %s at half #%zu: %u cycles\n", what, i, v);
+        return false;
+    };
+
+    // Header: everything before the 180-cycle start bit.
+    size_t start = 0;
+    while (start < d.size() && d[start] != 180) ++start;
+    if (start < 1000 || start + 2 + pattern.size() * 16 != d.size())
+        return fail("start bit not found where expected", start, start < d.size() ? d[start] : 0);
+    size_t outerLoops = 0;
+    for (size_t i = 0; i < start; ++i) {
+        if (d[i] == 592) continue;
+        if (d[i] == 596) { ++outerLoops; continue; }
+        return fail("header half is not 592/596 (1184 = a $C081 edge lost)", i, d[i]);
+    }
+    if (d[start + 1] != 238) return fail("start bit second half is not 238", start + 1, d[start + 1]);
+
+    // Data: two halves per bit, MSB first; decode and compare to the pattern.
+    size_t i = start + 2;
+    for (size_t byte = 0; byte < pattern.size(); ++byte) {
+        uint8_t value = 0;
+        for (int bit = 0; bit < 8; ++bit, i += 2) {
+            const uint32_t a = d[i], c = d[i + 1];
+            const bool one = a > 350;
+            const bool firstHalfOk = one ? (a == 473 || a == 461 || a == 477)
+                                         : (a == 238 || a == 226);
+            if (!firstHalfOk) return fail("unexpected first half of a bit", i, a);
+            if (c != (one ? 473u : 238u)) return fail("unexpected second half of a bit", i + 1, c);
+            value = static_cast<uint8_t>((value << 1) | (one ? 1 : 0));
+        }
+        if (value != pattern[byte]) return fail("decoded byte differs from RAM", i - 16, value);
+    }
+    std::printf("  WRITE timing: %zu header halves (%zu outer-loop 596s), "
+                "start 180/238, %zu bytes decode from 238/473 halves\n",
+                start, outerLoops, pattern.size());
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -233,6 +316,21 @@ int main(int argc, char** argv)
     const fs::path tmpDir = fs::temp_directory_path();
     const std::string aciPath = (tmpDir / "pom1_aci_roundtrip.aci").string();
     const std::string wavPath = (tmpDir / "pom1_aci_roundtrip.wav").string();
+    // The two Smartphone renderings (TapeExport.h): .aiff takes the profile by
+    // default, the .wav by explicit request. 48 kHz, two channels and a second
+    // of digital silence ahead of the leader — the READ routine must still
+    // lock onto the leader and land every byte.
+    const std::string aiffPath = (tmpDir / "pom1_aci_roundtrip_phone.aiff").string();
+    const std::string phoneWavPath = (tmpDir / "pom1_aci_roundtrip_phone.wav").string();
+
+    if (!tape.saveTape(aiffPath) ||
+        !tape.saveTape(phoneWavPath, pom1::TapeExportProfile::Smartphone)) {
+        std::fprintf(stderr, "FAIL: saveTape(smartphone) -> %s\n",
+                     tape.getLastError().c_str());
+        return 1;
+    }
+    const bool okAiff = verifyRoundTrip(aiffPath, from, to, pattern);
+    const bool okPhoneWav = verifyRoundTrip(phoneWavPath, from, to, pattern);
 
     if (!tape.saveTape(aciPath)) {
         std::fprintf(stderr, "FAIL: saveTape(.aci) -> %s\n",
@@ -244,6 +342,7 @@ int main(int argc, char** argv)
                      tape.getLastError().c_str());
         return 1;
     }
+    if (!verifyWriteTiming(aciPath, pattern)) return 1;
     std::printf("  saved %s (%lld bytes)\n", aciPath.c_str(),
                 static_cast<long long>(fs::file_size(aciPath)));
     std::printf("  saved %s (%lld bytes)\n", wavPath.c_str(),
@@ -258,7 +357,17 @@ int main(int argc, char** argv)
     std::error_code ec;
     fs::remove(aciPath, ec);
     fs::remove(wavPath, ec);
+    fs::remove(aiffPath, ec);
+    fs::remove(phoneWavPath, ec);
 
+    if (!okAiff || !okPhoneWav) {
+        std::fprintf(stderr,
+            "FAIL: smartphone round-trip mismatch (aiff=%d wav=%d) — the "
+            "48 kHz / stereo / lead-silence rendering in TapeExport.cpp no "
+            "longer reads back through the ACI READ routine.\n",
+            okAiff ? 1 : 0, okPhoneWav ? 1 : 0);
+        return 1;
+    }
     if (!okAci) {
         std::fprintf(stderr,
             "FAIL: .aci round-trip mismatch — recordedDurations are not "

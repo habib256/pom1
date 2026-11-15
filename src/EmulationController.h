@@ -30,6 +30,7 @@
 #include "TerminalTiming.h"
 #include "RewindBuffer.h"
 #include "SnapshotPublisher.h"
+#include "TapeExport.h"
 // The core controller depends on the display ABSTRACTION, never on
 // Screen_ImGui — including the latter pulled imgui.h into every consumer of
 // this header and made the emulation core depend on the UI toolkit, which the
@@ -506,7 +507,7 @@ public:
 
     bool loadTape(const std::string& path, std::string& error);
     bool loadProgramTape(const std::string& path, std::string& error);
-    bool saveTape(const std::string& path, std::string& error);
+    bool saveTape(const std::string& path, std::string& error, pom1::TapeExportProfile profile = {});
     void rewindTape();
     void playTape();
     void stopTape();

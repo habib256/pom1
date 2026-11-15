@@ -25,7 +25,12 @@
 //   §11 the sample rate must be plausible — found by fuzzing;
 //   §12 NaN and infinity in a float container become silence — found by fuzzing;
 //   §13 …and a non-finite sample BUILT from finite channels by the mixdown —
-//       also found by fuzzing, and the per-channel scrub alone missed it.
+//       also found by fuzzing, and the per-channel scrub alone missed it;
+//   §14 the channel fold: identical channels give their exact average, a
+//       PHASE-INVERTED pair adds up instead of cancelling (it averaged to
+//       silence and the ACI ROM hung), a lone signal channel is kept alone;
+//   §15 WAV PCM 24/32-bit, float64 and WAVE_FORMAT_EXTENSIBLE — all refused
+//       until November 2026, i.e. every 24-bit export from a modern editor.
 
 #include "PcmFile.h"
 
@@ -355,8 +360,12 @@ int main()
     //     stored every earlier frame.
     // -----------------------------------------------------------------
     {
-        const auto v24 = wav(1, 1, 44100, 24, {0, 0, 0, 0, 0, 0});
-        assertRejected(parseWavPcm(v24.data(), v24.size()));
+        // 12-bit: not a whole number of bytes (24-bit is supported, §15).
+        const auto v12 = wav(1, 1, 44100, 12, {0, 0, 0, 0, 0, 0});
+        assertRejected(parseWavPcm(v12.data(), v12.size()));
+        // float16 is not a WAV format POM1 reads.
+        const auto vf16 = wav(3, 1, 44100, 16, {0, 0});
+        assertRejected(parseWavPcm(vf16.data(), vf16.size()));
 
         const auto vfmt = wav(/*format=*/7, 1, 44100, 16, {0, 0});
         assertRejected(parseWavPcm(vfmt.data(), vfmt.size()));
@@ -478,6 +487,138 @@ int main()
         assert(c.ok && c.mono.size() == 1);
         assert(std::isfinite(c.mono[0]) && c.mono[0] == 0.0f);
         assert(!c.warning.empty());
+    }
+
+    // -----------------------------------------------------------------
+    // §14 The channel fold.
+    // -----------------------------------------------------------------
+    {
+        // A 1 kHz-ish square, 64 frames, as interleaved stereo float.
+        auto square = [](int i) { return ((i / 8) % 2) ? 0.5f : -0.5f; };
+        auto stereo = [&](float lGain, float rGain, float rOffset) {
+            std::vector<uint8_t> d;
+            for (int i = 0; i < 64; ++i) {
+                const float l = lGain * square(i), r = rGain * square(i) + rOffset;
+                uint8_t b[4];
+                std::memcpy(b, &l, 4); d.insert(d.end(), b, b + 4);
+                std::memcpy(b, &r, 4); d.insert(d.end(), b, b + 4);
+            }
+            return wav(3, 2, 44100, 32, d);
+        };
+
+        // Identical channels: exactly their average, i.e. the signal itself.
+        const auto same = stereo(1.0f, 1.0f, 0.0f);
+        const PcmAudio a = parseWavPcm(same.data(), same.size());
+        assert(a.ok && a.mono.size() == 64);
+        for (int i = 0; i < 64; ++i) assert(near(a.mono[i], square(i)));
+
+        // Phase-inverted pair: the plain average was 0.0 everywhere.
+        const auto inverted = stereo(1.0f, -1.0f, 0.0f);
+        const PcmAudio b = parseWavPcm(inverted.data(), inverted.size());
+        assert(b.ok);
+        for (int i = 0; i < 64; ++i) assert(near(std::fabs(b.mono[i]), 0.5f));
+
+        // Signal left, silence right: the left channel alone, undiluted.
+        const auto lone = stereo(1.0f, 0.0f, 0.0f);
+        const PcmAudio c = parseWavPcm(lone.data(), lone.size());
+        assert(c.ok);
+        for (int i = 0; i < 64; ++i) assert(near(c.mono[i], square(i)));
+
+        // Signal right, a constant DC level left: DC is not energy.
+        const auto dcLeft = stereo(0.0f, 0.8f, 0.0f);
+        const PcmAudio d = parseWavPcm(dcLeft.data(), dcLeft.size());
+        assert(d.ok);
+        for (int i = 0; i < 64; ++i) assert(near(d.mono[i], 0.8f * square(i)));
+
+        // Same rule through AIFF (16-bit big-endian, inverted pair).
+        std::vector<uint8_t> ad;
+        for (int i = 0; i < 64; ++i) {
+            const int16_t v = int16_t(square(i) * 32767.0f);
+            putBe16(ad, uint16_t(v)); putBe16(ad, uint16_t(int16_t(-v)));
+        }
+        const auto av = aiff(2, 64, 16, 44100, ad);
+        const PcmAudio e = parseAiffPcm(av.data(), av.size());
+        assert(e.ok && e.mono.size() == 64);
+        for (int i = 0; i < 64; ++i) assert(near(std::fabs(e.mono[i]), 0.5f));
+
+        // And through the public helper miniaudio's path uses.
+        std::vector<float> inter;
+        for (int i = 0; i < 64; ++i) { inter.push_back(square(i)); inter.push_back(-square(i)); }
+        const std::vector<float> m = pom1::mixTapeChannels(inter.data(), 64, 2);
+        assert(m.size() == 64);
+        for (int i = 0; i < 64; ++i) assert(near(std::fabs(m[i]), 0.5f));
+        assert(pom1::mixTapeChannels(nullptr, 4, 2).empty());
+        assert(pom1::mixTapeChannels(inter.data(), 4, 0).empty());
+        const std::vector<float> mono1 = pom1::mixTapeChannels(inter.data(), 8, 1);
+        assert(mono1.size() == 8 && mono1[1] == inter[1]);
+    }
+
+    // -----------------------------------------------------------------
+    // §15 WAV widths and WAVE_FORMAT_EXTENSIBLE.
+    // -----------------------------------------------------------------
+    {
+        // PCM 24-bit: 0x400000 = +0.5, 0xC00000 = -0.5.
+        const auto v24 = wav(1, 1, 44100, 24, {0x00, 0x00, 0x40, 0x00, 0x00, 0xC0});
+        const PcmAudio a = parseWavPcm(v24.data(), v24.size());
+        assert(a.ok && a.mono.size() == 2);
+        assert(near(a.mono[0], 0.5f) && near(a.mono[1], -0.5f));
+
+        // PCM 32-bit.
+        std::vector<uint8_t> d32;
+        putLe32(d32, 0x40000000u); putLe32(d32, 0xC0000000u);
+        const auto v32 = wav(1, 1, 44100, 32, d32);
+        const PcmAudio b = parseWavPcm(v32.data(), v32.size());
+        assert(b.ok && near(b.mono[0], 0.5f) && near(b.mono[1], -0.5f));
+
+        // float64, including a non-finite and an out-of-float-range value.
+        std::vector<uint8_t> d64(32);
+        const double vals[4] = {0.25, -0.75, std::nan(""), 1.0e300};
+        std::memcpy(d64.data(), vals, sizeof(vals));
+        const auto v64 = wav(3, 1, 44100, 64, d64);
+        const PcmAudio c = parseWavPcm(v64.data(), v64.size());
+        assert(c.ok && c.mono.size() == 4);
+        assert(near(c.mono[0], 0.25f) && near(c.mono[1], -0.75f));
+        assert(c.mono[2] == 0.0f && c.mono[3] == 0.0f && !c.warning.empty());
+
+        // WAVE_FORMAT_EXTENSIBLE around PCM 16-bit: fmt is 40 bytes and the
+        // real format code leads the SubFormat GUID.
+        auto extensible = [](uint16_t subFormat, uint16_t bits, const std::vector<uint8_t>& data) {
+            std::vector<uint8_t> v;
+            putTag(v, "RIFF"); putLe32(v, 0); putTag(v, "WAVE");
+            putTag(v, "fmt "); putLe32(v, 40);
+            putLe16(v, 0xFFFE); putLe16(v, 1); putLe32(v, 48000);
+            putLe32(v, 48000u * (bits / 8u)); putLe16(v, uint16_t(bits / 8u)); putLe16(v, bits);
+            putLe16(v, 22);                     // cbSize
+            putLe16(v, bits);                   // wValidBitsPerSample
+            putLe32(v, 4);                      // dwChannelMask (front centre)
+            putLe16(v, subFormat);              // GUID data1, low half
+            const uint8_t guidTail[14] = {0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80,
+                                          0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71};
+            v.insert(v.end(), guidTail, guidTail + 14);
+            putTag(v, "data"); putLe32(v, uint32_t(data.size()));
+            v.insert(v.end(), data.begin(), data.end());
+            return v;
+        };
+        std::vector<uint8_t> d16;
+        putLe16(d16, uint16_t(int16_t(16384))); putLe16(d16, uint16_t(int16_t(-16384)));
+        const auto ext16 = extensible(1, 16, d16);
+        const PcmAudio e = parseWavPcm(ext16.data(), ext16.size());
+        assert(e.ok && e.sampleRate == 48000 && e.mono.size() == 2);
+        assert(near(e.mono[0], 0.5f) && near(e.mono[1], -0.5f));
+
+        std::vector<uint8_t> df(4);
+        const float half = 0.5f;
+        std::memcpy(df.data(), &half, 4);
+        const auto extF = extensible(3, 32, df);
+        const PcmAudio f = parseWavPcm(extF.data(), extF.size());
+        assert(f.ok && near(f.mono[0], 0.5f));
+
+        // An EXTENSIBLE header too short to carry its SubFormat is refused.
+        auto shortExt = wav(0xFFFE, 1, 44100, 16, {0, 0});
+        assertRejected(parseWavPcm(shortExt.data(), shortExt.size()));
+        // ...and so is an unknown SubFormat (ADPCM = 2).
+        const auto extAdpcm = extensible(2, 16, d16);
+        assertRejected(parseWavPcm(extAdpcm.data(), extAdpcm.size()));
     }
 
     std::printf("pcm_file_smoke: OK\n");

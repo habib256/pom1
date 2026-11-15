@@ -809,7 +809,7 @@ static void saveTapeOnExit(EmulationController& emu, const pom1::CliPlan& plan)
 {
     if (plan.saveTapePath.empty()) return;
     std::string err;
-    if (emu.saveTape(plan.saveTapePath, err))
+    if (emu.saveTape(plan.saveTapePath, err, plan.saveTapeProfile))
         pom1::log().info("POM1", "Saved cassette capture to " + plan.saveTapePath);
     else
         pom1::log().error("POM1", "Failed to save cassette to '" +
@@ -1537,7 +1537,7 @@ int main(int argc, char* argv[])
         mainWindow.setInitialTapeAutoPlay(plan.initialTapeAutoPlay);
     }
     if (!plan.saveTapePath.empty())
-        mainWindow.setSaveTapePath(plan.saveTapePath);
+        mainWindow.setSaveTapePath(plan.saveTapePath, plan.saveTapeProfile);
     if (plan.cpuMax)
         mainWindow.setCpuMaxSpeedOnBoot(true);
     if (plan.fullscreen)

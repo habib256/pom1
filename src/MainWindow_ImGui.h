@@ -42,6 +42,7 @@
 #include "TMS9918.h"
 #include "GT6144.h"
 #include "CassetteDeck_ImGui.h"
+#include "AsciiArtWindow_ImGui.h"
 #include "CliDispatcher.h"
 #include "SID.h"
 
@@ -119,7 +120,7 @@ public:
     // where there is no UI to click through the file dialogs.
     void setInitialTapePath(std::string path) { initialTapePath = std::move(path); }
     void setInitialTapeAutoPlay(bool play)    { initialTapeAutoPlay = play; }
-    void setSaveTapePath(std::string path)    { saveTapePath    = std::move(path); }
+    void setSaveTapePath(std::string path, pom1::TapeExportProfile p) { saveTapePath = std::move(path); saveTapeProfile = p; }
     // --cpu-max: boot with executionSpeed pinned at 1 000 000 cycles/frame
     // (MAX button in the UI). Scripted runs that drive the ACI through
     // telnet otherwise wait ~30 s of wallclock per tape at the 1× default.
@@ -426,6 +427,7 @@ private:
     bool   memoryBarHLastGeomValid = false;
     bool showSaveDialog = false;
     bool showSaveTapeDialog = false;
+    bool showImageToApple1 = false;      // File > Image to Apple-1 Text
     bool showLoadSnapshotDialog = false;
     bool showSaveSnapshotDialog = false;
     bool showGraphicsCard = false;
@@ -817,6 +819,7 @@ private:
     void renderMemoryBarHorizontalWindow();
     void renderSaveDialog();
     void renderSaveTapeDialog();
+    void renderImageToApple1Window();
     void renderLoadSnapshotDialog();
     void renderSaveSnapshotDialog();
     void renderGraphicsCardWindow();
@@ -1130,6 +1133,7 @@ private:
     std::string initialTapePath;          // --tape: explicit path (+ auto-play when set)
     bool initialTapeAutoPlay = false;     // --tape presses PLAY; default bundled cassette only loads, waiting for the user
     std::string saveTapePath;             // --save-tape: dump the deck's recording on clean shutdown
+    pom1::TapeExportProfile saveTapeProfile = pom1::TapeExportProfile::Auto;  // --save-tape-profile
     bool cpuMaxSpeedOnBoot = false;       // --cpu-max: pin executionSpeed to MAX (1e6) on first frame
     std::optional<int> initialExecutionSpeed;              // --speed N (cycles/frame)
     std::vector<pom1::CliCardOverride> cardOverrides;      // --enable / --disable
@@ -1173,6 +1177,7 @@ private:
 
     struct TapeDialogState {
         char filePath[512] = "cassette.aci";
+        pom1::TapeExportProfile exportProfile = pom1::TapeExportProfile::Auto;  // save only (TapeExport.h)
         std::vector<std::string> dirList;
         std::vector<std::string> fileList;
         bool filesScanned = false;
@@ -1190,6 +1195,7 @@ private:
     GraphicsCard graphicsCard;
     pom1::Gen2FieldPacer gen2Pacer;   // one emulated field per refresh (Gen2FieldRing.h)
     pom1::CassetteDeck_ImGui cassetteDeck;
+    pom1::AsciiArtWindow_ImGui imageToApple1;   // AsciiArt.h front end
 
     // Keyboard shortcuts. The TABLE is pom1::shortcuts::kBindings (ShortcutTable.h,
     // pure data: label, command and autorepeat policy per row); this forwarder is

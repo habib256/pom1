@@ -76,7 +76,7 @@ void initMode0(TMS9918& vdp)
 // Helper: drive the chip into the VBlank of a single frame — far enough that
 // the per-scanline scan walked every active line and F is raised, but NOT past
 // the frame rollover (which would reset the per-frame 5S flag before the caller
-// reads it). 15000 sits inside the NTSC VBlank window [~12505, 17062).
+// reads it). 15000 sits inside the NTSC VBlank window [~12507, 17067).
 void tickFrame(TMS9918& vdp)
 {
     vdp.advanceCycles(15000);

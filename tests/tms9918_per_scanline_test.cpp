@@ -19,7 +19,7 @@
 //                                              entry the line-walker reached.
 //   D — overscan collision (Bug N°4)         : two early-clock sprites at X=10
 //                                              (real X=-22) collide off-screen.
-//   E — 59.94 Hz NTSC (Bug N°11)             : kCyclesPerFrame == 17073.
+//   E — the VDP's own frame (Bug N°11)       : kCyclesPerFrame == 17067 (59.92 Hz).
 
 #include "TMS9918.h"
 #include "CpuClock.h"
@@ -86,7 +86,7 @@ uint8_t readStatus(TMS9918& vdp) { return vdp.readControl(); }
 // so the per-line scan has processed line N).
 int cyclesToBePastLine(int line)
 {
-    return (line + 1) * POM1_CPU_CYCLES_PER_FRAME_1X_60HZ / 262 + 5;
+    return (line + 1) * TMS9918::kCyclesPerFrame / 262 + 5;
 }
 
 } // namespace
@@ -164,7 +164,7 @@ int main()
         pokeSAT(vdp, 4, 0xD0, 0, 0, 0);
 
         // Step a full frame so all 192 lines are scanned.
-        vdp.advanceCycles(POM1_CPU_CYCLES_PER_FRAME_1X_60HZ + 100);
+        vdp.advanceCycles(TMS9918::kCyclesPerFrame + 100);
         const uint8_t s = readStatus(vdp);
         mustBeTrue((s & 0x40) == 0, "PhaseC: no overflow, bit 6 = 0"); ++assertions;
         mustBeTrue((s & 0x1F) == 4,
@@ -190,21 +190,25 @@ int main()
         pokeSAT(vdp, 1, /*y=*/49, /*x=*/10, /*name=*/0, /*color=*/0x8F);
         pokeSAT(vdp, 2, 0xD0, 0, 0, 0);
 
-        vdp.advanceCycles(POM1_CPU_CYCLES_PER_FRAME_1X_60HZ + 100);
+        vdp.advanceCycles(TMS9918::kCyclesPerFrame + 100);
         const uint8_t s = readStatus(vdp);
         mustBeTrue((s & 0x20) == 0,
                    "PhaseD: NO collision for early-clock sprites at real X=-22 (border-only, visible-only per openMSX)"); ++assertions;
     }
 
     // ----------------------------------------------------------------------
-    // Phase E — 59.94 Hz NTSC frame budget (Bug N°11).
-    // 1.022727 MHz / 59.94005994 Hz = 1022727 × 1001 / 60000 ≈ 17062.49
-    // → 17062 cycles/frame (rounded to nearest). 17045 was the legacy
-    // 60 Hz round value; the new value is silicon-faithful for NTSC.
+    // Phase E — the VDP's own frame (Bug N°11, corrected November 2026).
+    // The TMS9918A draws 262 non-interlaced lines of 342 clocks at
+    // 10.738635 MHz / 2 = 59.922 Hz, i.e. 342 x 262 x 4/21 = 17067.43 CPU
+    // cycles. The 17062 this phase used to pin is 1022727 / 59.94 — the NTSC
+    // BROADCAST field (262.5 lines), which the VDP does not produce; it stays
+    // the emulator's x1 pacing unit, and is no longer the VDP's frame.
     // ----------------------------------------------------------------------
     {
-        mustBeTrue(POM1_CPU_CYCLES_PER_FRAME_1X_60HZ == 17062,
-                   "PhaseE: kCyclesPerFrame matches 59.94 Hz NTSC (= 17062)"); ++assertions;
+        mustBeTrue(TMS9918::kCyclesPerFrame == 17067,
+                   "PhaseE: kCyclesPerFrame = 342 x 262 x 4/21 = 17067 (59.92 Hz)"); ++assertions;
+        mustBeTrue(TMS9918::kCyclesPerFrame != POM1_CPU_CYCLES_PER_FRAME_1X_60HZ,
+                   "PhaseE: the VDP frame is not the host's 59.94 Hz pacing unit"); ++assertions;
     }
 
     // ----------------------------------------------------------------------
@@ -227,7 +231,7 @@ int main()
         writeReg(vdp, 7, 0x0A);                   // mid-frame change → yellow
         vdp.advanceCycles(cyclesToBePastLine(150) - cyclesToBePastLine(50));
         // Finish frame.
-        vdp.advanceCycles(POM1_CPU_CYCLES_PER_FRAME_1X_60HZ);
+        vdp.advanceCycles(TMS9918::kCyclesPerFrame);
 
         TMS9918::Snapshot snap;
         vdp.copySnapshot(snap);
@@ -261,7 +265,7 @@ int main()
         vdp.advanceCycles(5240);
         vdp.renderBeamCatchUp(0);                      // commit line 80 left half + L border WHITE
         writeReg(vdp, 7, 0x0A);                        // mid-SCANLINE change → yellow
-        vdp.advanceCycles(POM1_CPU_CYCLES_PER_FRAME_1X_60HZ);  // finish: line 80 right half + R border YELLOW
+        vdp.advanceCycles(TMS9918::kCyclesPerFrame);  // finish: line 80 right half + R border YELLOW
 
         TMS9918::Snapshot snap;
         vdp.copySnapshot(snap);
@@ -347,7 +351,7 @@ int main()
         vdp.advanceCycles(5240);                       // beam mid-line 80 (x≈98)
         vdp.renderBeamCatchUp(0);                      // commit line 80 left half — latches mode 0
         writeReg(vdp, 1, 0xF0);                        // mid-SCANLINE switch to Text mode (M1)
-        vdp.advanceCycles(POM1_CPU_CYCLES_PER_FRAME_1X_60HZ);  // finish the frame
+        vdp.advanceCycles(TMS9918::kCyclesPerFrame);  // finish the frame
 
         static uint32_t active[256 * 192];
         vdp.copyActiveFramebuffer(active);

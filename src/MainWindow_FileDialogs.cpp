@@ -252,7 +252,11 @@ void MainWindow_ImGui::processDroppedFiles()
     // registers the Memory Map regions — dropping is a shortcut for the picker,
     // never a second, thinner loading path.
     bool handled = true;
-    if (pom1::isHexDumpPath(path)) {
+    if (pom1::AsciiArtWindow_ImGui::isImagePath(path)) {
+        std::string err;
+        if (imageToApple1.openImage(path, err)) showImageToApple1 = true;
+        else setStatusMessage(err, 3.0f);
+    } else if (pom1::isHexDumpPath(path)) {
         performMemoryLoad(path, 1, 0);
     } else if (ext == "bin") {
         // A raw binary carries no address. Same follow-up prompt the native
@@ -1437,7 +1441,8 @@ void MainWindow_ImGui::saveTape()
     if (pom1::NativeFileDialog::isAvailable()) {
         std::vector<pom1::FileFilter> filters = {
             { "ACI pulse dump (*.aci)", {"aci"} },
-            { "WAV audio (*.wav)", {"wav"} },
+            { "WAV audio - computer / tape deck, 44.1 kHz mono (*.wav)", {"wav"} },
+            { "AIFF audio - smartphone, 48 kHz stereo (*.aiff)", {"aiff", "aif"} },
         };
         std::string defDir = resolveDataDir("cassettes");
         // Honour the legacy default basename so users keep the same target
@@ -1458,7 +1463,7 @@ void MainWindow_ImGui::saveTape()
                      sizeof(saveTapeDlg.filePath) - 1);
         saveTapeDlg.filePath[sizeof(saveTapeDlg.filePath) - 1] = '\0';
         std::string error;
-        if (emulation->saveTape(picked, error)) {
+        if (emulation->saveTape(picked, error, saveTapeDlg.exportProfile)) {
             emulation->copySnapshot(uiSnapshot);
             setStatusMessage("Tape saved to " + picked, 3.0f);
         } else {
@@ -1470,9 +1475,23 @@ void MainWindow_ImGui::saveTape()
     showSaveTapeDialog = true;
 }
 
+void MainWindow_ImGui::renderImageToApple1Window()
+{
+    pom1::AsciiArtWindow_ImGui::Actions a;
+    a.parent = window;
+    a.defaultDir = resolveDataDir("software");
+    a.runProgram = [this](const std::vector<std::pair<uint16_t, uint8_t>>& bytes, uint16_t entry) {
+        emulation->writeMemoryBatch(bytes);
+        emulation->jumpTo(entry);
+    };
+    a.typeText = [this](const std::string& text) { pasteText(text.c_str()); };
+    a.status = [this](const std::string& msg) { setStatusMessage(msg, 4.0f); };
+    imageToApple1.render(&showImageToApple1, a);
+}
+
 void MainWindow_ImGui::renderSaveTapeDialog()
 {
-    ImGui::SetNextWindowSize(ImVec2(520, 240), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(520, 300), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Save Tape", &showSaveTapeDialog)) {
         nativePickerHint();
         ImGui::TextWrapped("Save the cassette signal captured from accesses to the ACI output flip-flop.");
@@ -1481,6 +1500,12 @@ void MainWindow_ImGui::renderSaveTapeDialog()
         ImGui::SetNextItemWidth(-1);
         ImGui::InputText("##savetapefile", saveTapeDlg.filePath, sizeof(saveTapeDlg.filePath));
 
+        ImGui::Text("Audio profile (.wav / .aiff only):");  // TapeExport.h
+        ImGui::SetNextItemWidth(-1);
+        int profile = static_cast<int>(saveTapeDlg.exportProfile);
+        if (ImGui::Combo("##savetapeprofile", &profile, pom1::kTapeExportProfileLabels, pom1::kTapeExportProfileCount))
+            saveTapeDlg.exportProfile = static_cast<pom1::TapeExportProfile>(profile);
+
         ImGui::Spacing();
         ImGui::Text("Captured transitions: %zu", uiSnapshot.cassetteRecordedTransitionCount);
         ImGui::Text("Audio backend: %s", uiSnapshot.cassetteAudioAvailable ? "active" : "unavailable");
@@ -1488,7 +1513,7 @@ void MainWindow_ImGui::renderSaveTapeDialog()
         ImGui::Spacing();
         if (ImGui::Button("Save Tape", uiPx(ImVec2(120, 0)))) {
             std::string error;
-            if (emulation->saveTape(saveTapeDlg.filePath, error)) {
+            if (emulation->saveTape(saveTapeDlg.filePath, error, saveTapeDlg.exportProfile)) {
                 emulation->copySnapshot(uiSnapshot);
                 std::stringstream ss;
                 ss << "Tape saved to " << saveTapeDlg.filePath;

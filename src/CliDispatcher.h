@@ -22,6 +22,7 @@
 #include "CodeTank.h"
 #include "JukeBox.h"
 #include "SID.h"
+#include "TapeExport.h"
 
 #include <cstdint>
 #include <ctime>
@@ -93,9 +94,9 @@ struct CliCardOverride {
 };
 
 /// Tape save-format hint. NoHint keeps the current extension-based autodetect
-/// in CassetteDevice::saveTape(); Aci/Wav force the listed extension when the
-/// save path has no recognisable extension of its own.
-enum class CliSaveTapeFormat { NoHint, Aci, Wav };
+/// in CassetteDevice::saveTape(); Aci/Wav/Aiff force the listed extension when
+/// the save path has no recognisable extension of its own.
+enum class CliSaveTapeFormat { NoHint, Aci, Wav, Aiff };
 
 /// One `--paste-at-cycle N "keys"` directive: inject `keys` to the keyboard
 /// queue when the emulated CPU reaches cycle `cycle`. Unlike the Phase-C `Paste`
@@ -173,6 +174,8 @@ struct CliPlan {
     bool                               initialTapeAutoPlay = false;
     std::string                        saveTapePath;
     CliSaveTapeFormat                  saveTapeFormat = CliSaveTapeFormat::NoHint;
+    /// --save-tape-profile: how a .wav/.aiff is rendered (TapeExport.h).
+    pom1::TapeExportProfile            saveTapeProfile = pom1::TapeExportProfile::Auto;
     std::vector<CliCardOverride>       cardOverrides;
     std::optional<pom1::SID::ChipModel>      sidChipOverride;
     std::optional<JukeBox::Jumper>     jukeBoxJumperOverride;

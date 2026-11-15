@@ -42,7 +42,8 @@ struct Tms9918DropDiagnostics {
     uint64_t inVBlank    = 0;          // in a FREE zone (Blanked|VBlank, ScreenOff slots) — anomalous
     // PC histogram. STA $CC00 is 3 bytes — captured PC = STA addr + 3.
     // The disassembly site is at PC-3 (or PC-2 for STA absX/absY = 3 bytes
-    // too, or PC-2 for STA $CC00,X via abs,X also 3 bytes). Always look at
+    // too — though an indexed store to the VDP corrupts VRAM on silicon,
+    // see Programming_TMS9918.md "indexed-store-dummy-read"). Always look at
     // PC-3 first, then walk back if the opcode at PC-3 is not an STA.
     std::unordered_map<uint16_t, uint64_t> byPc;
 };

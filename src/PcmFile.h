@@ -48,9 +48,11 @@ inline constexpr std::uint32_t kMaxPcmSampleRate = 1000000u;
 
 /// Decoded cassette audio: one mono float channel plus its rate.
 ///
-/// The parsers below mix every channel down, because that is what the pulse
-/// decoder wants — a cassette carries one signal, and a stereo rip of one is
-/// two copies of it.
+/// The parsers below fold every channel down to one, because that is what the
+/// pulse decoder wants — a cassette carries one signal. The fold is NOT a plain
+/// average (mixTapeChannels() below says why): identical channels still give
+/// exactly their average, a phase-inverted pair adds up instead of cancelling,
+/// and a lone signal channel is not diluted by a silent or hissing one.
 struct PcmAudio {
     bool ok = false;
     std::uint32_t sampleRate = 0;
@@ -82,6 +84,14 @@ PcmAudio parseWavPcm(const std::uint8_t* data, std::size_t size,
 /// circulating on Applefritter arrives as one.
 PcmAudio parseAiffPcm(const std::uint8_t* data, std::size_t size,
                       std::uint64_t maxFrames = kMaxPcmFrames);
+
+/// Fold interleaved float frames to the one cassette signal, by the same rule
+/// the two parsers use: the channel with the most AC energy, joined by every
+/// other channel that is the same signal (|correlation| >= 0.9), sign-aligned.
+/// For decoders that hand POM1 interleaved frames (miniaudio's MP3/FLAC/Vorbis).
+/// Non-finite samples become silence.
+std::vector<float> mixTapeChannels(const float* interleaved, std::size_t frames,
+                                   std::uint16_t channels);
 
 } // namespace pom1
 

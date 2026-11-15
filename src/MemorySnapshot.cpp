@@ -149,7 +149,7 @@ const std::array<Memory::CardSlot, 18>& Memory::cardSlots()
          nullptr},
 
         {{pom1::CardId::Tms9918, "tms9918", "P-LAB TMS9918 Graphic Card", "TMS9918",
-          cardRanges({0xCC00, 0xCC01}), 1, {}, cards(pom1::CardId::SidSpecialEdition),
+          cardRanges({0xCC00, 0xCFFF}), 1, {}, cards(pom1::CardId::SidSpecialEdition),
           pom1::CardCapability::Snapshot | pom1::CardCapability::Video}, "TMS9918", kFlagTMS9918,
          [](const Memory& m) { return m.tms9918Enabled; },
          [](Memory& m, bool b) { m.setTMS9918Enabled(b); },

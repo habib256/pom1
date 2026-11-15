@@ -133,6 +133,8 @@ set(POM1_TEST_CORE_FILES
     ${CMAKE_SOURCE_DIR}/src/Memory.cpp
     ${CMAKE_SOURCE_DIR}/src/MemoryImageLoader.cpp
     ${CMAKE_SOURCE_DIR}/src/PcmFile.cpp
+    ${CMAKE_SOURCE_DIR}/src/TapeExport.cpp
+    ${CMAKE_SOURCE_DIR}/src/TapePulseDecoder.cpp
     ${CMAKE_SOURCE_DIR}/src/ResourceLocator.cpp
     ${CMAKE_SOURCE_DIR}/src/MemorySnapshot.cpp
     ${CMAKE_SOURCE_DIR}/src/CardTopology.cpp
@@ -1261,6 +1263,18 @@ add_test(NAME aci_tape_saving
          COMMAND test_aci_tape_saving
          WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(aci_tape_saving PROPERTIES TIMEOUT 60)
+
+# -- ACI tape robustness: third-party + damaged recordings through the ROM ----
+# c2t-encoded fixtures (tests/fixtures/tape/, an encoder independent of POM1)
+# at 44.1 kHz and 8 kHz, plus ten damaged variants derived in memory — level,
+# DC, hum, noise, inverted / one-sided stereo, polarity, low-pass, tape speed.
+# Each must load byte-for-byte through `C100R` + `0300.0313R`. Five of them
+# hung the ROM silently before TapePulseDecoder.cpp and the PcmFile channel
+# fold. Same binary as aci_tape_loading (same subject), second mode.
+add_test(NAME aci_tape_robustness
+         COMMAND test_aci_tape_loading --robustness "${CMAKE_SOURCE_DIR}/tests/fixtures/tape"
+         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(aci_tape_robustness PROPERTIES TIMEOUT 120)
 
 # -- SWTPC PR-40 printer smoke test -------------------------------------------
 # Pins the Steve Jobs 1976 Interface Age hack: $D012 sniff → FIFO → mechanical
@@ -2842,6 +2856,43 @@ add_executable(test_pcm_file
 target_include_directories(test_pcm_file PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME pcm_file_smoke COMMAND test_pcm_file)
 set_tests_properties(pcm_file_smoke PROPERTIES TIMEOUT 10)
+
+# The EXPORT side of the same two containers: the Computer / Smartphone tape
+# profiles (src/TapeExport.h). Pure, and read back through PcmFile's own
+# parsers. Pins that the Computer WAV stays byte-identical to the pre-profile
+# saveWavTape(), and that the Smartphone file's two channels never differ.
+add_executable(test_tape_export
+    tape_export_smoke_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/TapeExport.cpp
+    ${CMAKE_SOURCE_DIR}/src/PcmFile.cpp
+)
+target_include_directories(test_tape_export PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME tape_export_smoke COMMAND test_tape_export)
+set_tests_properties(tape_export_smoke PROPERTIES TIMEOUT 10)
+
+# The import side's edge detector (src/TapePulseDecoder.h): a synthetic tape
+# rendered and damaged one way at a time — -36 dBFS, DC, 50 Hz hum, noise,
+# 20 us spikes, inversion, an 11 025 Hz rip — must decode every half-period
+# within a few cycles. Each of these hung the ACI ROM with the old fixed
+# threshold. aci_tape_robustness is the same claim through the real ROM.
+add_executable(test_tape_pulse_decoder
+    tape_pulse_decoder_smoke_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/TapePulseDecoder.cpp
+)
+target_include_directories(test_tape_pulse_decoder PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME tape_pulse_decoder_smoke COMMAND test_tape_pulse_decoder)
+set_tests_properties(tape_pulse_decoder_smoke PROPERTIES TIMEOUT 30)
+
+# Picture -> Apple-1 screen (src/AsciiArt.h), pure: the shape matcher recovers
+# all 64 glyphs of the real 2513 (roms/charmap.rom) from pictures of themselves,
+# framing (zoom / pan / pull-back), and the 6502 / Woz / BASIC outputs.
+add_executable(test_ascii_art
+    ascii_art_smoke_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/AsciiArt.cpp
+)
+target_include_directories(test_ascii_art PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ascii_art_smoke COMMAND test_ascii_art "${CMAKE_SOURCE_DIR}/roms/charmap.rom")
+set_tests_properties(ascii_art_smoke PROPERTIES TIMEOUT 30)
 
 # Hostile input against those two parsers — the surface where POM1 reads a
 # BINARY file a user picked. Same dual shape as the memory-image fuzzer below:

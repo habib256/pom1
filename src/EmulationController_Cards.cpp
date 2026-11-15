@@ -55,10 +55,10 @@ bool EmulationController::loadProgramTape(const std::string& path, std::string& 
     return true;
 }
 
-bool EmulationController::saveTape(const std::string& path, std::string& error)
+bool EmulationController::saveTape(const std::string& path, std::string& error, pom1::TapeExportProfile profile)
 {
     std::lock_guard<PriorityMutex> lock(stateMutex);
-    if (!memory->getCassetteDevice().saveTape(path)) {
+    if (!memory->getCassetteDevice().saveTape(path, profile)) {
         error = memory->getCassetteDevice().getLastError();
         publisher.publish(*memory, *cpu, runRequested.load());
         return false;
