@@ -126,10 +126,6 @@ void MainWindow_ImGui::renderMenuBar()
                 "$4000-$7FFF on the TMS9918 host). Opens the window and plugs TMS9918 +\n"
                 "CodeTank if needed. 32 KB ROM in roms/codetank/ (two 16 KB banks).\n"
                 "After a Run (lower or upper bank), 4000R is sent to the Woz monitor.");
-            ImGui::MenuItem("Image to Apple-1 Text...", nullptr, &showImageToApple1);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Turn a picture into 40 x 24 characters of the 2513 and a\n"
-                                  "6502 program that prints it. Dropping a picture opens it too.");
             ImGui::Separator();
             if (ImGui::MenuItem("Paste Code", nullptr)) {
                 pasteCode();
@@ -568,6 +564,10 @@ void MainWindow_ImGui::renderMenuBar()
             }
             ImGui::Separator();
 #endif  // POM1_DEVTOOLS
+            ImGui::MenuItem("Image to Apple-1 Text...", nullptr, &showImageToApple1);   // no cc65: not DEVTOOLS-gated
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turn a picture into 40 x 24 characters of the 2513 and a\n"
+                                                          "6502 program that prints it. Dropping a picture opens it too.");
+            ImGui::Separator();
             // Strict-mode toggle, drop-diagnostics dump and counter reset all
             // moved into the Silicon Strict Inspector window — single home for
             // the whole silicon-fidelity surface.

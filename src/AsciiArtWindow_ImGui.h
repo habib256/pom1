@@ -4,7 +4,7 @@
 #ifndef POM1_ASCII_ART_WINDOW_IMGUI_H
 #define POM1_ASCII_ART_WINDOW_IMGUI_H
 
-// File ▸ Image to Apple-1 Text — the front end of src/AsciiArt.h.
+// DevBench ▸ Image to Apple-1 Text — the front end of src/AsciiArt.h.
 //
 // Load a picture (or drop one on POM1), frame it — drag the preview to pan,
 // wheel to zoom, or the sliders — pick SHAPE or DENSITY, and the preview shows
