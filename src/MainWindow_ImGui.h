@@ -427,7 +427,7 @@ private:
     bool   memoryBarHLastGeomValid = false;
     bool showSaveDialog = false;
     bool showSaveTapeDialog = false;
-    bool showImageToApple1 = false;      // File > Image to Apple-1 Text
+    bool showImageToApple1 = false;      // DevBench > Image to Apple-1 Text
     bool showLoadSnapshotDialog = false;
     bool showSaveSnapshotDialog = false;
     bool showGraphicsCard = false;

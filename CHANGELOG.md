@@ -10,7 +10,7 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
-### Added — File ▸ Image to Apple-1 Text
+### Added — DevBench ▸ Image to Apple-1 Text
 
 Une image (PNG, JPEG, BMP, GIF, TGA… — ou déposée sur la fenêtre) devient
 40 × 24 caractères du générateur Signetics 2513, et un programme qui les
