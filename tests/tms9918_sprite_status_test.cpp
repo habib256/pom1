@@ -113,7 +113,7 @@ void pokeSAT(TMS9918& vdp, int idx, uint8_t y, uint8_t x, uint8_t name, uint8_t 
 
 // Drive enough cycles to complete the active-display sprite scan and enter
 // VBlank without rolling into the next frame's active region. 15000 sits in
-// the NTSC VBlank window [~12505, 17062): full scan done, F raised, 5S + its
+// the NTSC VBlank window [~12507, 17067): full scan done, F raised, 5S + its
 // index stable for the read that follows. (Status bits are sticky-until-read
 // on silicon — nothing resets at frame rollover — but staying inside one
 // frame keeps each test's timeline easy to reason about.)

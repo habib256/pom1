@@ -7,6 +7,7 @@
 #include "LockOrder.h"
 #include "RealtimeDiagnostics.h"
 #include "Peripheral.h"
+#include "TapeExport.h"
 // Vendored miniaudio: /W0 for the include only (same reason as the GCC/clang
 // pragmas in AudioDevice.cpp — it is not ours to keep clean, and -DPOM1_WERROR=ON
 // would otherwise fail on it in every TU that pulls this header).
@@ -76,6 +77,27 @@ public:
 
     uint8_t readTapeInput();
     uint8_t toggleOutput();
+    /// The output flip-flop side of a `$C081` access. The ACI clocks its
+    /// flip-flop on EVERY $C0xx access — `$C081` (the tape input) included —
+    /// so the output level always flips. The flip is RECORDED as a tape edge
+    /// only when it is part of a write: a recording is under way, the previous
+    /// edge is less than kInputReadEdgeWindowCycles old, and that previous edge
+    /// did NOT itself come from $C081. That is the WRITE header, which toggles
+    /// by reading $C000,X for all 256 X and so reads $C081 once per 256
+    /// half-periods, always between two other $C0xx accesses. It is not READ's
+    /// polling: READ opens with a short WRITE-header delay of its own
+    /// (`LDA #$16 / JSR $C1CC` — the ROM really does put a tone on tape-out
+    /// while reading), so its first $C081 poll can fall inside the window; that
+    /// edge then disqualifies the next. One stray edge at most — a plain window
+    /// chained ~75 000 of them, each recorded poll reopening it.
+    /// [C] ACI ROM $C1CC-$C1EF: the header loop's `LDY $C000,X` runs X through
+    ///     $00-$FF; with $C081 not toggling, one header half-period in 256
+    ///     doubled (1184 cycles instead of two of 592).
+    /// [D] RDK Apple-1 machine.rs @ 0ef0d79 — every $C0xx access toggles.
+    void toggleOutputOnInputRead();
+    /// Longer than any ACI half-period (the longest is the 596-cycle header
+    /// half), far shorter than any human-typed READ after a WRITE.
+    static constexpr uint64_t kInputReadEdgeWindowCycles = 2048;
 
     /// Beeper SFX editor live preview: synthesise a 1-bit square wave straight
     /// into the pulse-audio queue — no CPU, no $C030 toggles. `pulses` is a
@@ -94,7 +116,12 @@ public:
 
     bool loadTape(const std::string& path);
     bool loadProgramTape(const std::string& path);
-    bool saveTape(const std::string& path) const;
+    /// Write the recorded output. The container follows the extension
+    /// (.wav / .aiff / .aif, anything else = .aci); `profile` picks how a WAV
+    /// or AIFF is rendered — Auto = Smartphone for AIFF, Computer for WAV
+    /// (TapeExport.h). Ignored for .aci, which stores the raw durations.
+    bool saveTape(const std::string& path,
+                  pom1::TapeExportProfile profile = pom1::TapeExportProfile::Auto) const;
 
     void rewindTape();
     /// Start loaded-tape playback from the beginning (virtual tape advances with CPU cycles).
@@ -237,17 +264,18 @@ public:
 private:
     static constexpr uint32_t kRealtimeAudioTimebaseHz = static_cast<uint32_t>(POM1_CPU_CLOCK_HZ);
     // Tape-file durations are stored in CPU-cycle units so they feed
-    // advancePlayback() and saveWavTape() without unit conversion. Aligning
+    // advancePlayback() and saveAudioTape() without unit conversion. Aligning
     // the constant on POM1_CPU_CLOCK_HZ also makes WAV exports round-trip
-    // correctly against real Apple-1 hardware: a 770 Hz sync tone now lands
+    // correctly against real Apple-1 hardware: the header tone (592-cycle
+    // halves, ~864 Hz; 770 Hz is the Apple II's, not the ACI's) now lands
     // on the right number of cycles instead of being ~13 % off (the
     // pre-fix 900 kHz constant scaled every duration to ~88 % of its CPU-
     // cycle equivalent, pushing the "1" half-period dangerously close to
     // the Woz READBIT threshold and breaking OGG cassette loads).
     static constexpr uint32_t kTapeFileTimebaseHz = static_cast<uint32_t>(POM1_CPU_CLOCK_HZ);
-    /// Sample rate written into saved .wav files — independent of the live
-    /// audio device's rate so saved tapes stay portable regardless of the
-    /// host's native rate.
+    /// Default live output rate before the audio device reports its own. The
+    /// rates written into saved files belong to the export profiles
+    /// (TapeExport.h), independent of the host's native rate.
     static constexpr uint32_t kWavFileSampleRate = 44100;
 
     void queueAudioSegment(uint32_t cycles, bool level);
@@ -279,7 +307,10 @@ private:
     // ACI recordings would otherwise be unloadable. See the .cpp for the
     // supported subset.
     bool loadAiffTape(const std::string& path);
-    bool saveWavTape(const std::string& path) const;
+    // WAV or AIFF export: renders through the pure pom1::renderTapeAudio()
+    // (TapeExport.h) and writes the bytes.
+    bool saveAudioTape(const std::string& path, pom1::TapeContainer container,
+                       pom1::TapeExportProfile profile) const;
     // Decodes MP3 / Ogg Vorbis / FLAC via miniaudio's ma_decoder, feeds
     // the resulting mono PCM into pcmToDurations, and commits via
     // loadPlaybackDurations. Returns false with lastError set on any
@@ -294,10 +325,9 @@ private:
     void refillAudioStreamRing();
     void clearAudioStreamRing();
 
-    // Shared PCM → transition durations core (zero-crossing with
-    // hysteresis + 900 kHz tape-file timebase). Extracted from
-    // loadWavTape so both WAV and miniaudio paths hit the same math —
-    // single source of truth for the threshold and timebase rounding.
+    // Shared PCM → transition durations core: a thin wrapper over the pure
+    // pom1::decodeTapePulses() (TapePulseDecoder.h) at the tape-file
+    // timebase, so the WAV, AIFF and miniaudio paths hit the same math.
     static bool pcmToDurations(const std::vector<float>& mono,
                                uint32_t sampleRate,
                                std::vector<uint32_t>& outDurations,
@@ -377,6 +407,9 @@ private:
     double audioSampleRemainder = 0.0;
 
     bool outputLevel = false;
+    // The last RECORDED edge came from a $C081 access (toggleOutputOnInputRead).
+    // Not serialized: false after a restore, which costs at most one stray edge.
+    bool lastEdgeFromInputRead_ = false;
     bool recordedInitialLevel = false;
     uint64_t lastOutputToggleCycle = 0;
     // True once a recording session has captured its initial level. Explicit

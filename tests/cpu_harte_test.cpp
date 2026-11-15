@@ -10,6 +10,21 @@
 //
 // Asynchronous IRQ/NMI *line* timing (which Harte's opcode cases don't exercise)
 // is covered by the companion Route-A test, cpu_cycle_count_test.cpp.
+//
+// SECOND PHASE — the NMOS DUMMY BUS CYCLES (M6502.cpp, "Dummy bus cycles"),
+// which the fixture's final-state oracle cannot see: the read an indexed store
+// makes at the un-carried address, the same read on a page-crossing indexed
+// load, and the read-modify-write's write-back of the unmodified value. They
+// are observed the way a program on the real machine would suffer them —
+// through devices that react to a bus access:
+//   * the ACI flip-flop toggles on every $C0xx access, so the PARITY of the
+//     access count shows up in the output level;
+//   * a TMS9918 data-port read advances the VRAM address, so `STA $CC00,X`
+//     (X = 0) writes every other VRAM byte — the bug the TMS9918 guide's old
+//     "Option B" would have shipped to silicon;
+// and the debug instruments must NOT see them (a read-watch, --ram-trap).
+// The model itself was checked offline against the Harte bus traces: all
+// 10 000 cases each of 91/99/9D/BD/FE match, cycle by cycle.
 
 #include "M6502.h"
 #include "Memory.h"
@@ -22,11 +37,13 @@
 #include "TerminalCard.h"
 #include "WiFiModem.h"
 #include "PR40Printer.h"
+#include "CassetteDevice.h"
 
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <initializer_list>
 #include <iterator>
 #include <utility>
 #include <vector>
@@ -55,6 +72,95 @@ State readState(Reader& r) {
     st.ram.reserve(n);
     for (uint16_t i = 0; i < n && r.ok; ++i) { uint16_t a = r.u16(); uint8_t v = r.u8(); st.ram.emplace_back(a, v); }
     return st;
+}
+
+// Run one instruction from $0300 on a non-test-mode machine.
+// The code goes in through memWrite, so --ram-trap counts it as initialised.
+int stepAt0300(M6502& cpu, Memory& memory, std::initializer_list<uint8_t> code,
+               uint8_t a, uint8_t x, uint8_t y)
+{
+    uint16_t pc = 0x0300;
+    for (uint8_t b : code) memory.memWrite(pc++, b);
+    cpu.setProgramCounter(0x0300);
+    cpu.setAccumulator(a);
+    cpu.setXRegister(x);
+    cpu.setYRegister(y);
+    cpu.setIRQ(0);
+    cpu.step();
+    return cpu.getCurrentInstructionCycles();
+}
+
+int dummyBusCycles()
+{
+    int failures = 0;
+    auto check = [&](bool ok, const char* what) {
+        std::printf("  dummy cycles: %-62s %s\n", what, ok ? "ok" : "FAIL");
+        if (!ok) ++failures;
+    };
+
+    Memory memory;
+    M6502 cpu(&memory);
+    memory.setCpuForIrq(&cpu);            // Memory asks the CPU "is this a dummy cycle?"
+    cpu.start();
+
+    // --- ACI: odd number of $C0xx accesses <=> the level a probe read sees
+    //     before and after the instruction is the same.
+    memory.setACIEnabled(true);
+    auto oddAccesses = [&](std::initializer_list<uint8_t> code, uint8_t x) {
+        const uint8_t before = memory.memRead(0xC000);
+        stepAt0300(cpu, memory, code, 0x00, x, 0);
+        const uint8_t after = memory.memRead(0xC000);
+        return before == after;
+    };
+    check(oddAccesses({0xAD, 0x00, 0xC0}, 0),        "LDA $C000      : 1 access (control)");
+    check(!oddAccesses({0x9D, 0x00, 0xC0}, 0),       "STA $C000,X    : 2 accesses (dummy read + write)");
+    check(oddAccesses({0xEE, 0x00, 0xC0}, 0),        "INC $C000      : 3 accesses (read, old, new)");
+    check(oddAccesses({0xBD, 0xFF, 0xC0}, 1),        "LDA $C0FF,X X=1: dummy read at $C000 on page cross");
+    check(oddAccesses({0xBD, 0x10, 0xC0}, 1),        "LDA $C010,X X=1: no page cross, no dummy read");
+
+    // --- TMS9918: STA $CC00,X skips a VRAM byte per write; STA $CC00 does not.
+    memory.setTMS9918Enabled(true);
+    TMS9918& vdp = memory.getTMS9918();
+    vdp.setSiliconStrictMode(false);      // this is about the bus, not slot timing
+    auto vramWriteAddress = [&](uint16_t addr) {
+        memory.memWrite(0xCC01, static_cast<uint8_t>(addr & 0xFF));
+        memory.memWrite(0xCC01, static_cast<uint8_t>(0x40 | ((addr >> 8) & 0x3F)));
+    };
+    vramWriteAddress(0x1000);
+    stepAt0300(cpu, memory, {0x8D, 0x00, 0xCC}, 0x11, 0, 0);   // STA $CC00
+    stepAt0300(cpu, memory, {0x8D, 0x00, 0xCC}, 0x22, 0, 0);
+    const uint8_t* v = vdp.vramData();
+    check(v[0x1000] == 0x11 && v[0x1001] == 0x22, "STA $CC00 x2  : VRAM $1000,$1001 (control)");
+    vramWriteAddress(0x2000);
+    stepAt0300(cpu, memory, {0x9D, 0x00, 0xCC}, 0x33, 0, 0);   // STA $CC00,X
+    stepAt0300(cpu, memory, {0x9D, 0x00, 0xCC}, 0x44, 0, 0);
+    check(v[0x2001] == 0x33 && v[0x2003] == 0x44,
+          "STA $CC00,X x2: VRAM $2001,$2003 — the dummy read skips a byte");
+
+    // --- Debug instruments stay quiet about dummy cycles.
+    memory.clearWatchTrip();
+    memory.setWatchpoint(0x0400, /*onRead=*/true, /*onWrite=*/false);
+    stepAt0300(cpu, memory, {0x9D, 0x00, 0x04}, 0x55, 0, 0);   // STA $0400,X: dummy read only
+    check(!memory.isWatchpointTripped(), "read-watch $0400 ignores STA $0400,X's dummy read");
+    stepAt0300(cpu, memory, {0xAD, 0x00, 0x04}, 0x00, 0, 0);   // LDA $0400: a real read
+    check(memory.isWatchpointTripped(),  "read-watch $0400 fires on LDA $0400 (control)");
+    memory.clearWatchTrip();
+    memory.setWatchpoint(0x0400, false, false);
+
+    memory.setRamWriteTrap(true);
+    memory.resetMemory();                 // what arms the trap's tables
+    const uint64_t hits0 = memory.ramWriteTrapHits();
+    stepAt0300(cpu, memory, {0x9D, 0x00, 0x05}, 0x66, 0, 0);   // STA $0500,X: unwritten $0500
+    check(memory.ramWriteTrapHits() == hits0, "--ram-trap ignores a dummy read of unwritten RAM");
+    stepAt0300(cpu, memory, {0xAD, 0x00, 0x06}, 0x00, 0, 0);   // LDA $0600: unwritten, real
+    check(memory.ramWriteTrapHits() == hits0 + 1, "--ram-trap flags a real read of unwritten RAM (control)");
+    memory.setRamWriteTrap(false);
+
+    // --- Cycle counts are what they were (the Harte phase pins all of them).
+    check(stepAt0300(cpu, memory, {0x9D, 0x00, 0x04}, 0, 0, 0) == 5, "STA abs,X still 5 cycles");
+    check(stepAt0300(cpu, memory, {0xFE, 0x00, 0x04}, 0, 0, 0) == 7, "INC abs,X still 7 cycles");
+    memory.setCpuForIrq(nullptr);
+    return failures;
 }
 
 } // namespace
@@ -135,5 +241,6 @@ int main(int argc, char** argv) {
         for (int o = 0; o < 256; ++o)
             if (opFail[o]) std::printf("  %02X: %d/%d  (cyc %d)\n", o, opFail[o], opTotal[o], opCycFail[o]);
     }
-    return fail == 0 ? 0 : 1;
+    const int dummyFailures = dummyBusCycles();
+    return (fail == 0 && dummyFailures == 0) ? 0 : 1;
 }

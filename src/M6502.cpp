@@ -155,8 +155,10 @@ void M6502::AbsX(void)
     base |= (uint16_t)memory->memRead(programCounter++) << 8;
     op = base + xRegister;
     cycles += 2;
-    if ((base & 0xFF00) != (op & 0xFF00))
+    if ((base & 0xFF00) != (op & 0xFF00)) {
+        dummyRead(static_cast<uint16_t>((base & 0xFF00) | (op & 0x00FF)));
         cycles++;
+    }
 }
 
 void M6502::AbsY(void)
@@ -165,8 +167,10 @@ void M6502::AbsY(void)
     base |= (uint16_t)memory->memRead(programCounter++) << 8;
     op = base + yRegister;
     cycles += 2;
-    if ((base & 0xFF00) != (op & 0xFF00))
+    if ((base & 0xFF00) != (op & 0xFF00)) {
+        dummyRead(static_cast<uint16_t>((base & 0xFF00) | (op & 0x00FF)));
         cycles++;
+    }
 }
 
 void M6502::Ind(void)
@@ -194,8 +198,10 @@ void M6502::IndZeroY(void)
     base |= (uint16_t)memory->memRead((uint8_t)((zp + 1) & 0xFF)) << 8;
     op = base + yRegister;
     cycles += 3;
-    if ((base & 0xFF00) != (op & 0xFF00))
+    if ((base & 0xFF00) != (op & 0xFF00)) {
+        dummyRead(static_cast<uint16_t>((base & 0xFF00) | (op & 0x00FF)));
         cycles++;
+    }
 }
 
 void M6502::Rel(void)
@@ -208,12 +214,61 @@ void M6502::Rel(void)
     cycles++;
 }
 
+// ---------------------------------------------------------------------------
+// Dummy bus cycles.
+//
+// The NMOS 6502 has no idle cycle: every cycle drives an address and strobes a
+// read or a write. Two kinds of those "wasted" cycles reach addresses a device
+// can decode, and on the Apple-1 they do:
+//
+//   * INDEXED: the cycle that adds the index's carry into the high byte READS
+//     the address computed WITHOUT that carry — always for a store (abs,X /
+//     abs,Y / (zp),Y), only on a page crossing for a load. `STA $CC00,X` with
+//     X = 0 therefore reads $CC00 one cycle before writing it, and a TMS9918
+//     data-port read advances the VRAM address: every indexed write to the
+//     VDP skips a byte on silicon.
+//   * READ-MODIFY-WRITE (ASL/LSR/ROL/ROR/INC/DEC on memory): the cycle that
+//     computes the result WRITES THE UNMODIFIED VALUE BACK, then the result is
+//     written — two writes, both visible to a device.
+//
+// [B] MCS6500 Microcomputer Family Hardware Manual (MOS), Appendix A —
+//     per-cycle address/data bus activity for every addressing mode.
+//
+// Not modelled, because on the Apple-1 no device decodes the address they
+// touch: the zp,X / (zp,X) index cycle (reads the zero-page base — RAM), the
+// implied/immediate second fetch (reads PC+1 — code), branch fix-up reads,
+// and the stack-page dummy reads of JSR/RTS/RTI/PLA/PLP (page $01 — RAM).
+//
+// Timing: `cycles` counts the cycles BEFORE the current one (opcode fetch = 1),
+// which is what devices read through getCurrentInstructionCycles() to place an
+// access on the beam; each dummy access is issued at its own cycle.
+// ---------------------------------------------------------------------------
+void M6502::dummyRead(uint16_t address)
+{
+    dummyAccess_ = true;
+    (void)memory->memRead(address);
+    dummyAccess_ = false;
+}
+
+void M6502::rmwWriteBack(uint8_t original, uint8_t result)
+{
+    cycles++;                                   // the modify cycle...
+    dummyAccess_ = true;
+    memory->memWrite(op, original);             // ...writes the old value back
+    dummyAccess_ = false;
+    cycles++;
+    memory->memWrite(op, result);
+    cycles++;
+}
+
 void M6502::WAbsX(void)
 {
     uint16_t base = memory->memRead(programCounter++);
     base |= (uint16_t)memory->memRead(programCounter++) << 8;
     op = base + xRegister;
-    cycles += 3;
+    cycles += 2;
+    dummyRead(static_cast<uint16_t>((base & 0xFF00) | (op & 0x00FF)));
+    cycles++;
 }
 
 void M6502::WAbsY(void)
@@ -221,7 +276,9 @@ void M6502::WAbsY(void)
     uint16_t base = memory->memRead(programCounter++);
     base |= (uint16_t)memory->memRead(programCounter++) << 8;
     op = base + yRegister;
-    cycles += 3;
+    cycles += 2;
+    dummyRead(static_cast<uint16_t>((base & 0xFF00) | (op & 0x00FF)));
+    cycles++;
 }
 
 void M6502::WIndZeroY(void)
@@ -230,7 +287,9 @@ void M6502::WIndZeroY(void)
     uint16_t base = memory->memRead(zp);
     base |= (uint16_t)memory->memRead((uint8_t)((zp + 1) & 0xFF)) << 8;
     op = base + yRegister;
-    cycles += 4;
+    cycles += 3;
+    dummyRead(static_cast<uint16_t>((base & 0xFF00) | (op & 0x00FF)));
+    cycles++;
 }
 
 void M6502::setStatusRegisterNZ(uint8_t val)
@@ -453,6 +512,7 @@ void M6502::EOR(void)
 void M6502::ASL(void)
 {
     uint8_t val = memory->memRead(op);
+    const uint8_t original = val;
 
     if (val & 0x80)
         statusRegister |= M6502::Status::C;
@@ -461,8 +521,7 @@ void M6502::ASL(void)
 
     val <<= 1;
     setStatusRegisterNZ(val);
-    memory->memWrite(op, val);
-    cycles += 3;
+    rmwWriteBack(original, val);   // + 3 cycles, two writes (NMOS)
 }
 
 void M6502::ASL_A(void)
@@ -476,6 +535,7 @@ void M6502::ASL_A(void)
 void M6502::LSR(void)
 {
     uint8_t val = memory->memRead(op);
+    const uint8_t original = val;
 
     if (val & 1)
         statusRegister |= M6502::Status::C;
@@ -484,8 +544,7 @@ void M6502::LSR(void)
 
     val >>= 1;
     setStatusRegisterNZ(val);
-    memory->memWrite(op, val);
-    cycles += 3;
+    rmwWriteBack(original, val);   // + 3 cycles, two writes (NMOS)
 }
 
 void M6502::LSR_A(void)
@@ -502,6 +561,7 @@ void M6502::LSR_A(void)
 void M6502::ROL(void)
 {
     uint8_t val = memory->memRead(op);
+    const uint8_t original = val;
     uint8_t newCarry = val & 0x80;
     val = (val << 1) | (statusRegister & M6502::Status::C ? 1 : 0);
 
@@ -511,8 +571,7 @@ void M6502::ROL(void)
         statusRegister &= ~M6502::Status::C;
 
     setStatusRegisterNZ(val);
-    memory->memWrite(op, val);
-    cycles += 3;
+    rmwWriteBack(original, val);   // + 3 cycles, two writes (NMOS)
 }
 
 void M6502::ROL_A(void)
@@ -526,6 +585,7 @@ void M6502::ROL_A(void)
 void M6502::ROR(void)
 {
     uint8_t val = memory->memRead(op);
+    const uint8_t original = val;
     int newCarry = val & 1;
     val = (val >> 1) | (statusRegister & M6502::Status::C ? 0x80 : 0);
 
@@ -535,8 +595,7 @@ void M6502::ROR(void)
         statusRegister &= ~M6502::Status::C;
 
     setStatusRegisterNZ(val);
-    memory->memWrite(op, val);
-    cycles += 3;
+    rmwWriteBack(original, val);   // + 3 cycles, two writes (NMOS)
 }
 
 void M6502::ROR_A(void)
@@ -555,19 +614,19 @@ void M6502::ROR_A(void)
 void M6502::INC(void)
 {
     uint8_t val = memory->memRead(op);
+    const uint8_t original = val;
     val++;
     setStatusRegisterNZ(val);
-    memory->memWrite(op, val);
-    cycles += 3;   // read + modify + write-back (RMW)
+    rmwWriteBack(original, val);   // + 3 cycles, two writes (NMOS)
 }
 
 void M6502::DEC(void)
 {
     uint8_t val = memory->memRead(op);
+    const uint8_t original = val;
     val--;
     setStatusRegisterNZ(val);
-    memory->memWrite(op, val);
-    cycles += 3;   // read + modify + write-back (RMW)
+    rmwWriteBack(original, val);   // + 3 cycles, two writes (NMOS)
 }
 
 void M6502::INX(void)

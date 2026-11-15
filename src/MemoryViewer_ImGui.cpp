@@ -618,7 +618,7 @@ MemoryViewer_ImGui::RegionInfo MemoryViewer_ImGui::resolveRegion(int address) co
         return { "I/O (KBD/DSP)", ImVec4(1.0f, 0.31f, 0.31f, 1.0f) };
 
     // P-LAB / expansion I/O windows in the $Cxxx page
-    if (tms9918Enabled && address >= 0xCC00 && address <= 0xCC01)
+    if (tms9918Enabled && address >= 0xCC00 && address <= 0xCFFF)   // 1 KB mirror
         return { "TMS9918 VDP", ImVec4(0.4f, 0.8f, 1.0f, 1.0f) };
     if (sidEnabled && address >= 0xC800 && address <= 0xCFFF)
         return { "A1-SID", ImVec4(0.78f, 0.39f, 1.0f, 1.0f) };

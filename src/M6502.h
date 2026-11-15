@@ -103,6 +103,13 @@ public:
     /// instructions it holds the LAST instruction's total; only consult it
     /// from inside a memRead/memWrite issued by the CPU.
     int getCurrentInstructionCycles(void) const { return cycles; }
+    /// True while the CPU performs one of the NMOS 6502's DUMMY bus cycles —
+    /// the read an indexed store (or a page-crossing indexed load) makes at
+    /// the un-carried address, or the unmodified write-back of a
+    /// read-modify-write. The cycle is real on the bus, so devices see it;
+    /// Memory's debug instruments (watchpoints, --ram-trap) consult this to
+    /// stay quiet about traffic the program never asked for.
+    bool inDummyAccess(void) const { return dummyAccess_; }
     /// Jump the PC to an arbitrary address without going through RESET.
     /// Used by the Klaus Dormann functional test harness (the test binary
     /// sets its reset vector to an error trap and expects callers to jump
@@ -188,6 +195,7 @@ private :
     uint16_t op;
     int tmp;
     int cycles;
+    bool dummyAccess_ = false;     // see inDummyAccess()
     uint8_t lastFetchedOpcode = 0; // executeOpcode → Unoff* cycle lookup
     int pendingInterruptCycles_ = 0; // 7-cycle interrupt-entry cost, folded into
                                      // `cycles` by executeInstruction()
@@ -224,6 +232,9 @@ private :
     void WAbsX(void);
     void WAbsY(void);
     void WIndZeroY(void);
+    // NMOS dummy bus cycles (see M6502.cpp, "Dummy bus cycles").
+    void dummyRead(uint16_t address);
+    void rmwWriteBack(uint8_t original, uint8_t result);
     void setStatusRegisterNZ(unsigned char val);
     void LDA(void);
     void LDX(void);

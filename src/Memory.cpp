@@ -293,7 +293,7 @@ Memory::Memory(bool initializeAudioHardware, pom1::ResourceLocator locator,
     bus.setEnabled(sidSEBusHandle, sidSpecialEditionEnabled);
 
     tms9918BusHandle = bus.registerHandle(
-        "TMS9918", {0xCC00, 0xCC01}, /*priority*/ 10,
+        "TMS9918", {0xCC00, 0xCFFF}, /*priority*/ 10,   // 1 KB, A0 = MODE: P-LAB doc §4 [B]
         [this](uint16_t a) {
             // Snapshot the CPU PC for the silicon-strict drop trace —
             // when a future read drops, the log can name the offending
@@ -301,7 +301,7 @@ Memory::Memory(bool initializeAudioHardware, pom1::ResourceLocator locator,
             // operand fetch) so a 3-byte `LDA $CC0X` shows PC = (LDA
             // address + 3); subtract 3 in the disassembly to find it.
             if (cpuForIrq) tms9918->setLastAccessPc(cpuForIrq->getProgramCounter());
-            if (a == 0xCC00) return tms9918->readData();
+            if ((a & 1) == 0) return tms9918->readData();
             // Status read ($CC01): sync the sprite scan to the exact beam
             // scanline first, so 5S / collision reflect the beam at the read
             // cycle — makes the 5S raster-split poll loop cycle-precise
@@ -322,7 +322,7 @@ Memory::Memory(bool initializeAudioHardware, pom1::ResourceLocator locator,
             const int inFlight = cpuForIrq
                 ? static_cast<int>(cpuForIrq->getCurrentInstructionCycles()) : 0;
             tms9918->renderBeamCatchUp(inFlight);
-            if (a == 0xCC00) tms9918->writeData(v);
+            if ((a & 1) == 0) tms9918->writeData(v);
             else tms9918->writeControl(v);
         });
     bus.setEnabled(tms9918BusHandle, tms9918Enabled);
@@ -338,11 +338,11 @@ Memory::Memory(bool initializeAudioHardware, pom1::ResourceLocator locator,
         /*onWrite=*/ {});
     bus.setEnabled(cassetteToggleBusHandle, aciEnabled);
 
-    // $C081 specifically returns the tape input. Higher priority than the
-    // generic toggle range so it wins for that one address.
+    // $C081 returns the tape input (priority over the toggle range) AND flips
+    // the output flip-flop like any $C0xx access — see toggleOutputOnInputRead.
     cassetteInputBusHandle = bus.registerHandle(
         "ACI_input", {0xC081, 0xC081}, /*priority*/ 5,
-        [this](uint16_t /*a*/) { return cassetteDevice->readTapeInput(); },
+        [this](uint16_t /*a*/) { cassetteDevice->toggleOutputOnInputRead(); return cassetteDevice->readTapeInput(); },
         /*onWrite=*/ {});
     bus.setEnabled(cassetteInputBusHandle, aciEnabled);
 
@@ -1508,14 +1508,15 @@ uint8_t Memory::memRead(uint16_t address)
     // test expects the whole address space to behave as RAM).
     if (testMode) return mem[address];
 
-    // Watchpoint: latch the first read of a watched address this instruction.
-    if (anyWatch_ && !watchHit_.tripped && (watchFlags_[address] & 0x01))
+    // Watchpoint: latch the first read of a watched address this instruction —
+    // not an NMOS dummy cycle the program never asked for (M6502::inDummyAccess).
+    if (anyWatch_ && !watchHit_.tripped && (watchFlags_[address] & 0x01) && !(cpuForIrq && cpuForIrq->inDummyAccess()))
         watchHit_ = { true, address, false };
 
     // Read-before-write trap: flag uninitialised RAM reads. Watches [0,$2000)
     // (ZP/stack/BSS/user) plus the Parmigiani high RAM bank [$E000,$F000) — both
     // pure RAM, no peripherals. --ram-trap only. See ramTrapWatches().
-    if (ramWriteTrap) checkRamReadTrap(address);
+    if (ramWriteTrap && !(cpuForIrq && cpuForIrq->inDummyAccess())) checkRamReadTrap(address);
 
     // Memory-mapped peripherals (A1IO_RTC, CFFA1, microSD, WiFiModem, SID,
     // TMS9918, Cassette read) live on the PeripheralBus. The remaining
@@ -1620,7 +1621,7 @@ void Memory::memWrite(uint16_t address, uint8_t value)
     if (ramWriteTrap) noteRamWriteForTrap(address);
 
 // Watchpoint: latch the first write to a watched address this instruction.
-    if (anyWatch_ && !watchHit_.tripped && (watchFlags_[address] & 0x02))
+    if (anyWatch_ && !watchHit_.tripped && (watchFlags_[address] & 0x02) && !(cpuForIrq && cpuForIrq->inDummyAccess()))
         watchHit_ = { true, address, true };
 
     // Peripheral bus first — same rationale as memRead().
@@ -1649,7 +1650,7 @@ void Memory::memWrite(uint16_t address, uint8_t value)
         // must be able to write their own variables there at runtime.
     }
 
-    if (aciEnabled && address >= 0xC000 && address <= 0xC0FF && address != 0xC081) {
+    if (aciEnabled && address >= 0xC000 && address <= 0xC0FF) {   // $C081 too: every $C0xx access
         cassetteDevice->toggleOutput();
     }
 

@@ -259,10 +259,12 @@ bool logAndFail(const char* msg)
 std::string resolveSaveTapePath(const std::string& path, CliSaveTapeFormat hint)
 {
     if (path.empty() || hint == CliSaveTapeFormat::NoHint) return path;
-    if (endsWithIcase(path, ".aci") || endsWithIcase(path, ".wav")) return path;
+    if (endsWithIcase(path, ".aci") || endsWithIcase(path, ".wav") ||
+        endsWithIcase(path, ".aiff") || endsWithIcase(path, ".aif")) return path;
     switch (hint) {
-        case CliSaveTapeFormat::Aci: return path + ".aci";
-        case CliSaveTapeFormat::Wav: return path + ".wav";
+        case CliSaveTapeFormat::Aci:  return path + ".aci";
+        case CliSaveTapeFormat::Wav:  return path + ".wav";
+        case CliSaveTapeFormat::Aiff: return path + ".aiff";
         default: return path;
     }
 }
@@ -304,7 +306,8 @@ constexpr CliFlagHelp kCliFlagHelp[] = {
     {'A', "--movie-frames <dir>",               "With --movie-play: one PNG per video frame (TMS9918 or GEN2) into <dir>."},
     {'A', "--tape <path>",                      "Preload a cassette and auto-Play (.aci .wav .aiff .ogg .mp3 .flac)."},
     {'A', "--save-tape <path>",                 "Dump the deck on clean shutdown."},
-    {'A', "--save-tape-format <aci|wav>",       "Format for --save-tape."},
+    {'A', "--save-tape-format <aci|wav|aiff>",  "Format for --save-tape."},
+    {'A', "--save-tape-profile <auto|computer|phone>", "WAV/AIFF rendering (auto: aiff=phone)."},
     {'A', "--cpu-max",                          "Pin execution speed to 1 000 000 cycles/frame."},
     {'A', "--audio-latency <ms>",               "Output cushion, clamped to [20, 250]."},
     {'A', "--fullscreen",                       "Open fullscreen and re-assert it after every preset switch."},
@@ -454,7 +457,16 @@ std::optional<CliPlan> parseCli(int argc, char* argv[], bool& cleanExitOut)
             const std::string v = toLower(argv[++i]);
             if      (v == "aci") plan.saveTapeFormat = CliSaveTapeFormat::Aci;
             else if (v == "wav") plan.saveTapeFormat = CliSaveTapeFormat::Wav;
-            else { logAndFail("--save-tape-format expects aci or wav"); return std::nullopt; }
+            else if (v == "aiff" || v == "aif") plan.saveTapeFormat = CliSaveTapeFormat::Aiff;
+            else { logAndFail("--save-tape-format expects aci, wav or aiff"); return std::nullopt; }
+            continue;
+        }
+        if (arg == "--save-tape-profile") {
+            if (!needArg(i, "--save-tape-profile")) return std::nullopt;
+            if (!pom1::parseTapeExportProfile(argv[++i], plan.saveTapeProfile)) {
+                logAndFail("--save-tape-profile expects auto, computer or phone");
+                return std::nullopt;
+            }
             continue;
         }
         if (arg == "--speed") {

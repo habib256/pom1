@@ -15,6 +15,30 @@
 //   - Any peripheral bus ordering that could shadow $C000-$C0FF
 //
 // argv[1] = absolute path to the .ogg cassette (passed from CMake).
+//
+// SECOND MODE — `--robustness <tests/fixtures/tape>` (ctest
+// aci_tape_robustness), sharing this binary because it is the same subject.
+// The pure decoder test (tape_pulse_decoder_smoke) proves the edges come back;
+// this proves the BYTES do — through CassetteDevice::loadTape, the pulse path,
+// `$C081` and the ACI ROM's READ routine running on POM1's 6502, exactly as a
+// user types it: `C100R`, then `0300.0313R`.
+//
+// The recordings are not POM1's own. tests/fixtures/tape/ holds a program
+// encoded by c2t (Egan Ford) — an encoder independent of both POM1 and the
+// ROM — at 44 100 Hz and at 8 000 Hz (one sample = 128 CPU cycles against a
+// 238-cycle "0" half). From the 44.1 kHz file the test then derives the
+// damage real rips carry:
+//
+//   level -36 dBFS · DC offset +0.3 · 50 Hz hum at 0.7 of the signal ·
+//   white noise at ~20 dB SNR · a phase-inverted stereo pair · signal in one
+//   channel only · inverted polarity · a dull tape (1-pole low-pass at
+//   2.5 kHz) · tape speed +8 % and -8 %
+//
+// Built against the decoder before November 2026, the first five FAIL — the
+// ROM waits forever with nothing on the screen (the stereo pair because the
+// plain channel average cancelled it to silence).
+//
+// argv[2] = tests/fixtures/tape (passed from CMake).
 
 #include "Memory.h"
 // Memory holds unique_ptrs to these (forward-declared in Memory.h); destructor
@@ -32,12 +56,19 @@
 #include "WiFiModem.h"
 #include "PR40Printer.h"
 
+#include "PcmFile.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iterator>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -85,10 +116,234 @@ void dumpHex(const uint8_t* data, int len)
     if (len & 15) std::puts("");
 }
 
+// ---------------------------------------------------------------------------
+// --robustness: third-party and damaged recordings through the ACI ROM.
+// ---------------------------------------------------------------------------
+namespace fs = std::filesystem;
+
+constexpr double kPi = 3.14159265358979323846;
+
+struct Program {
+    uint16_t from = 0;
+    std::vector<uint8_t> bytes;
+};
+
+// A Woz Monitor dump: "0300: A2 00 BD ..." lines, contiguous.
+Program readMon(const fs::path& path)
+{
+    Program p;
+    std::ifstream in(path);
+    std::string line;
+    bool first = true;
+    while (std::getline(in, line)) {
+        const auto colon = line.find(':');
+        if (colon == std::string::npos) continue;
+        const uint16_t addr = static_cast<uint16_t>(std::stoul(line.substr(0, colon), nullptr, 16));
+        if (first) { p.from = addr; first = false; }
+        std::istringstream rest(line.substr(colon + 1));
+        std::string tok;
+        while (rest >> tok) p.bytes.push_back(static_cast<uint8_t>(std::stoul(tok, nullptr, 16)));
+    }
+    return p;
+}
+
+std::vector<uint8_t> readAll(const fs::path& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+void putLe16(std::vector<uint8_t>& v, uint16_t x) { v.push_back(x & 0xFF); v.push_back(x >> 8); }
+void putLe32(std::vector<uint8_t>& v, uint32_t x) { for (int i = 0; i < 4; ++i) v.push_back((x >> (8 * i)) & 0xFF); }
+
+// Float32 WAV, `channels` interleaved.
+void writeFloatWav(const fs::path& path, const std::vector<float>& interleaved,
+                   uint16_t channels, uint32_t rate)
+{
+    std::vector<uint8_t> v;
+    const uint32_t dataSize = static_cast<uint32_t>(interleaved.size() * 4);
+    v.insert(v.end(), {'R', 'I', 'F', 'F'}); putLe32(v, 36 + dataSize);
+    v.insert(v.end(), {'W', 'A', 'V', 'E', 'f', 'm', 't', ' '}); putLe32(v, 16);
+    putLe16(v, 3); putLe16(v, channels); putLe32(v, rate);
+    putLe32(v, rate * channels * 4); putLe16(v, static_cast<uint16_t>(channels * 4)); putLe16(v, 32);
+    v.insert(v.end(), {'d', 'a', 't', 'a'}); putLe32(v, dataSize);
+    const auto* raw = reinterpret_cast<const uint8_t*>(interleaved.data());
+    v.insert(v.end(), raw, raw + dataSize);
+    std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char*>(v.data()),
+                                                static_cast<std::streamsize>(v.size()));
+}
+
+// Load `tape` and READ the program's range with the ACI ROM. True when every
+// byte lands. Budget: the c2t tapes are ~4 s, i.e. ~4 M cycles.
+bool romLoads(const fs::path& tape, const Program& prog)
+{
+    Memory memory;
+    M6502 cpu(&memory);
+    DisplayCapture display;
+    memory.setDisplayDevice(&display);
+    memory.setACIEnabled(true);
+    uint8_t* mem = memory.getMemoryPointerMutable();
+    std::memset(mem + prog.from, 0x00, prog.bytes.size());
+
+    CassetteDevice& deck = memory.getCassetteDevice();
+    if (!deck.loadTape(tape.string())) {
+        std::fprintf(stderr, "    loadTape: %s\n", deck.getLastError().c_str());
+        return false;
+    }
+    deck.playTape();
+
+    queueWozmonCommand(memory, "C100R");
+    char range[32];
+    std::snprintf(range, sizeof(range), "%04X.%04XR", prog.from,
+                  static_cast<unsigned>(prog.from + prog.bytes.size() - 1));
+    queueWozmonCommand(memory, range);
+
+    cpu.hardReset();
+    cpu.setProgramCounter(0xFF1F);   // Wozmon GETLINE
+    cpu.start();
+    for (int64_t cycles = 0; cycles < 40'000'000;) {
+        cycles += cpu.run(50'000);
+        if (std::memcmp(mem + prog.from, prog.bytes.data(), prog.bytes.size()) != 0) continue;
+        // READ opens with a short WRITE-header delay (`LDA #$16 / JSR $C1CC`),
+        // so the deck records ~5.6 k edges whatever the tape — the ROM really
+        // puts that tone on tape-out. What must NOT happen is READ's $C081
+        // polling chaining into the capture: every $C0xx access flips the
+        // output, and a naive rule recorded ~75 000 edges, growing with the
+        // tape (CassetteDevice::toggleOutputOnInputRead).
+        if (deck.getRecordedTransitionCount() > 6000) {
+            std::fprintf(stderr, "    READ's $C081 polling leaked %zu edges into the capture\n",
+                         deck.getRecordedTransitionCount());
+            return false;
+        }
+        return true;
+    }
+    return false;
+}
+
+struct Variant {
+    const char* name;
+    std::function<std::vector<float>(const std::vector<float>&, uint32_t)> mono;   // or empty
+    std::function<std::vector<float>(const std::vector<float>&)> stereo;            // or empty
+};
+
+float peakOf(const std::vector<float>& s)
+{
+    float p = 0.0f;
+    for (float v : s) p = std::max(p, std::fabs(v));
+    return p;
+}
+
+std::vector<float> resample(const std::vector<float>& s, double speed)
+{
+    std::vector<float> out;
+    for (double t = 0.0; t + 1.0 < static_cast<double>(s.size()); t += speed) {
+        const std::size_t i = static_cast<std::size_t>(t);
+        const double f = t - static_cast<double>(i);
+        out.push_back(static_cast<float>(s[i] * (1.0 - f) + s[i + 1] * f));
+    }
+    return out;
+}
+
+int runRobustness(const fs::path& dir)
+{
+    const Program prog = readMon(dir / "c2t_hello.mon");
+    if (prog.from != 0x0300 || prog.bytes.size() != 20) {
+        std::fprintf(stderr, "FAIL: c2t_hello.mon parsed as $%04X + %zu bytes\n", prog.from,
+                     prog.bytes.size());
+        return 1;
+    }
+
+    int failures = 0;
+    auto check = [&](const char* label, const fs::path& tape) {
+        const bool ok = romLoads(tape, prog);
+        std::printf("  %-40s %s\n", label, ok ? "loads" : "FAILS");
+        if (!ok) ++failures;
+    };
+
+    // The c2t originals.
+    check("c2t 44 100 Hz 8-bit (original)", dir / "c2t_hello_44100_8bit.wav");
+    check("c2t 8 000 Hz 8-bit (original)", dir / "c2t_hello_11025_8bit.wav");
+
+    // Damaged variants of the 44.1 kHz file.
+    const std::vector<uint8_t> bytes = readAll(dir / "c2t_hello_44100_8bit.wav");
+    const pom1::PcmAudio src = pom1::parseWavPcm(bytes.data(), bytes.size());
+    if (!src.ok) {
+        std::fprintf(stderr, "FAIL: cannot parse the c2t fixture: %s\n", src.error.c_str());
+        return 1;
+    }
+    const uint32_t rate = src.sampleRate;
+    const float peak = peakOf(src.mono);
+
+    const Variant variants[] = {
+        {"level -36 dBFS", [&](const std::vector<float>& s, uint32_t) {
+             std::vector<float> o(s);
+             for (float& v : o) v *= 0.0158f / peak;
+             return o; }, {}},
+        {"DC offset +0.3", [](const std::vector<float>& s, uint32_t) {
+             std::vector<float> o(s);
+             for (float& v : o) v = v * 0.6f + 0.3f;
+             return o; }, {}},
+        {"50 Hz hum at 0.7x", [&](const std::vector<float>& s, uint32_t r) {
+             std::vector<float> o(s);
+             for (std::size_t n = 0; n < o.size(); ++n)
+                 o[n] = 0.55f * o[n] + 0.7f * 0.55f * peak *
+                        static_cast<float>(std::sin(2.0 * kPi * 50.0 * n / r));
+             return o; }, {}},
+        {"white noise ~20 dB SNR", [&](const std::vector<float>& s, uint32_t) {
+             std::vector<float> o(s);
+             uint32_t seed = 2026;
+             for (float& v : o) {
+                 seed = seed * 1664525u + 1013904223u;
+                 v += 0.17f * peak * ((seed >> 8) / 16777216.0f * 2.0f - 1.0f);
+             }
+             return o; }, {}},
+        {"inverted polarity", [](const std::vector<float>& s, uint32_t) {
+             std::vector<float> o(s);
+             for (float& v : o) v = -v;
+             return o; }, {}},
+        {"dull tape (low-pass 2.5 kHz)", [](const std::vector<float>& s, uint32_t r) {
+             std::vector<float> o(s);
+             const float a = static_cast<float>(1.0 - std::exp(-2.0 * kPi * 2500.0 / r));
+             float y = 0.0f;
+             for (float& v : o) { y += a * (v - y); v = y; }
+             return o; }, {}},
+        {"tape speed +8 %", [](const std::vector<float>& s, uint32_t) { return resample(s, 1.08); }, {}},
+        {"tape speed -8 %", [](const std::vector<float>& s, uint32_t) { return resample(s, 0.92); }, {}},
+        {"stereo, right channel phase-inverted", {}, [](const std::vector<float>& s) {
+             std::vector<float> o;
+             for (float v : s) { o.push_back(v); o.push_back(-v); }
+             return o; }},
+        {"stereo, signal left only", {}, [](const std::vector<float>& s) {
+             std::vector<float> o;
+             for (float v : s) { o.push_back(v); o.push_back(0.0f); }
+             return o; }},
+    };
+
+    const fs::path tmp = fs::temp_directory_path() / "pom1_aci_robustness";
+    fs::create_directories(tmp);
+    int index = 0;
+    for (const Variant& v : variants) {
+        const fs::path out = tmp / ("variant" + std::to_string(index++) + ".wav");
+        if (v.mono) writeFloatWav(out, v.mono(src.mono, rate), 1, rate);
+        else        writeFloatWav(out, v.stereo(src.mono), 2, rate);
+        check(v.name, out);
+    }
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+
+    if (failures) {
+        std::fprintf(stderr, "FAIL: %d recording(s) did not load through the ACI ROM\n", failures);
+        return 1;
+    }
+    std::puts("aci_tape_robustness: OK");
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
 {
+    if (argc >= 3 && std::string(argv[1]) == "--robustness") return runRobustness(argv[2]);
     // Default: APPLE50TH.ogg into $0280-$0FFF (the demo's natural load
     // range — see cassettes/tapeinfo.txt), expect the first 3 bytes of the
     // demo (`A9 FF 48` = LDA #$FF / PHA). The destination is plain Apple 1

@@ -12,8 +12,26 @@
 
 #define TMS9918 1
 
-extern volatile unsigned char *const VDP_DATA;
-extern volatile unsigned char *const VDP_REG;
+/* The two ports are COMPILE-TIME constants, never pointer variables.
+ *
+ * They used to be `extern volatile unsigned char *const` objects defined in
+ * tms9918.c. cc65 cannot fold the value of an extern, so every access loaded
+ * the pointer into ptr1 and went through `sta (ptr1),y` — an indexed store,
+ * and on the NMOS 6502 an indexed store READS its target one cycle before it
+ * writes it ([B] MCS6500 Hardware Manual, appendix A). On this card that
+ * dummy read is a VDP access:
+ *   - before a DATA write it advances the VRAM address, so each byte lands one
+ *     cell further on and the cell meant for it is skipped;
+ *   - before a CONTROL write it reads the status register, which resets the
+ *     two-byte flip-flop, so the second byte of every address or register
+ *     write was taken as a first byte.
+ * POM1 did not model the dummy read until November 2026, which is why this
+ * runtime looked correct in the emulator. As constants, cc65 emits plain
+ * `sta $CC00` / `sta $CC01` (absolute, no dummy cycle) — what the upstream
+ * KickC library always produced. See Programming_TMS9918.md
+ * "indexed-store-dummy-read". */
+#define VDP_DATA ((volatile unsigned char *)0xCC00u)
+#define VDP_REG  ((volatile unsigned char *)0xCC01u)
 
 #define WRITE_TO_VRAM    0x40U
 #define READ_FROM_VRAM   0x00U

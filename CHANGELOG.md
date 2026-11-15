@@ -10,6 +10,163 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+### Added — File ▸ Image to Apple-1 Text
+
+Une image (PNG, JPEG, BMP, GIF, TGA… — ou déposée sur la fenêtre) devient
+40 × 24 caractères du générateur Signetics 2513, et un programme qui les
+affiche sur un vrai Apple-1.
+
+- **Deux façons de choisir un caractère.** *Formes* : chaque cellule de 7 × 8
+  points est comparée aux 64 glyphes **tels que la ROM `charmap.rom` les
+  dessine**, après un léger flou ; les contours deviennent `/ \ | - _`. Le test
+  le prouve à l'extrême : une image des 64 glyphes redonne les 64 glyphes.
+  *Densité* : rampe calculée depuis la même ROM, pour les photos. Tramage
+  Floyd–Steinberg, luminosité, contraste, gamma, inversion.
+- **Cadrage** : zoom de 0,25× (l'image recule, marges noires) à 16×, centre
+  déplaçable — glisser dans l'aperçu, molette pour zoomer, ou les curseurs — et
+  cadre 4:3 (proportions gardées sur le moniteur) ou image étirée.
+- **Sorties** : « Show on the Apple-1 » écrit un programme 6502 à `$0280` et le
+  lance (il imprime par l'`ECHO` du Woz Monitor puis attend une touche : rendre
+  la main tout de suite imprimerait un CR et ferait défiler la ligne du haut) ;
+  ce programme en dump Woz Monitor (`File ▸ Load Memory`, ou tapé sur un vrai
+  Apple-1, puis `280R`) ; un listing Integer BASIC, tapé ou sauvé ; le texte au
+  presse-papiers. La dernière ligne garde sa 40ᵉ colonne vide pour ne pas faire
+  défiler l'écran.
+- Vérifié dans POM1 headless : les 960 caractères affichés sont identiques à
+  l'image, puis l'image reste jusqu'à une touche.
+
+Toute la logique est le module pur `src/AsciiArt.{h,cpp}` (`ascii_art_smoke`) ;
+la fenêtre `AsciiArtWindow_ImGui` ne fait que dessiner et câbler. Inspiré de
+l'outil Photo → ASCII de RDK Apple-1 (grille, dernière ligne à 39 colonnes,
+sorties BASIC et 6502) ; la comparaison de formes contre la vraie ROM est
+propre à POM1.
+
+Cliquets relevés : `mainwindow_lines` 17 401 → 17 428 (l'entrée du registre
+des fenêtres, le menu, le routage des images déposées et les rappels vers la
+machine : `writeMemoryBatch`/`jumpTo` existants, aucune méthode publique
+ajoutée) et `sources_outside_test_devices` 89 → 91 (le module et sa fenêtre).
+
+### Fixed — les vrais enregistrements de cassette se chargent
+
+Le décodeur d'impulsions comparait les échantillons à un seuil fixe de ±0,02,
+et les canaux stéréo étaient moyennés. Quatre défauts banals d'une
+numérisation réelle faisaient attendre la ROM ACI indéfiniment, sans aucun
+message : un niveau de −36 dBFS, un décalage continu de +0,3, un ronflement
+secteur à 50 Hz, et une paire stéréo en opposition de phase (la moyenne
+s'annule). Le bruit à ~20 dB faisait de même.
+
+- **`src/TapePulseDecoder.{h,cpp}`** (pur) : passe-haut 100 Hz, passe-bas
+  6 kHz, hystérésis relative au niveau du signal avec squelch, front placé au
+  passage par zéro interpolé, parasites de moins de 80 µs supprimés par paires.
+  Constantes reprises de RDK Apple-1 (`tape.rs` @ `0ef0d79`, grade D), réglées
+  et non mesurées sur une vraie ACI (grade F).
+- **Repli des canaux** (`PcmFile.cpp`, et miniaudio désormais décodé à son
+  nombre de canaux natif) : le canal le plus énergique, rejoint en phase par
+  les canaux qui portent le même signal. Deux canaux identiques donnent
+  exactement la moyenne d'avant.
+- **WAV** : PCM 24 et 32 bits, float64 et `WAVE_FORMAT_EXTENSIBLE` acceptés ;
+  un WAV refusé pour son encodage (ADPCM…) passe par miniaudio avant d'échouer.
+
+Tests : `tape_pulse_decoder_smoke` (signal synthétique dégradé, à quelques
+cycles près), `aci_tape_robustness` (enregistrements **c2t** d'Egan Ford —
+`tests/fixtures/tape/` — et dix variantes dégradées, chargés par la vraie
+ROM : compilé contre l'ancien décodeur, il échoue sur cinq des douze),
+`pcm_file_smoke` §14-§15, et un épinglage du **timing d'écriture** de l'ACI
+dans `aci_tape_saving` (en-tête 592, bit de départ 180/238, « 0 » 238,
+« 1 » 473).
+
+Ce dernier a révélé un défaut, désormais **corrigé** : l'en-tête que POM1
+écrivait perdait une demi-période sur 256 (1184 cycles au lieu de 2 × 592).
+La boucle d'en-tête de la ROM bascule la sortie en lisant `$C000,X` pour tous
+les X, donc aussi `$C081`, que POM1 ne faisait pas basculer. Tout accès `$C0xx`
+bascule maintenant la sortie, `$C081` compris
+(`CassetteDevice::toggleOutputOnInputRead`) ; un basculement sur `$C081` n'est
+**enregistré** que pendant une écriture (front précédent à moins de 2 048
+cycles et ne venant pas lui-même de `$C081`). Sans cette garde, l'interrogation
+continue de `$C081` par READ s'enchaînait dans la capture (~75 000 fronts).
+On a appris au passage que READ commence par une courte temporisation
+d'en-tête (`LDA #$16 / JSR $C1CC`) : la ROM émet réellement un ton sur la
+sortie pendant une lecture, et la platine l'enregistre (~5 600 fronts,
+constants, épinglés).
+
+### Fixed — le 6502 émule ses cycles de bus fantômes ; la carte TMS9918 décode 1 Ko
+
+**Cycles fantômes.** Le 6502 NMOS n'a pas de cycle oisif : une écriture
+indexée (`abs,X`, `abs,Y`, `(zp),Y`) **lit** l'adresse non corrigée un cycle
+avant d'écrire, une lecture indexée fait de même quand elle franchit une page,
+et une instruction lecture-modification-écriture **réécrit l'ancienne valeur**
+avant la nouvelle. POM1 comptait ces cycles sans les mettre sur le bus ; il
+les y met désormais (`M6502.cpp`, « Dummy bus cycles »), au bon cycle pour le
+balayage. Le modèle a été vérifié hors ligne contre les traces de bus Harte :
+0 écart sur 50 000 cas (91, 99, 9D, BD, FE). Les watchpoints et `--ram-trap`
+les ignorent (`M6502::inDummyAccess()`, consulté seulement quand ces outils sont
+armés : rien sur le chemin chaud ; la façade `Memory` ne gagne aucune méthode).
+Épinglé par la seconde phase de `cpu_harte_smoke`.
+
+**Un vrai défaut de code livré, révélé par ce modèle.** Le runtime cc65
+`dev/lib/tms9918c` déclarait `VDP_DATA`/`VDP_REG` comme pointeurs `extern` :
+cc65 écrivait donc les deux ports par `sta (ptr1),y`. Sur silicium, chaque
+écriture de données sautait un octet de VRAM et chaque second octet d'adresse
+était précédé d'une lecture de statut qui réinitialise la bascule. Ce sont
+maintenant des constantes (`sta $CC00`, comme la bibliothèque KickC d'origine).
+`micro-test t09` et la démo Animals (cartouche DEMOS, moitié haute) échouaient ;
+la cartouche est reconstruite, seule sa moitié haute change, et le gate de
+gravure repasse à 14/14.
+
+**Décodage de la carte.** Le manuel P-LAB de Claudio Parmigiani (*Apple-1
+Graphic Card* rév. 0.4, §4, grade B) dit que la carte occupe tout
+`$CC00-$CFFF` pour deux registres : A0 choisit le port. POM1 ne décodait que
+`$CC00`/`$CC01` ; il décode maintenant le Ko entier.
+
+**Trame du VDP.** Le TMS9918A trace 262 lignes non entrelacées de 342 points
+avec son propre quartz à 10,738635 MHz (data manual TI + manuel P-LAB §5,
+grade B) : 59,92 Hz, soit 342 × 262 × 4/21 = **17 067** cycles CPU.
+`TMS9918::kCyclesPerFrame` valait 17 062, la trame NTSC de *diffusion*
+(59,94 Hz, 262,5 lignes) que la puce ne produit pas ; le « Bug N°11 » du guide
+la donnait pour « SOLID ». 17 062 reste l'unité de cadence x1 de l'émulateur.
+
+### Fixed — guide TMS9918 : jamais d'écriture indexée sur le VDP
+
+`sketchs/doc/Programming_TMS9918.md` recommandait `STA $CC00,X` (X = 0) comme
+temporisation « gratuite » d'un cycle. Sur le 6502 NMOS, toute écriture
+indexée lit d'abord l'adresse effective (MCS6500 Hardware Manual, annexe A,
+grade B) : une lecture du port de données du TMS9918 fait avancer le pointeur
+VRAM (data manual TI, grade B), donc chaque écriture sauterait un octet ; sur
+`$CC01`, la lecture du statut réinitialise la bascule d'écriture en deux
+octets. Le guide (§17, tableau des motifs, protocole §22) et
+`Tms9918Diagnostics.h` sont corrigés. Le manuel P-LAB (§5) dérive la sélection
+de lecture du VDP de la ligne R/W et du décodage d'adresse (montage de Steve
+Ciarcia, BYTE, août 1982) : une lecture fantôme le sélectionne donc comme une
+autre. Aucune capture sur silicium encore (grade F pour la confirmation).
+
+### Added — profils d'export cassette : ordinateur et smartphone
+
+La cassette enregistrée s'exporte maintenant aussi en **AIFF**, et chaque
+fichier audio suit un **profil** (`src/TapeExport.{h,cpp}`, pur) :
+
+- **Ordinateur** — 44,1 kHz mono, comme avant ; le `.wav` produit est
+  identique octet pour octet à l'ancien `saveWavTape()`.
+- **Smartphone** — 48 kHz (fréquence native de la sortie Android, pas de
+  rééchantillonnage), deux canaux strictement identiques (le câble relie L et
+  R), crête à 70 %, une seconde de silence à chaque bout.
+
+Par défaut, `.aiff` prend le profil smartphone et `.wav` le profil ordinateur ;
+`--save-tape-profile <auto|computer|phone>`, `--save-tape-format aiff` et un
+choix « Audio profile » dans la fenêtre Save Tape permettent de forcer l'un ou
+l'autre. Avant, enregistrer sous `x.aiff` écrivait silencieusement un dump
+`.aci` binaire. Les valeurs du profil smartphone viennent de RDK Apple-1
+(Old-Wirehead, `aciwav.rs` @ `0ef0d79`, grade D) et ne sont pas encore
+vérifiées sur un vrai Apple-1 (grade F). Épinglé par `tape_export_smoke`
+(nouveau) et `aci_tape_saving`, qui recharge les deux fichiers smartphone par
+la routine READ de l'ACI.
+
+Cliquets relevés : `controller_lines` 3 422 → 3 423 (l'include de
+`TapeExport.h` ; `saveTape` gagne un argument par défaut, pas une méthode —
+`controller_public_methods` ne bouge pas) et `mainwindow_lines` 17 393 →
+17 401 (le choix de profil de la fenêtre Save Tape, le filtre AIFF du
+sélecteur natif, le profil retenu de `--save-tape-profile`). Les libellés du
+choix vivent dans le seam, pas dans l'UI.
+
 ### Changed — un terminal de démarrage plus court, chaque ROM une seule fois
 
 Au lancement, le terminal affiche la bannière, une ligne `GPL3 - VERHILLE

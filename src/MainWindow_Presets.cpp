@@ -1418,6 +1418,7 @@ MainWindow_ImGui::windowRegistry()
         { "LoadTapeDialog",       "Load Tape",                                 &MW::showLoadTapeDialog,     K::Dialog,      false , &MW::renderLoadTapeDialog },
         { "SaveDialog",           "Save Memory",                               &MW::showSaveDialog,         K::Dialog,      false , &MW::renderSaveDialog, CardId::Invalid, false, DockSlot::Float, /*resetOnPresetSwitch*/ false },
         { "SaveTapeDialog",       "Save Tape",                                 &MW::showSaveTapeDialog,     K::Dialog,      false , &MW::renderSaveTapeDialog, CardId::Invalid, false, DockSlot::Float, /*resetOnPresetSwitch*/ false },
+        { "ImageToApple1",        "Image to Apple-1 Text",                     &MW::showImageToApple1,      K::Dialog,      false , &MW::renderImageToApple1Window, CardId::Invalid, false, DockSlot::Float, /*resetOnPresetSwitch*/ false },
         { "LoadSnapshotDialog",   "Load Snapshot",                             &MW::showLoadSnapshotDialog, K::Dialog,      false , &MW::renderLoadSnapshotDialog, CardId::Invalid, false, DockSlot::Float, /*resetOnPresetSwitch*/ false },
         { "SaveSnapshotDialog",   "Save Snapshot",                             &MW::showSaveSnapshotDialog, K::Dialog,      false , &MW::renderSaveSnapshotDialog, CardId::Invalid, false, DockSlot::Float, /*resetOnPresetSwitch*/ false },
         // Boot/relaunch profile selector — a full-viewport overlay, not a saved

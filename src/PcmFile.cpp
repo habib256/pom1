@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstring>
 #include <sstream>
+#include <utility>
 
 namespace pom1 {
 namespace {
@@ -66,6 +67,15 @@ float sanitize(float v, std::size_t& badSamples)
     return 0.0f;
 }
 
+/// Same as sanitize(), counting only when asked: the channel mixer reads every
+/// sample twice (statistics, then mix) and must count each bad one once.
+float scrub(float v, std::size_t* badSamples)
+{
+    if (std::isfinite(v)) return v;
+    if (badSamples) ++*badSamples;
+    return 0.0f;
+}
+
 void noteBadSamples(std::size_t badSamples, std::string& warning)
 {
     if (badSamples == 0) return;
@@ -97,7 +107,121 @@ std::size_t capFrames(std::size_t frameCount, std::uint64_t maxFrames, std::stri
     return static_cast<std::size_t>(maxFrames);
 }
 
+/// Fold a multi-channel cassette rip down to the one signal the pulse decoder
+/// reads. A cassette carries ONE signal, but a rip of it is not always two
+/// clean copies of it:
+///
+///   * two identical channels (a mono deck into a stereo card) — the average,
+///     which is what POM1 always did, and what this still returns exactly;
+///   * one channel PHASE-INVERTED against the other (a balanced cable, a
+///     swapped pin) — the plain average cancels to silence and the ACI ROM
+///     hangs with nothing on screen; aligned on sign, the two add up;
+///   * the signal in ONE channel and hiss or nothing in the other — averaging
+///     halves the level and mixes the hiss in; the signal channel alone is
+///     cleaner.
+///
+/// So: the channel with the most AC energy (variance — a DC offset carries no
+/// signal) is the reference, and every other channel joins it, sign-aligned,
+/// only when it is the same signal (|correlation| >= 0.9). Silence on every
+/// channel falls back to the plain average.
+/// [D] RDK Apple-1 wav.rs Audio::best_channel @ 0ef0d79 picks the most
+///     energetic channel alone; the sign-aligned join is POM1's, so that an
+///     identical pair still decodes byte-for-byte as before.
+/// [F] The 0.9 threshold is a judgement, not a measurement.
+///
+/// Two passes over `sampleAt(frame, channel, bad)`: statistics (bad = null,
+/// nothing counted), then the mix (bad = the counter) — so a parser never holds
+/// more than the mono result, and a non-finite sample is counted once, in the
+/// pass that actually uses it. Channels past the eighth are
+/// ignored for the decision (and get weight 0) rather than growing the matrix.
+template <class SampleAt>
+void mixChannels(std::size_t frameCount, std::uint16_t channels, SampleAt sampleAt,
+                 std::vector<float>& mono, std::size_t& badSamples)
+{
+    mono.reserve(frameCount);
+    if (channels == 1) {
+        for (std::size_t f = 0; f < frameCount; ++f) mono.push_back(sampleAt(f, 0, &badSamples));
+        return;
+    }
+
+    constexpr int kMaxStatChannels = 8;
+    const int n = channels < kMaxStatChannels ? channels : kMaxStatChannels;
+    double sum[kMaxStatChannels] = {};
+    double cross[kMaxStatChannels][kMaxStatChannels] = {};
+    for (std::size_t f = 0; f < frameCount; ++f) {
+        double x[kMaxStatChannels];
+        for (int c = 0; c < n; ++c) x[c] = sampleAt(f, static_cast<std::uint16_t>(c), nullptr);
+        for (int i = 0; i < n; ++i) {
+            sum[i] += x[i];
+            for (int j = i; j < n; ++j) cross[i][j] += x[i] * x[j];
+        }
+    }
+    const double frames = static_cast<double>(frameCount);
+    auto cov = [&](int i, int j) {
+        if (i > j) std::swap(i, j);
+        return cross[i][j] / frames - (sum[i] / frames) * (sum[j] / frames);
+    };
+
+    int best = 0;
+    for (int c = 1; c < n; ++c)
+        if (cov(c, c) > cov(best, best)) best = c;
+
+    float weight[kMaxStatChannels] = {};
+    float totalWeight = 0.0f;
+    const double bestVar = cov(best, best);
+    if (!(bestVar > 1e-12) || !std::isfinite(bestVar)) {
+        // Nothing but silence or DC anywhere: the historical plain average.
+        for (int c = 0; c < n; ++c) weight[c] = 1.0f;
+        totalWeight = static_cast<float>(channels);
+    } else {
+        for (int c = 0; c < n; ++c) {
+            const double var = cov(c, c);
+            if (c == best) { weight[c] = 1.0f; totalWeight += 1.0f; continue; }
+            if (!(var > 1e-12)) continue;
+            const double r = cov(best, c) / std::sqrt(bestVar * var);
+            if (r >= 0.9)       { weight[c] = 1.0f;  totalWeight += 1.0f; }
+            else if (r <= -0.9) { weight[c] = -1.0f; totalWeight += 1.0f; }
+        }
+    }
+
+    for (std::size_t f = 0; f < frameCount; ++f) {
+        float mixed = 0.0f;
+        for (int c = 0; c < n; ++c)
+            if (weight[c] != 0.0f)
+                mixed += weight[c] * sampleAt(f, static_cast<std::uint16_t>(c), &badSamples);
+        // Sanitize the MIX, not only each channel. Two finite channels can
+        // sum to a non-finite value — 3.4e38 + 3.4e38 overflows float — so a
+        // per-channel scrub leaves a NaN/Inf in the output it just promised to
+        // have removed. Found by the nightly fuzz job (pcm/crash-e086c0e6…, an
+        // AIFF-C fl32 file): 5 samples scrubbed, and one still non-finite.
+        mono.push_back(sanitize(mixed / totalWeight, badSamples));
+    }
+}
+
+/// Little-endian signed integer of 1..4 bytes, scaled to [-1, 1).
+float readLeSigned(const std::uint8_t* p, std::size_t bytes)
+{
+    std::uint32_t raw = 0;
+    for (std::size_t i = 0; i < bytes; ++i) raw |= static_cast<std::uint32_t>(p[i]) << (8 * i);
+    const int shift = static_cast<int>(32 - 8 * bytes);
+    const std::int32_t value = static_cast<std::int32_t>(raw << shift);   // sign in bit 31
+    return static_cast<float>(static_cast<double>(value) / 2147483648.0);
+}
+
 } // namespace
+
+std::vector<float> mixTapeChannels(const float* interleaved, std::size_t frames,
+                                   std::uint16_t channels)
+{
+    std::vector<float> mono;
+    if (interleaved == nullptr || channels == 0) return mono;
+    std::size_t bad = 0;
+    auto sampleAt = [&](std::size_t frame, std::uint16_t ch, std::size_t* counter) -> float {
+        return scrub(interleaved[frame * channels + ch], counter);
+    };
+    mixChannels(frames, channels, sampleAt, mono, bad);
+    return mono;
+}
 
 PcmAudio parseWavPcm(const std::uint8_t* bytes, std::size_t size,
                      std::uint64_t maxFrames)
@@ -131,6 +255,14 @@ PcmAudio parseWavPcm(const std::uint8_t* bytes, std::size_t size,
             channels      = readLe16(bytes + offset + 2);
             sampleRate    = readLe32(bytes + offset + 4);
             bitsPerSample = readLe16(bytes + offset + 14);
+            // WAVE_FORMAT_EXTENSIBLE: the real format is the first two bytes
+            // of the SubFormat GUID (KSDATAFORMAT_SUBTYPE_PCM = 1,
+            // _IEEE_FLOAT = 3). What any 24-bit or multichannel export
+            // writes — refused outright until now.
+            // [B] Microsoft, "WAVEFORMATEXTENSIBLE structure" (mmreg.h).
+            if (audioFormat == 0xFFFE) {
+                audioFormat = (chunkSize >= 40) ? readLe16(bytes + offset + 24) : 0;
+            }
         } else if (std::memcmp(chunk, "data", 4) == 0) {
             dataChunk = bytes + offset;
             dataSize  = chunkSize;
@@ -150,14 +282,15 @@ PcmAudio parseWavPcm(const std::uint8_t* bytes, std::size_t size,
     // in-place version discovered an unsupported width from inside the decode
     // loop, after it had already mixed and stored every earlier frame.
     const std::size_t bytesPerSample = bitsPerSample / 8u;
-    if (bytesPerSample == 0 ||
+    if (bytesPerSample == 0 || (bitsPerSample % 8u) != 0 ||
         dataSize < static_cast<std::uint64_t>(bytesPerSample) * channels)
         return fail("Unsupported WAV sample format");
     const bool pcm8   = audioFormat == 1 && bitsPerSample == 8;
-    const bool pcm16  = audioFormat == 1 && bitsPerSample == 16;
+    const bool pcmInt = audioFormat == 1 && bitsPerSample >= 16 && bitsPerSample <= 32;
     const bool flt32  = audioFormat == 3 && bitsPerSample == 32;
-    if (!pcm8 && !pcm16 && !flt32)
-        return fail("Only WAV PCM 8/16-bit and float32 are supported");
+    const bool flt64  = audioFormat == 3 && bitsPerSample == 64;
+    if (!pcm8 && !pcmInt && !flt32 && !flt64)
+        return fail("Only WAV PCM 8/16/24/32-bit and float 32/64-bit are supported");
 
     PcmAudio out;
     const std::size_t stride = bytesPerSample * channels;
@@ -165,30 +298,27 @@ PcmAudio parseWavPcm(const std::uint8_t* bytes, std::size_t size,
     if (frameCount == 0) return fail("WAV file contains no audio frames");
 
     std::size_t badSamples = 0;
-    out.mono.reserve(frameCount);
-    for (std::size_t frame = 0; frame < frameCount; ++frame) {
-        float mixed = 0.0f;
-        for (std::uint16_t ch = 0; ch < channels; ++ch) {
-            const std::uint8_t* p = dataChunk + frame * stride + ch * bytesPerSample;
-            if (pcm8) {
-                // WAV's 8-bit samples are UNSIGNED — the one width where it
-                // differs from AIFF, which is signed at every width.
-                mixed += (static_cast<int>(p[0]) - 128) / 128.0f;
-            } else if (pcm16) {
-                mixed += static_cast<float>(static_cast<std::int16_t>(readLe16(p))) / 32768.0f;
-            } else {
-                float f = 0.0f;
-                std::memcpy(&f, p, sizeof(float));
-                mixed += sanitize(f, badSamples);
-            }
+    auto sampleAt = [&](std::size_t frame, std::uint16_t ch, std::size_t* bad) -> float {
+        const std::uint8_t* p = dataChunk + frame * stride + ch * bytesPerSample;
+        if (pcm8) {
+            // WAV's 8-bit samples are UNSIGNED — the one width where it
+            // differs from AIFF, which is signed at every width.
+            return (static_cast<int>(p[0]) - 128) / 128.0f;
         }
-        // Sanitize the MIX, not only each channel. Two finite channels can
-        // sum to a non-finite value — 3.4e38 + 3.4e38 overflows float — so a
-        // per-channel scrub leaves a NaN/Inf in the output it just promised to
-        // have removed. Found by the nightly fuzz job (pcm/crash-e086c0e6…, an
-        // AIFF-C fl32 file): 5 samples scrubbed, and one still non-finite.
-        out.mono.push_back(sanitize(mixed / static_cast<float>(channels), badSamples));
-    }
+        if (pcmInt) return readLeSigned(p, bytesPerSample);
+        if (flt32) {
+            float f = 0.0f;
+            std::memcpy(&f, p, sizeof(float));
+            return scrub(f, bad);
+        }
+        double d = 0.0;
+        std::memcpy(&d, p, sizeof(double));
+        // Range-check in double: a finite double far past float's range would
+        // narrow to infinity (and that conversion is undefined behaviour).
+        if (!std::isfinite(d) || d > 1.0e30 || d < -1.0e30) return scrub(NAN, bad);
+        return static_cast<float>(d);
+    };
+    mixChannels(frameCount, channels, sampleAt, out.mono, badSamples);
     noteBadSamples(badSamples, out.warning);
 
     out.ok = true;
@@ -274,45 +404,26 @@ PcmAudio parseAiffPcm(const std::uint8_t* bytes, std::size_t size,
     if (frameCount == 0) return fail("AIFF file contains no audio frames");
 
     std::size_t badSamples = 0;
-    out.mono.reserve(frameCount);
-    for (std::size_t frame = 0; frame < frameCount; ++frame) {
-        float mixed = 0.0f;
-        for (std::uint16_t ch = 0; ch < channels; ++ch) {
-            const std::uint8_t* p = soundData + frame * stride + ch * bytesPerSample;
+    auto sampleAt = [&](std::size_t frame, std::uint16_t ch, std::size_t* bad) -> float {
+        const std::uint8_t* p = soundData + frame * stride + ch * bytesPerSample;
+        if (floatSamples) {
+            std::uint8_t le[4] = {p[3], p[2], p[1], p[0]};   // fl32 is big-endian
+            if (littleEndianSamples) std::memcpy(le, p, 4);
             float value = 0.0f;
-            if (floatSamples) {
-                std::uint8_t le[4] = {p[3], p[2], p[1], p[0]};   // fl32 is big-endian
-                if (littleEndianSamples) std::memcpy(le, p, 4);
-                std::memcpy(&value, le, sizeof(float));
-                value = sanitize(value, badSamples);
-            } else if (bitsPerSample == 8) {
-                // AIFF PCM is SIGNED at every width, including 8-bit — the one
-                // place it differs from WAV, whose 8-bit samples are unsigned.
-                value = static_cast<float>(static_cast<std::int8_t>(p[0])) / 128.0f;
-            } else if (bitsPerSample == 16) {
-                const std::int16_t s = static_cast<std::int16_t>(
-                    littleEndianSamples ? readLe16(p) : readBe16(p));
-                value = static_cast<float>(s) / 32768.0f;
-            } else if (bitsPerSample == 24) {
-                const std::int32_t raw = littleEndianSamples
-                    ? ((static_cast<std::int32_t>(p[2]) << 16) | (p[1] << 8) | p[0])
-                    : ((static_cast<std::int32_t>(p[0]) << 16) | (p[1] << 8) | p[2]);
-                const std::int32_t s = (raw & 0x800000) ? (raw - 0x1000000) : raw;
-                value = static_cast<float>(s) / 8388608.0f;
-            } else {
-                const std::int32_t s = static_cast<std::int32_t>(
-                    littleEndianSamples ? readLe32(p) : readBe32(p));
-                value = static_cast<float>(s) / 2147483648.0f;
-            }
-            mixed += value;
+            std::memcpy(&value, le, sizeof(float));
+            return scrub(value, bad);
         }
-        // Sanitize the MIX, not only each channel. Two finite channels can
-        // sum to a non-finite value — 3.4e38 + 3.4e38 overflows float — so a
-        // per-channel scrub leaves a NaN/Inf in the output it just promised to
-        // have removed. Found by the nightly fuzz job (pcm/crash-e086c0e6…, an
-        // AIFF-C fl32 file): 5 samples scrubbed, and one still non-finite.
-        out.mono.push_back(sanitize(mixed / static_cast<float>(channels), badSamples));
-    }
+        if (bitsPerSample == 8) {
+            // AIFF PCM is SIGNED at every width, including 8-bit — the one
+            // place it differs from WAV, whose 8-bit samples are unsigned.
+            return static_cast<float>(static_cast<std::int8_t>(p[0])) / 128.0f;
+        }
+        if (littleEndianSamples) return readLeSigned(p, bytesPerSample);
+        std::uint8_t le[4] = {0, 0, 0, 0};                    // big-endian → LE
+        for (std::size_t i = 0; i < bytesPerSample; ++i) le[i] = p[bytesPerSample - 1 - i];
+        return readLeSigned(le, bytesPerSample);
+    };
+    mixChannels(frameCount, channels, sampleAt, out.mono, badSamples);
     noteBadSamples(badSamples, out.warning);
 
     out.ok = true;

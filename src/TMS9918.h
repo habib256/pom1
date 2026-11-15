@@ -320,7 +320,23 @@ public:
     static constexpr int kHBlankLenText = 404;     // VDP ticks
     static constexpr int kHBlankLenGfx  = 312;     // VDP ticks
 
-    static constexpr int kCyclesPerFrame = POM1_CPU_CYCLES_PER_FRAME_1X_60HZ;
+    // One VDP frame in CPU cycles — the TMS9918A's OWN frame, not the host's
+    // 59.94 Hz NTSC broadcast field (262.5 lines) POM1_CPU_CYCLES_PER_FRAME_1X_60HZ
+    // paces the emulator by. The VDP draws 262 non-interlaced lines of 342
+    // pixel clocks at 10.738635 MHz / 2 = 59.922 Hz. The 6502 runs at
+    // 14.31818 MHz / 14 and the VDP pixel clock is 14.31818 MHz x 3/8, so one
+    // pixel clock is 4/21 CPU cycle: 342 x 262 x 4 / 21 = 17 067.43 cycles —
+    // the same figure as 1368 ticks per line at 21 ticks per CPU cycle, which
+    // the slot-table model already used. Rounded to 17 067: 0.43 cycle a frame
+    // (0.0025 %) against the 0.03 % of the 17 062 it replaces.
+    // [B] TMS9918A data manual (TI) — 342 clocks x 262 lines, 10.738635 MHz.
+    // [B] P-LAB Apple-1 Graphic Card doc rev 0.4 §5 — the card's VDP runs on its
+    //     own 10.738635 MHz crystal (+/-0.005 %), asynchronous to the Apple-1.
+    // [F] The two crystals are independent, so the real phase between CPU and
+    //     beam drifts by their tolerance; this fixes the NOMINAL ratio only.
+    static constexpr int kVdpClocksPerLine = 342;
+    static constexpr int kCyclesPerFrame = (kVdpClocksPerLine * 262 * 4) / 21;
+    static_assert(kCyclesPerFrame == 17067, "342 x 262 VDP clocks at 4/21 CPU cycle each");
     // Total NTSC scanlines, VBlank included. Named because it appeared as a
     // bare 262 in three places — beamGeometry() and two hand-rolled copies of
     // the cycle→line division that pom1::rawLineAt now owns.

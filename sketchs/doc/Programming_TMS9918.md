@@ -39,10 +39,14 @@ appears in the appendix table.
 
 - **Resolution**: 256×192 pixels (Graphics I: 32×24 characters of 8×8 px).
 - **VRAM**: 16 KB **separate** from main RAM (communication via I/O only).
-- **I/O**: `$CC00` (data) and `$CC01` (control).
-- **Frame rate**: NTSC = **59.94 Hz** exactly (60 × 1000/1001), not round
-  60 Hz. PAL = 50 Hz exact. See §17 below for the timing implication on SAT
-  multiplexing.
+- **I/O**: `$CC00` (data) and `$CC01` (control) — the canonical pair. The
+  card decodes the **whole 1 KB `$CC00-$CFFF`**, A0 choosing the port: every
+  even address is the data port, every odd one the control port
+  ([B] P-LAB *Apple-1 Graphic Card* doc rev 0.4 §4, "the entire 1kB range is
+  fully committed for only two addresses"). POM1 decodes it the same way.
+- **Frame rate**: the VDP's own, **59.92 Hz** — 262 non-interlaced lines of
+  342 clocks from its own 10.738635 MHz crystal, **17 067 CPU cycles** (§21).
+  Not the 59.94 Hz of broadcast NTSC.
 
 #### Usable memory map (preset #9)
 
@@ -585,7 +589,8 @@ At 1.022 MHz: 1 cycle ≈ 0.978 µs.
 | `STA $CC00` ; `JSR tms9918_pad18` ; `STA $CC00` | 16c | **OK** (3 bytes, ratio winner) |
 | `STA $CC00` ; `NOP×6` ; `STA $CC00` | 16c | **OK** (6 NOPs = 6 bytes) |
 | Tetris loop (`LDA / STA $CC00 / DEX / BNE`) | 11c | **OK** (silicon-validated) |
-| Loop `LDA tab,X / STA $CC00,X / DEX / BNE` | 14c | **OK** comfortable |
+| Loop `LDA tab,X / STA $CC00 / DEX / BNE` | 13c | **OK** comfortable (14c when `tab,X` crosses a page) |
+| `STA $CC00,X` / `STA $CC00,Y` (any indexed store to the VDP) | — | **NEVER** — dummy read, see [below](#indexed-store-dummy-read) |
 
 `JSR tms9918_pad18` (12c pad → 16c STA→STA gap, 3 bytes at the call site)
 is the dense winner: 4c/byte ratio, twice as dense as NOP×6 (2c/byte).
@@ -638,10 +643,60 @@ STA VDP_CTRL
 .endmacro
 ```
 
-**Option B — Indexed addressing (free 1-cycle bonus)**
+**Option B — Interleave useful work**
 
-Replace `STA $CC00` with `STA $CC00,X` (X = 0). Cost: +1 cycle (4c →
-5c) without a NOP. Two indexed STAs back-to-back = 10 cycles → OK.
+Put the work the program has to do anyway (fetch the next byte, advance a
+pointer, test the loop counter) between the two writes instead of padding.
+`LDA tab,X / STA $CC00 / DEX / BNE` already spends 13c per byte and needs no
+pad at all.
+
+<a name="indexed-store-dummy-read"></a>
+**Not an option — an indexed store to the VDP (`STA $CC00,X`, `STA $CC01,Y`)**
+
+An earlier revision of this guide recommended `STA $CC00,X` (X = 0) as a
+"free" one-cycle pad. **It corrupts VRAM on silicon.** On the NMOS 6502 every
+indexed store (`abs,X`, `abs,Y`, `(zp),Y`) spends its extra cycle READING the
+effective address — computed without the carry into the high byte — before it
+writes; the cycle is not optional and does not depend on a page crossing.
+With X = 0 that read lands on `$CC00` itself:
+
+- a read of the **data port** returns the read-ahead buffer and **advances the
+  VRAM address** — the write that follows lands one byte further on, so every
+  indexed write skips a VRAM byte;
+- a read of the **control port** (`STA $CC01,X`) reads the status register,
+  **clears F/5S/C and resets the two-byte write flip-flop** (§19) — the
+  register or address write it was part of is torn in half.
+
+Read-modify-write instructions (`INC`, `ASL`… on `$CC00`) are worse still: the
+NMOS part writes the unmodified value back before the modified one, so the VDP
+sees two writes. And with X ≠ 0, `STA $CC00,X` still reaches the VDP — the
+card decodes the whole `$CC00-$CFFF` by A0 (§1) — but an **odd** X turns it
+into a **control-port** write.
+
+[B] MCS6500 Microcomputer Family Hardware Manual (MOS), Appendix A — per-cycle
+bus activity: abs,X / abs,Y / (zp),Y stores read the un-fixed effective
+address on the cycle before the write; RMW instructions write twice.
+[B] TMS9918A data manual (TI) — CPU interface: a data-port read pre-fetches the
+next byte and increments the VRAM address; a status read resets the
+control-port flip-flop.
+[B] P-LAB *Apple-1 Graphic Card* doc rev 0.4 §5 — the VDP's read/write
+selection follows Steve Ciarcia's circuit (BYTE, August 1982): it is derived
+from the 6502's R/W line and the address decode. A dummy read is an ordinary
+read cycle on that bus, so it selects the VDP like any other read.
+[F] No silicon capture of the pattern yet. Settled by: a real card running
+`STA $CC00,X` (X = 0) and reading the VRAM back.
+
+**POM1 reproduces it since November 2026.** Its 6502 now drives the NMOS
+dummy cycles onto the bus (`M6502.cpp`, "Dummy bus cycles"; checked against
+the Harte bus traces), so an indexed store to the VDP corrupts VRAM in POM1
+exactly as it would on the card — and Silicon Strict counts the dummy read as
+the VDP access it is. Before that, POM1 masked it, and the cc65 runtime
+`dev/lib/tms9918c` shipped with it: its `VDP_DATA`/`VDP_REG` were `extern`
+pointer objects, so cc65 wrote both ports through `sta (ptr1),y`. Every data
+write skipped a VRAM byte and every control write's second byte was preceded
+by a status read that reset the flip-flop. They are compile-time constants now
+(`sta $CC00`, as the upstream KickC library always produced), and the DEMOS
+cartridge's `demo_sprite_animals` bank was rebuilt with the fix.
 
 **Option C — Table-driven loop rewrite**
 
@@ -884,20 +939,33 @@ Some users have modified their Apple-1 replica / P-LAB replica-1 to bridge
 stock P-LAB**; the default already covers the canonical wiring. If you
 target stock P-LAB, simply poll — that's it.
 
-### 21. NTSC frame rate — 59.94 Hz, not 60 Hz
+### 21. The VDP's frame — 59.92 Hz, 17 067 CPU cycles
 
 <a name="bug-n11-ntsc"></a>
-**Silicon detail — true NTSC rate (Bug N°11)**
+**Silicon detail — the VDP's own frame rate (Bug N°11, corrected November 2026)**
 
-Analog NTSC = **59.94 Hz** exactly (60 × 1000/1001), not round 60 Hz.
-PAL = exact 50 Hz. The non-integer NTSC rate causes a progressive
-**phase drift** on SAT-multiplexing routines.
+The TMS9918A draws **262 non-interlaced lines of 342 pixel clocks**, and its
+pixel clock is its crystal halved: 10.738635 MHz / 2 = 5.369 MHz. One frame is
+therefore 342 × 262 / 5 369 318 s = **59.922 Hz**. The P-LAB card carries its
+own 10.738635 MHz crystal (±0.005 %), asynchronous to the Apple-1.
 
-`POM1_CPU_CYCLES_PER_FRAME_1X_60HZ` in `CpuClock.h` anchors POM1 at
-**17 062 cycles/frame ≈ 59.94 Hz** (May 2026, was 17 045 = round 60 Hz).
-Formula: `(1001 × 1022727 + 30000) / 60000`. The ~0.1% drift is
-eliminated, which matters for fine audio demos and timing-critical SAT
-multiplexing.
+In 6502 cycles: the CPU runs at 14.31818 MHz / 14 and the VDP pixel clock is
+14.31818 MHz × 3/8, so one pixel clock is 4/21 CPU cycle, and a frame is
+342 × 262 × 4 / 21 = **17 067.43 cycles**. `TMS9918::kCyclesPerFrame` = 17 067.
+It is the same figure the slot-table model always implied (1368 ticks per line
+at 21 ticks per cycle).
+
+[B] TMS9918A data manual (TI) — 342 clocks per line, 262 lines.
+[B] P-LAB *Apple-1 Graphic Card* doc rev 0.4 §5 — the 10.738635 MHz crystal.
+[F] Two independent crystals: the real phase drifts by their tolerance; POM1
+fixes the nominal ratio only.
+
+**Correction.** Until November 2026 this section claimed 59.94 Hz and POM1
+ran the VDP on 17 062 cycles (`1022727 / 59.94`). 59.94 Hz is the NTSC
+*broadcast* field — 262.5 lines, interlaced — which the TMS9918A does not
+produce. 17 062 remains POM1's x1 pacing unit (`CpuClock.h`); it is no longer
+the VDP's frame. The difference is 0.03 % (five cycles a frame): it only shows
+as a long-run phase drift in SAT-multiplexing routines that count frames.
 
 Pinned by `tests/tms9918_per_scanline_test.cpp` Phase E.
 
@@ -916,9 +984,15 @@ Six-step checklist to port a POM1 program to silicon without surprises:
    per the chosen mode. Re-check the register names in
    `dev/lib/tms9918/tms9918.inc`.
 3. **Audit all VRAM write loops** — every consecutive `STA VDP_DATA` pair
-   must have **≥ 8 cycles** between writes during active display. Prefer
-   `STA $CC00,X` or the `WRT_DATA_*` macros. VRAM init loops at program
-   start can ignore this rule if the display is blanked (R1 bit 6 = 0)
+   must have **≥ 8 cycles** between writes during active display. Use
+   the `WRT_DATA_*` macros or a loop that spends ≥ 11c per byte. **Never
+   an indexed store (`STA $CC00,X`, `STA $CC01,Y`, `STA (ptr),Y` aimed at
+   the card) and never `INC`/`ASL`/… on a VDP port** — the NMOS dummy
+   read/write corrupts VRAM on silicon — and in POM1, which models it
+   since November 2026 ([§17](#indexed-store-dummy-read)). In C, never hold
+   a port address in a pointer VARIABLE: cc65 then writes through
+   `sta (ptr),y`. VRAM init loops at program
+   start can ignore the cycle rule if the display is blanked (R1 bit 6 = 0)
    during loading.
 4. **Prefer polling over `/INT`** — polling bit 7 of the status register
    remains the recommended pattern (simple, independent of the I flag, no
@@ -1290,7 +1364,7 @@ constants: `HBLANK_LEN_TXT = 404`, `HBLANK_LEN_GFX = 312` ticks;
 | Full frame | 262 scanlines (NTSC) / 313 (PAL) | |
 | ↳ visible | 192 scanlines | Active display |
 | ↳ VBLANK | ~70 lines (NTSC) / ~121 (PAL) | ~4.3 ms NTSC |
-| Exact frame rate | 59.94 Hz (NTSC) / 50 Hz (PAL) | POM1 anchors at 17 062 cycles/frame (§21) |
+| Exact frame rate | 59.92 Hz (TMS9918A, 342 × 262 clocks) / 50 Hz (PAL) | POM1 runs the VDP at 17 067 cycles/frame (§21) |
 
 **Tick → cycle ratio**: 21 ticks/cycle. openMSX `TICKS_PER_SECOND =
 3 579 545 × 6 = 21 477 270`, 6502 = 1 022 727 → exact ratio
@@ -1324,7 +1398,7 @@ placed in POM1 as a pre-deployment validation tool.
 | **N°8** Sprite cloning | 🟢 SOLID | **Verbatim port of meisei `vdp.c:591-670`** (May 2026, hap — *"the only known correct implementation, tested side-by-side against real MSX1"*). Trigger condition = `M3 set ∧ (R4 & 3) ≠ 3` (R6 plays **no** role, contrary to POM1's earlier approximation). Algorithm by 4 blocks of 64 lines with `clonemask[6]` modulating `yc = (line & cm[0]) - ((y ^ cm[1]) | cm[2])`. Sprites 0..7 never cloned (preprocessed in HBlank). |
 | **N°9** Flipflop reset | 🟢 SOLID | `latchIsSecond = false` in readControl. Datasheet + Nouspikel confirm. T13 + ctest. |
 | **N°10** Raster split 5S | 🟢 SOLID | Mechanism via per-scanline scan (Bug N°5). Line-major granularity = openMSX. Exact sub-scanline timing is not modelled by openMSX either → POM1 reaches the limit of the canonical reference. For cycle-precise splits the model would have to be extended beyond the emulator state of the art. T15. |
-| **N°11** NTSC 59.94 Hz | 🟢 SOLID | Exact constant 17062c = floor(1.022727 MHz / 59.94). Math verified. T14. |
+| **N°11** VDP frame 59.92 Hz | 🟢 SOLID (corrected Nov 2026) | `kCyclesPerFrame` = 342 × 262 × 4/21 = 17 067 — the VDP's own 262 × 342-clock frame on its 10.738635 MHz crystal (TI data manual + P-LAB doc §5). The former 17 062 was the 59.94 Hz NTSC *broadcast* field, which the chip does not produce; the earlier "math verified" verified the wrong formula. Phase E. |
 | **Precise HBlank** | 🟢 SOLID | Covered by the slot-table ported from openMSX (Bug N°1) **and** public API `TMS9918::inHBlank()` (TMS9918.cpp, verbatim port of openMSX `VDP::getHR()` VDP.hh:948-961). TMS9918A NTSC constants: `HBLANK_LEN_TXT=404`, `HBLANK_LEN_GFX=312` ticks; `getLeftSprites` 282/258 ticks (text/gfx); `getRightBorder` = leftSprites + 960/1024. Lets callers test whether the beam is in HBlank. |
 | **N°8 thermal drift** | 🔴 NOT MODELLED | Hot NMOS silicon → clones disappear. **Emulator consensus**: neither openMSX nor meisei nor POM1 model it. Out of scope. |
 | **Tick→cycle drift** | 🟢 SOLID | 21 ticks/cycle. openMSX `TICKS_PER_SECOND = 3579545×6 = 21477270`, 6502 = 1022727 → **exact ratio 21.0000029** (drift = 3 ticks/sec). Imperceptible. (The earlier doc claim of 20.97 was an error — corrected May 2026.) |

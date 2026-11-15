@@ -525,7 +525,7 @@ std::vector<MainWindow_ImGui::MemRegion> MainWindow_ImGui::buildMemoryRegions()
     if (cardPlugged(pom1::CardId::SidSpecialEdition))
         regions.push_back({ 0xCC00, 0xCC1F, IM_COL32(200, 100, 255, 255), "A1-AUDIO Special Edition I/O" });
     if (cardPlugged(pom1::CardId::Tms9918))
-        regions.push_back({ 0xCC00, 0xCC01, IM_COL32(100, 200, 255, 255), "TMS9918 I/O" });
+        regions.push_back({ 0xCC00, 0xCFFF, IM_COL32(100, 200, 255, 255), "TMS9918 I/O" });
 
     regions.push_back({ 0xD000, 0xD0FF, IM_COL32(255, 80, 80, 255), "I/O (KBD/DSP)" });
 

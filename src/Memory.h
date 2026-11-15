@@ -941,7 +941,7 @@ private :
     PeripheralBus::Handle wifiModemBusHandle = -1;   // $B000-$B003
     PeripheralBus::Handle sidBusHandle = -1;         // $C800-$CFFF, priority 0
     PeripheralBus::Handle sidSEBusHandle = -1;       // A1-AUDIO SE: $CC00-$CC1F, priority 0 (shares sid instance)
-    PeripheralBus::Handle tms9918BusHandle = -1;     // $CC00/$CC01, priority 10 (wins over SID)
+    PeripheralBus::Handle tms9918BusHandle = -1;     // $CC00-$CFFF (A0 = data/ctrl), priority 10 (wins over SID)
     PeripheralBus::Handle cassetteToggleBusHandle = -1; // $C000-$C0FF read = toggle output
     PeripheralBus::Handle cassetteInputBusHandle  = -1; // $C081 read = tape input (priority 5, wins over toggle)
     // Juke-Box ROM windows. Two disjoint windows (one per RAM/ROM jumper);

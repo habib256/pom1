@@ -1,5 +1,6 @@
 #include "CassetteDevice.h"
 #include "PcmFile.h"
+#include "TapePulseDecoder.h"
 #include "FileBytes.h"
 #include "Logger.h"
 #include "POM1Build.h"
@@ -43,16 +44,6 @@ uint32_t readLe32(const uint8_t* data)
            (static_cast<uint32_t>(data[1]) << 8) |
            (static_cast<uint32_t>(data[2]) << 16) |
            (static_cast<uint32_t>(data[3]) << 24);
-}
-
-
-void writeLe16(std::ofstream& file, uint16_t value)
-{
-    const uint8_t bytes[2] = {
-        static_cast<uint8_t>(value & 0xFF),
-        static_cast<uint8_t>((value >> 8) & 0xFF)
-    };
-    file.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
 }
 
 void writeLe32(std::ofstream& file, uint32_t value)
@@ -719,8 +710,20 @@ uint8_t CassetteDevice::toggleOutput()
     }
 
     lastOutputToggleCycle = currentCycle;
+    lastEdgeFromInputRead_ = false;
     outputLevel = !outputLevel;
     return outputLevel ? 0x80 : 0x00;
+}
+
+void CassetteDevice::toggleOutputOnInputRead()
+{
+    if (recordingStarted_ && !lastEdgeFromInputRead_ && currentCycle >= lastOutputToggleCycle &&
+        currentCycle - lastOutputToggleCycle <= kInputReadEdgeWindowCycles) {
+        toggleOutput();                      // an edge of the tape being written
+        lastEdgeFromInputRead_ = true;
+        return;
+    }
+    outputLevel = !outputLevel;              // the flip-flop flips; nothing records it
 }
 
 void CassetteDevice::armPlaybackAtStart()
@@ -1027,13 +1030,13 @@ bool CassetteDevice::loadProgramTape(const std::string& path)
     return false;
 }
 
-bool CassetteDevice::saveTape(const std::string& path) const
+bool CassetteDevice::saveTape(const std::string& path, pom1::TapeExportProfile profile) const
 {
-    const std::string ext = lowerExtension(path);
-    if (ext == ".wav") {
-        return saveWavTape(path);
+    const pom1::TapeContainer container = pom1::tapeContainerForPath(path);
+    if (container == pom1::TapeContainer::Aci) {
+        return saveAciTape(path);
     }
-    return saveAciTape(path);
+    return saveAudioTape(path, container, profile);
 }
 
 bool CassetteDevice::loadAciTape(const std::string& path)
@@ -1145,7 +1148,23 @@ bool CassetteDevice::loadPcmTape(const std::string& path, bool aiff)
 
 bool CassetteDevice::loadWavTape(const std::string& path)
 {
-    return loadPcmTape(path, /*aiff=*/false);
+    if (loadPcmTape(path, /*aiff=*/false)) return true;
+    // POM1's own parser reads PCM 8-32 and float 32/64. A WAV it refuses for
+    // its ENCODING (ADPCM, A-law, mu-law...) may still be one miniaudio's
+    // dr_wav decodes — try that before giving up. A WAV refused for its size,
+    // or one whose audio simply holds no cassette signal, is not retried.
+    const std::string parseError = lastError;
+    const bool encodingRefused =
+        parseError.find("Unsupported WAV") != std::string::npos ||
+        parseError.find("Only WAV") != std::string::npos;
+    if (!encodingRefused) return false;
+    if (loadMiniaudioTape(path)) {
+        pom1::log().info("Tape", std::filesystem::path(path).filename().string() +
+                                     ": decoded by miniaudio (" + parseError + ")");
+        return true;
+    }
+    lastError = parseError;
+    return false;
 }
 
 bool CassetteDevice::pcmToDurations(const std::vector<float>& mono,
@@ -1156,64 +1175,18 @@ bool CassetteDevice::pcmToDurations(const std::vector<float>& mono,
 {
     // Output is in CPU-cycle units (kTapeFileTimebaseHz == POM1_CPU_CLOCK_HZ).
     // advancePlayback() consumes the resulting durations directly as CPU
-    // cycles, and saveWavTape() rebuilds the WAV at kWavFileSampleRate
-    // using the same constant — both paths stay symmetric.
-    outDurations.clear();
-    if (mono.empty()) {
-        outErr = "Audio file does not contain samples";
+    // cycles, and saveAudioTape() renders the WAV/AIFF from them with the
+    // same constant — both paths stay symmetric. The edge detection itself
+    // (filters, adaptive hysteresis, zero-crossing interpolation, glitch
+    // filter) is the pure pom1::decodeTapePulses() — TapePulseDecoder.h.
+    pom1::TapePulses pulses = pom1::decodeTapePulses(mono, sampleRate, kTapeFileTimebaseHz);
+    if (!pulses.ok) {
+        outDurations.clear();
+        outErr = pulses.error;
         return false;
     }
-    if (sampleRate == 0) {
-        outErr = "Audio file has an invalid sample rate";
-        return false;
-    }
-
-    static constexpr float kThreshold = 0.02f;
-    size_t firstActive = 0;
-    while (firstActive < mono.size() && std::fabs(mono[firstActive]) < kThreshold) {
-        ++firstActive;
-    }
-    if (firstActive == mono.size()) {
-        outErr = "Audio file does not contain a detectable cassette signal";
-        return false;
-    }
-
-    outInitialLevel = mono[firstActive] >= 0.0f;
-    bool currentLevel = outInitialLevel;
-    size_t lastTransition = firstActive;
-
-    for (size_t i = firstActive + 1; i < mono.size(); ++i) {
-        bool newLevel = currentLevel;
-        if (mono[i] >= kThreshold) {
-            newLevel = true;
-        } else if (mono[i] <= -kThreshold) {
-            newLevel = false;
-        }
-
-        if (newLevel != currentLevel) {
-            const size_t deltaSamples = i - lastTransition;
-            // Clamp INSIDE the double domain, before narrowing. Converting an
-            // out-of-range floating value to uint32_t is undefined behaviour,
-            // not a wrap: a low declared sample rate over a long gap reaches
-            // 5.1e9 with ease, and UBSan calls it exactly that. PcmFile.h bounds
-            // the rate the two hand-rolled parsers accept, but miniaudio-decoded
-            // files arrive here too, so the arithmetic itself has to be safe.
-            // std::round, not std::llround: the clamp below is done in the
-            // double domain on purpose (see above), and llround would both
-            // narrow here — MSVC C4244 — and be undefined for the very
-            // out-of-range values this arithmetic exists to survive.
-            const double rawCycles =
-                std::round(static_cast<double>(deltaSamples) *
-                             static_cast<double>(kTapeFileTimebaseHz) /
-                             static_cast<double>(sampleRate));
-            const uint32_t cycles = static_cast<uint32_t>(std::min(
-                std::max(rawCycles, 1.0),
-                static_cast<double>(std::numeric_limits<uint32_t>::max())));
-            outDurations.push_back(cycles);
-            currentLevel = newLevel;
-            lastTransition = i;
-        }
-    }
+    outDurations = std::move(pulses.durations);
+    outInitialLevel = pulses.initialLevel;
     return true;
 }
 
@@ -1308,9 +1281,11 @@ bool CassetteDevice::loadMiniaudioTape(const std::string& path)
     // 2-hour podcast loads from chewing memory.
     static constexpr uint64_t kMaxFrames = 30ull * 60ull * 96000ull;
 
-    // Decode straight to mono float32 so pcmToDurations gets the exact
-    // format it expects. sampleRate=0 in the config means "keep source rate".
-    ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 1, 0);
+    // Decode to float32 at the source's own rate AND channel count (0 = keep),
+    // then fold the channels with the same rule as the WAV/AIFF parsers
+    // (pom1::mixTapeChannels): miniaudio's own downmix is a plain average, and
+    // a phase-inverted stereo rip averages to silence.
+    ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 0, 0);
     ma_decoder decoder;
     if (ma_decoder_init_file(path.c_str(), &cfg, &decoder) != MA_SUCCESS) {
         lastError = "Cannot decode audio file: " + path;
@@ -1318,27 +1293,32 @@ bool CassetteDevice::loadMiniaudioTape(const std::string& path)
     }
 
     const uint32_t sampleRate = decoder.outputSampleRate;
-    if (sampleRate == 0) {
+    const uint32_t channels = decoder.outputChannels;
+    if (sampleRate == 0 || channels == 0 || channels > 64) {
         ma_decoder_uninit(&decoder);
-        lastError = "Decoded audio reports an invalid sample rate";
+        lastError = "Decoded audio reports an invalid sample rate or channel count";
         return false;
     }
 
     // Ogg Vorbis often reports 0 total frames; we stream in chunks
     // instead of pre-allocating. 4096 frames ≈ 93 ms at 44.1 kHz.
-    std::vector<float> samples;
+    std::vector<float> interleaved;
     constexpr size_t kChunkFrames = 4096;
-    float chunk[kChunkFrames];
+    std::vector<float> chunk(kChunkFrames * channels);
     uint64_t totalFrames = 0;
     while (totalFrames < kMaxFrames) {
         ma_uint64 framesRead = 0;
-        const ma_result r = ma_decoder_read_pcm_frames(&decoder, chunk, kChunkFrames, &framesRead);
+        const ma_result r = ma_decoder_read_pcm_frames(&decoder, chunk.data(), kChunkFrames, &framesRead);
         if (framesRead == 0) break;
-        samples.insert(samples.end(), chunk, chunk + framesRead);
+        interleaved.insert(interleaved.end(), chunk.begin(),
+                           chunk.begin() + static_cast<std::ptrdiff_t>(framesRead * channels));
         totalFrames += framesRead;
         if (r != MA_SUCCESS) break;  // EOF or error — we consumed what we could
     }
     ma_decoder_uninit(&decoder);
+    const std::vector<float> samples = pom1::mixTapeChannels(
+        interleaved.data(), static_cast<size_t>(totalFrames), static_cast<uint16_t>(channels));
+    interleaved = {};
 
     if (totalFrames >= kMaxFrames) {
         lastError = "Audio file exceeds 30-minute tape limit";
@@ -1353,54 +1333,27 @@ bool CassetteDevice::loadMiniaudioTape(const std::string& path)
     return loadPlaybackDurations(std::move(durations), initialLevel, path);
 }
 
-bool CassetteDevice::saveWavTape(const std::string& path) const
+bool CassetteDevice::saveAudioTape(const std::string& path,
+                                   pom1::TapeContainer container,
+                                   pom1::TapeExportProfile profile) const
 {
-    if (recordedDurations.empty()) {
-        lastError = "No cassette output has been recorded yet";
+    const pom1::TapeRenderSettings settings =
+        pom1::tapeRenderSettings(pom1::resolveTapeExportProfile(profile, container));
+    const pom1::TapeAudioFile rendered =
+        pom1::renderTapeAudio(recordedDurations, recordedInitialLevel,
+                              kTapeFileTimebaseHz, settings, container);
+    if (!rendered.ok) {
+        lastError = rendered.error;
         return false;
     }
-
-    std::vector<int16_t> pcm;
-    bool level = recordedInitialLevel;
-    for (uint32_t duration : recordedDurations) {
-        const uint32_t sampleCount = std::max<uint32_t>(1, static_cast<uint32_t>(
-            std::llround(static_cast<double>(duration) * static_cast<double>(kWavFileSampleRate) /
-                         static_cast<double>(kTapeFileTimebaseHz))));
-        const int16_t sample = level ? 14000 : -14000;
-        pcm.insert(pcm.end(), sampleCount, sample);
-        level = !level;
-    }
-
-    pcm.insert(pcm.end(), kWavFileSampleRate / 10, level ? 14000 : -14000);
-
-    const size_t dataSizeFull = pcm.size() * sizeof(int16_t);
-    if (dataSizeFull > UINT32_MAX - 36) {
-        lastError = "Recording too large to save as WAV";
-        return false;
-    }
-    const uint32_t dataSize = static_cast<uint32_t>(dataSizeFull);
-    const uint32_t riffSize = 36 + dataSize;
 
     std::ofstream file(path, std::ios::binary);
     if (!file.is_open()) {
         lastError = "Cannot write tape file: " + path;
         return false;
     }
-
-    file.write("RIFF", 4);
-    writeLe32(file, riffSize);
-    file.write("WAVE", 4);
-    file.write("fmt ", 4);
-    writeLe32(file, 16);
-    writeLe16(file, 1);
-    writeLe16(file, 1);
-    writeLe32(file, kWavFileSampleRate);
-    writeLe32(file, kWavFileSampleRate * sizeof(int16_t));
-    writeLe16(file, sizeof(int16_t));
-    writeLe16(file, 16);
-    file.write("data", 4);
-    writeLe32(file, dataSize);
-    file.write(reinterpret_cast<const char*>(pcm.data()), static_cast<std::streamsize>(dataSize));
+    file.write(reinterpret_cast<const char*>(rendered.bytes.data()),
+               static_cast<std::streamsize>(rendered.bytes.size()));
 
     // Surface a write failure rather than reporting success on a truncated file.
     file.flush();

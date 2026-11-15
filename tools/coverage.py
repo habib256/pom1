@@ -53,6 +53,8 @@ MODULES = [
         r"^src/MemoryImageLoader\.cpp$",
         r"^src/IntelHexFile\.",
         r"^src/PcmFile\.cpp$",
+        r"^src/TapeExport\.cpp$",
+        r"^src/TapePulseDecoder\.cpp$",
         r"^src/D64Image\.cpp$",
         r"^src/FileBytes\.",
         r"^src/HexDumpFile\.",
@@ -119,6 +121,7 @@ MODULES = [
         r"^src/PresetDecisions\.",
         r"^src/ShortcutTable\.",
         r"^src/SoftwareDirRules\.",
+        r"^src/AsciiArt",
     )),
     ("platform", (
         r"^src/ResourceLocator\.cpp$",

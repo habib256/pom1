@@ -90,7 +90,7 @@ MainWindow_ImGui::~MainWindow_ImGui()
     // no longer guards.
     if (!saveTapePath.empty() && emulation) {
         std::string err;
-        if (emulation->saveTape(saveTapePath, err)) {
+        if (emulation->saveTape(saveTapePath, err, saveTapeProfile)) {
             pom1::log().info("POM1",
                 std::string("Saved cassette capture to ") + saveTapePath);
         } else {

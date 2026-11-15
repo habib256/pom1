@@ -74,6 +74,19 @@ The library is split across `tms9918.h` (VDP-level primitives) and
 
 ## 3. Silicon-handling that leaks through the C API
 
+> **Never reach a VDP port through a pointer variable.** `VDP_DATA` and
+> `VDP_REG` are compile-time constants (`tms9918.h`) so cc65 emits
+> `sta $CC00` / `sta $CC01`. Until November 2026 they were `extern` pointer
+> objects, and cc65 — which cannot fold an extern — wrote both ports through
+> `sta (ptr1),y`, an indexed store. On the NMOS 6502 that store READS the port
+> one cycle before writing it: a data-port read advances the VRAM address (every
+> byte skipped one cell) and a status read resets the control flip-flop (every
+> address/register pair torn in half). POM1 masked it until it modelled the
+> dummy cycle. The same applies to your own code: `unsigned char *p = 0xCC00;
+> *p = v;` compiles to the broken form, `*(volatile unsigned char *)0xCC00 = v;`
+> to the right one. See [`Programming_TMS9918.md`
+> "indexed-store-dummy-read"](Programming_TMS9918.md#indexed-store-dummy-read).
+
 The runtime takes care of the slot-table model (Bug N°1 in
 [`Programming_TMS9918.md` §17](Programming_TMS9918.md#bug-n1-vram-timing))
 so you don't have to insert `JSR tms9918_pad18` by hand. But the
