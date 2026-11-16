@@ -46,7 +46,15 @@ inline constexpr char kNoKey = '\0';
 /// Covers only the keys that produce no host character-callback event: Enter,
 /// Backspace, Escape and CTRL chords. Printable characters arrive through the
 /// char callback and never reach here.
-char mapKey(int key, int mods);
+///
+/// `layoutName` is what the host's CURRENT keyboard layout prints on that key
+/// (GLFW's glfwGetKeyName(key, scancode)), or nullptr. It matters for CTRL
+/// chords only: host key codes name the PHYSICAL key after its place on a US
+/// keyboard, so on a French AZERTY the key labelled A arrives as KEY_Q, and
+/// Ctrl+A sent $11. When the layout names a single ASCII letter, that letter
+/// decides the control code; anything else (nullptr, a non-Latin letter, a
+/// punctuation key) falls back to the US position, as before.
+char mapKey(int key, int mods, const char* layoutName = nullptr);
 
 /// True when the chord should be read as CTRL+<letter>. ALT/SUPER are excluded
 /// so the OS keeps Cmd- combos; SHIFT is allowed because Ctrl+Shift+<letter>

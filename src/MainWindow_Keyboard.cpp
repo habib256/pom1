@@ -99,7 +99,6 @@ void MainWindow_ImGui::handleGlfwChar(unsigned int codepoint)
 
 void MainWindow_ImGui::handleGlfwKey(int key, int scancode, int action, int mods)
 {
-    (void)scancode;
     if (action == GLFW_RELEASE) {
         return;
     }
@@ -133,10 +132,11 @@ void MainWindow_ImGui::handleGlfwKey(int key, int scancode, int action, int mods
     const bool fire = (action == GLFW_PRESS) || (action == GLFW_REPEAT && keyboardAutorepeat);
     if (!fire) return;
 
-    // The DECISION lives in Apple1KeyMap (pure, no GLFW/ImGui) so it can be
-    // tested without a window — see tests/apple1_keymap_smoke_test.cpp. What
-    // stays here is the event plumbing: focus guards, autorepeat gating and the
-    // shortcut table, all of which need the live UI.
-    if (const char c = pom1::keymap::mapKey(key, activeMods))
+    // The DECISION lives in Apple1KeyMap (pure; tests/mainwindow_logic_smoke_test.cpp).
+    // Here: focus guards, autorepeat, the shortcut table, and the layout's name for a
+    // CTRL letter (AZERTY's A is the US Q key) — never asked under WASM, where
+    // Emscripten's glfwGetKeyName is abort(): the US position is used there.
+    const char* layoutName = (!POM1_IS_WASM && pom1::keymap::isControlChord(activeMods)) ? glfwGetKeyName(key, scancode) : nullptr;
+    if (const char c = pom1::keymap::mapKey(key, activeMods, layoutName))
         emulation->queueKey(c);
 }
