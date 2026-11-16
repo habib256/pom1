@@ -289,7 +289,7 @@ std::vector<std::pair<uint16_t, uint8_t>> toProgram(const Art& art, uint16_t ori
             out.emplace_back(a++, static_cast<uint8_t>(c));   // no CR: the terminal wraps at 40
         }
     }
-    out.emplace_back(a, 0x00);
+    out.emplace_back(a, uint8_t{0x00});
     return out;
 }
 
