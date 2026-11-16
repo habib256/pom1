@@ -12,6 +12,9 @@
 //   §5  the Woz Monitor dump and the Integer BASIC listing are well-formed:
 //       no '"' or '_' inside a BASIC string, full rows end with ';';
 //   §6  framing: zoom, pan, and pulling back past the picture's edge (black).
+//   §7  framing by hand on the original: inverse, pan, wheel about the cursor,
+//       corner drag holding the opposite corner, whole picture, panel fit,
+//       hit-testing, and the shrunk texture copy.
 //
 // argv[1] = roms/charmap.rom
 
@@ -223,6 +226,89 @@ int main(int argc, char** argv)
         assert(onWhite.rows[12][20] != ' ' && onBlack.rows[12][20] == ' ');
         assert(pulled.rows[0][0] == ' ' && pulled.rows[12][0] == ' ');   // margin
         assert(pulled.rows[12][12] != ' ' && pulled.rows[12][27] == ' '); // picture, then its black half
+    }
+
+    // §7 Framing by hand, on the original picture.
+    {
+        auto near = [](double a, double b) { return a - b < 1e-3 && b - a < 1e-3; };
+        auto same = [&](const FrameRect& r, double x, double y, double w, double h) {
+            return near(r.x, x) && near(r.y, y) && near(r.w, w) && near(r.h, h);
+        };
+        const Framing base;   // 800 x 600 picture: the whole of it at zoom 1
+
+        // framingFor is frameRect's inverse, and clamps the way it does.
+        assert(same(frameRect(800, 600, framingFor(800, 600, base, 200, 150, 400)), 0, 0, 400, 300));
+        assert(near(framingFor(800, 600, base, 400, 300, 1.0).zoom, kMaxZoom));
+        assert(near(framingFor(800, 600, base, 400, 300, 1e6).zoom, kMinZoom));
+        assert(near(framingFor(800, 600, base, -50, 900, 400).centerX, 0.0));
+        assert(near(framingFor(800, 600, base, -50, 900, 400).centerY, 1.0));
+
+        // Pan: by picture pixels; the centre stops at the picture's edge.
+        Framing half = framingFor(800, 600, base, 400, 300, 400);
+        assert(same(frameRect(800, 600, panFrame(800, 600, half, 100, -50)), 300, 100, 400, 300));
+        assert(same(frameRect(800, 600, panFrame(800, 600, half, 5000, 0)), 600, 150, 400, 300));
+
+        // Wheel: the point under the cursor stays put in the frame.
+        const Framing z = zoomFrameAbout(800, 600, base, 2.0, 200, 150);
+        assert(same(frameRect(800, 600, z), 100, 75, 400, 300));
+        const FrameRect zr = frameRect(800, 600, z);
+        assert(near((200 - zr.x) / zr.w, 0.25) && near((150 - zr.y) / zr.h, 0.25));
+        // At the limit the factor taken is the clamped one, and the anchor follows it.
+        const Framing top = framingFor(800, 600, base, 400, 300, 800.0 / kMaxZoom);
+        assert(same(frameRect(800, 600, zoomFrameAbout(800, 600, top, 4.0, 0, 0)), frameRect(800, 600, top).x,
+                    frameRect(800, 600, top).y, 50, 37.5));
+
+        // Click outside: recentred, same size.
+        assert(same(frameRect(800, 600, centreFrameOn(800, 600, half, 600, 450)), 400, 300, 400, 300));
+
+        // Corner drag: the opposite corner holds, the shape holds, the larger pull wins.
+        const FrameRect h0 = frameRect(800, 600, half);   // 200,150 400x300
+        assert(same(frameRect(800, 600, resizeFrameFromCorner(800, 600, half, Corner::BottomRight, 800, 450)),
+                     200, 150, 600, 450));
+        assert(same(frameRect(800, 600, resizeFrameFromCorner(800, 600, half, Corner::BottomRight, 300, 600)),
+                     200, 150, 600, 450));                 // taller pull: 450 high -> 600 wide
+        assert(same(frameRect(800, 600, resizeFrameFromCorner(800, 600, half, Corner::TopLeft, 400, 300)),
+                     400, 300, 200, 150));                 // shrunk towards the held bottom-right
+        {
+            const FrameRect tr = frameRect(800, 600, resizeFrameFromCorner(800, 600, half, Corner::TopRight, 800, 150));
+            assert(near(tr.x, 200) && near(tr.y + tr.h, 450) && near(tr.w, 600) && near(tr.h, 450));
+        }
+        // Dragged across the held corner: never folds, never inverts.
+        assert(frameRect(800, 600, resizeFrameFromCorner(800, 600, half, Corner::BottomRight, 0, 0)).w > 0.0);
+
+        // Whole picture: a wide picture in a 4:3 frame gets bars above and below.
+        const FrameRect whole = frameRect(1600, 600, fitWholePicture(1600, 600, base));
+        assert(same(whole, 0, -300, 1600, 1200));
+        assert(same(frameRect(800, 600, fitWholePicture(800, 600, base)), 0, 0, 800, 600));
+
+        // The panel fits picture and frame together, centred.
+        const View v = fitView(800, 600, frameRect(800, 600, base), 420, 320, 10);
+        assert(near(v.scale, 0.5) && near(v.originX, 10) && near(v.originY, 10));
+        assert(near(v.toPictureX(v.toPanelX(123.0)), 123.0));
+        const View vo = fitView(800, 600, frameRect(800, 600, Framing{0.5f, 0.5f, 0.5f}), 400, 300, 0);
+        assert(near(vo.scale, 0.25) && near(vo.toPanelX(-400), 0) && near(vo.toPanelY(900), 300));
+
+        // Hit-testing: corners first, then inside, then outside.
+        assert(hitFrame(h0, v, v.toPanelX(200), v.toPanelY(150), 6) == FrameHit::TopLeft);
+        assert(hitFrame(h0, v, v.toPanelX(600) + 4, v.toPanelY(450) - 4, 6) == FrameHit::BottomRight);
+        assert(hitFrame(h0, v, v.toPanelX(600), v.toPanelY(150), 6) == FrameHit::TopRight);
+        assert(hitFrame(h0, v, v.toPanelX(200), v.toPanelY(450), 6) == FrameHit::BottomLeft);
+        assert(hitFrame(h0, v, v.toPanelX(400), v.toPanelY(300), 6) == FrameHit::Inside);
+        assert(hitFrame(h0, v, v.toPanelX(50), v.toPanelY(300), 6) == FrameHit::Outside);
+
+        // The texture copy: kept as is when small, box-filtered when not.
+        std::vector<uint8_t> img(4 * 4 * 4, 0);
+        for (int i = 0; i < 4 * 4; ++i) {
+            img[static_cast<std::size_t>(i) * 4] = static_cast<uint8_t>((i % 4) < 2 ? 0 : 200);
+            img[static_cast<std::size_t>(i) * 4 + 3] = 255;
+        }
+        const Rgba keep = shrinkToFit(img.data(), 4, 4, 4);
+        assert(keep.w == 4 && keep.h == 4 && keep.px == img);
+        const Rgba small = shrinkToFit(img.data(), 4, 4, 2);
+        assert(small.w == 2 && small.h == 2 && small.px[0] == 0 && small.px[4] == 200 && small.px[3] == 255);
+        const Rgba wide = shrinkToFit(img.data(), 4, 1, 2);
+        assert(wide.w == 2 && wide.h == 1);
+        assert(shrinkToFit(nullptr, 4, 4, 2).w == 0);
     }
 
     std::puts("ascii_art_smoke: OK");

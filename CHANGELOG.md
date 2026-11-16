@@ -38,9 +38,16 @@ affiche sur un vrai Apple-1.
   le prouve à l'extrême : une image des 64 glyphes redonne les 64 glyphes.
   *Densité* : rampe calculée depuis la même ROM, pour les photos. Tramage
   Floyd–Steinberg, luminosité, contraste, gamma, inversion.
-- **Cadrage** : zoom de 0,25× (l'image recule, marges noires) à 16×, centre
-  déplaçable — glisser dans l'aperçu, molette pour zoomer, ou les curseurs — et
-  cadre 4:3 (proportions gardées sur le moniteur) ou image étirée.
+- **Cadrage sur l'image d'origine.** Le panneau *Original* montre l'image en
+  couleur avec le cadre 40 × 24 par-dessus (l'extérieur assombri, la grille des
+  caractères dès qu'elle est lisible) : glisser dans le cadre le déplace, un
+  coin le redimensionne en tenant le coin opposé, un clic ailleurs le recentre
+  là, la molette zoome autour du curseur ; « Whole picture » recule jusqu'à
+  l'image entière. L'écran Apple-1 est à côté (empilé si la fenêtre est
+  étroite) et se cadre aussi à la souris. Zoom de 0,25× (marges noires) à 16×,
+  cadre 4:3 (proportions gardées sur le moniteur) ou image étirée. Le panneau
+  montre une copie réduite à 1024 px de côté au plus : une photo de téléphone
+  dépasse la taille de texture de certains GPU.
 - **Sorties** : « Show on the Apple-1 » écrit un programme 6502 à `$0280` et le
   lance (il imprime par l'`ECHO` du Woz Monitor puis attend une touche : rendre
   la main tout de suite imprimerait un CR et ferait défiler la ligne du haut) ;
@@ -57,10 +64,11 @@ l'outil Photo → ASCII de RDK Apple-1 (grille, dernière ligne à 39 colonnes,
 sorties BASIC et 6502) ; la comparaison de formes contre la vraie ROM est
 propre à POM1.
 
-Cliquets relevés : `mainwindow_lines` 17 401 → 17 428 (l'entrée du registre
+Cliquets relevés : `mainwindow_lines` 17 401 → 17 429 (l'entrée du registre
 des fenêtres, le menu, le routage des images déposées et les rappels vers la
 machine : `writeMemoryBatch`/`jumpTo` existants, aucune méthode publique
-ajoutée) et `sources_outside_test_devices` 89 → 91 (le module et sa fenêtre).
+ajoutée ; puis une ligne dans `destroyPom1()` qui rend la texture de l'image
+d'origine au renderer avec les autres) et `sources_outside_test_devices` 89 → 91 (le module et sa fenêtre).
 
 ### Fixed — les vrais enregistrements de cassette se chargent
 

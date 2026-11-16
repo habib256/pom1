@@ -124,12 +124,139 @@ FrameRect frameRect(int w, int h, const Framing& f)
     const double shape = cw / ch;
     if (shape > aspect * (1.0 + 1e-6)) cw = ch * aspect;
     else if (shape < aspect * (1.0 - 1e-6)) ch = cw / aspect;
-    const double zoom = std::min(16.0, std::max(0.25, static_cast<double>(f.zoom)));
+    const double zoom = std::min<double>(kMaxZoom, std::max<double>(kMinZoom, f.zoom));
     r.w = cw / zoom;
     r.h = ch / zoom;
     r.x = std::min(1.0, std::max(0.0, static_cast<double>(f.centerX))) * w - r.w / 2.0;
     r.y = std::min(1.0, std::max(0.0, static_cast<double>(f.centerY))) * h - r.h / 2.0;
     return r;
+}
+
+Framing framingFor(int w, int h, const Framing& f, double cx, double cy, double frameW)
+{
+    Framing out = f;
+    if (w <= 0 || h <= 0 || !(frameW > 0.0)) return out;
+    Framing unit = f;
+    unit.zoom = 1.0f;
+    const double fullW = frameRect(w, h, unit).w;   // the frame's width at zoom 1
+    out.zoom = static_cast<float>(std::min<double>(kMaxZoom, std::max<double>(kMinZoom, fullW / frameW)));
+    out.centerX = static_cast<float>(std::min(1.0, std::max(0.0, cx / w)));
+    out.centerY = static_cast<float>(std::min(1.0, std::max(0.0, cy / h)));
+    return out;
+}
+
+Framing panFrame(int w, int h, const Framing& f, double dx, double dy)
+{
+    const FrameRect r = frameRect(w, h, f);
+    return framingFor(w, h, f, r.x + r.w / 2.0 + dx, r.y + r.h / 2.0 + dy, r.w);
+}
+
+Framing zoomFrameAbout(int w, int h, const Framing& f, double factor, double px, double py)
+{
+    if (!(factor > 0.0)) return f;
+    const FrameRect r = frameRect(w, h, f);
+    // The zoom clamps first, so the anchor follows the factor actually taken.
+    const Framing sized = framingFor(w, h, f, r.x + r.w / 2.0, r.y + r.h / 2.0, r.w / factor);
+    const double k = r.w / frameRect(w, h, sized).w;
+    const double cx = px + (r.x + r.w / 2.0 - px) / k;
+    const double cy = py + (r.y + r.h / 2.0 - py) / k;
+    return framingFor(w, h, sized, cx, cy, r.w / k);
+}
+
+Framing centreFrameOn(int w, int h, const Framing& f, double px, double py)
+{
+    return framingFor(w, h, f, px, py, frameRect(w, h, f).w);
+}
+
+Framing resizeFrameFromCorner(int w, int h, const Framing& f, Corner corner, double px, double py)
+{
+    const FrameRect r = frameRect(w, h, f);
+    if (r.w <= 0.0 || r.h <= 0.0) return f;
+    const double shape = r.w / r.h;
+    // The held corner is the opposite one; sx / sy point from it to the one dragged.
+    const bool left = corner == Corner::TopLeft || corner == Corner::BottomLeft;
+    const bool top = corner == Corner::TopLeft || corner == Corner::TopRight;
+    const double fx = left ? r.x + r.w : r.x;
+    const double fy = top ? r.y + r.h : r.y;
+    const double sx = left ? -1.0 : 1.0, sy = top ? -1.0 : 1.0;
+    // A corner dragged across the held one would fold the frame: keep a minimum.
+    const double pullW = std::max(0.0, (px - fx) * sx);
+    const double pullH = std::max(0.0, (py - fy) * sy) * shape;
+    const double nw = std::max(std::max(pullW, pullH), 1.0);
+    const Framing sized = framingFor(w, h, f, r.x + r.w / 2.0, r.y + r.h / 2.0, nw);
+    const FrameRect s = frameRect(w, h, sized);   // after the zoom clamp
+    return framingFor(w, h, sized, fx + sx * s.w / 2.0, fy + sy * s.h / 2.0, s.w);
+}
+
+Framing fitWholePicture(int w, int h, const Framing& f)
+{
+    if (w <= 0 || h <= 0) return f;
+    Framing unit = f;
+    unit.zoom = 1.0f;
+    const FrameRect r = frameRect(w, h, unit);
+    // The frame must cover both sides: the picture's width and its height.
+    const double frameW = std::max<double>(w, h * (r.w / r.h));
+    return framingFor(w, h, f, w / 2.0, h / 2.0, frameW);
+}
+
+View fitView(int w, int h, const FrameRect& fr, double viewW, double viewH, double marginPx)
+{
+    View v;
+    if (w <= 0 || h <= 0) return v;
+    const double x0 = std::min(0.0, fr.x), y0 = std::min(0.0, fr.y);
+    const double x1 = std::max<double>(w, fr.x + fr.w), y1 = std::max<double>(h, fr.y + fr.h);
+    const double availW = std::max(1.0, viewW - 2.0 * marginPx);
+    const double availH = std::max(1.0, viewH - 2.0 * marginPx);
+    v.scale = std::min(availW / (x1 - x0), availH / (y1 - y0));
+    v.originX = (viewW - (x1 - x0) * v.scale) / 2.0 - x0 * v.scale;
+    v.originY = (viewH - (y1 - y0) * v.scale) / 2.0 - y0 * v.scale;
+    return v;
+}
+
+FrameHit hitFrame(const FrameRect& fr, const View& v, double mx, double my, double handlePx)
+{
+    const double l = v.toPanelX(fr.x), t = v.toPanelY(fr.y);
+    const double r = v.toPanelX(fr.x + fr.w), b = v.toPanelY(fr.y + fr.h);
+    auto near = [handlePx](double a, double b2) { return a >= b2 - handlePx && a <= b2 + handlePx; };
+    if (near(mx, l) && near(my, t)) return FrameHit::TopLeft;
+    if (near(mx, r) && near(my, t)) return FrameHit::TopRight;
+    if (near(mx, r) && near(my, b)) return FrameHit::BottomRight;
+    if (near(mx, l) && near(my, b)) return FrameHit::BottomLeft;
+    if (mx >= l && mx <= r && my >= t && my <= b) return FrameHit::Inside;
+    return FrameHit::Outside;
+}
+
+Rgba shrinkToFit(const uint8_t* rgba, int w, int h, int maxSide)
+{
+    Rgba out;
+    if (rgba == nullptr || w <= 0 || h <= 0 || maxSide <= 0) return out;
+    const int longest = std::max(w, h);
+    if (longest <= maxSide) {
+        out.w = w;
+        out.h = h;
+        out.px.assign(rgba, rgba + static_cast<std::size_t>(w) * h * 4);
+        return out;
+    }
+    out.w = std::max(1, static_cast<int>(static_cast<long long>(w) * maxSide / longest));
+    out.h = std::max(1, static_cast<int>(static_cast<long long>(h) * maxSide / longest));
+    out.px.assign(static_cast<std::size_t>(out.w) * out.h * 4, 0);
+    for (int y = 0; y < out.h; ++y) {
+        const int ya = static_cast<int>(static_cast<long long>(y) * h / out.h);
+        const int yb = std::max(ya + 1, static_cast<int>(static_cast<long long>(y + 1) * h / out.h));
+        for (int x = 0; x < out.w; ++x) {
+            const int xa = static_cast<int>(static_cast<long long>(x) * w / out.w);
+            const int xb = std::max(xa + 1, static_cast<int>(static_cast<long long>(x + 1) * w / out.w));
+            uint64_t sum[4] = {0, 0, 0, 0};
+            for (int sy = ya; sy < yb; ++sy)
+                for (int sx = xa; sx < xb; ++sx)
+                    for (int c = 0; c < 4; ++c)
+                        sum[c] += rgba[(static_cast<std::size_t>(sy) * w + sx) * 4 + c];
+            const uint64_t n = static_cast<uint64_t>(yb - ya) * static_cast<uint64_t>(xb - xa);
+            for (int c = 0; c < 4; ++c)
+                out.px[(static_cast<std::size_t>(y) * out.w + x) * 4 + c] = static_cast<uint8_t>(sum[c] / n);
+        }
+    }
+    return out;
 }
 
 bool glyphsFromCharmap(const uint8_t* rom, std::size_t size, Glyphs& out)
