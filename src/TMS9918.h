@@ -217,7 +217,17 @@ public:
     // looks for the STA at PC-3 in the disassembly.
     void setLastAccessPc(uint16_t pc) { lastAccessPc = pc; }
 
+    // Two resets, as the hardware has two. reset() is POWER-ON: VRAM gets
+    // its power-on contents (the MSX1 bistable pattern or noise, above), the
+    // registers and the counters are cleared, the picture goes white.
+    // resetPin() is the chip's /RESET line alone: registers, status, the
+    // two-byte latch, the VRAM pointer, the read-ahead, a pending access and
+    // the raster cursors — but NOT the DRAM, which is outside the VDP and
+    // keeps its contents ([D] MAME tms9928a.cpp device_reset). The picture is
+    // rebuilt from the surviving VRAM. reset() = VRAM fill + resetPin().
+    // (Ported from POM2's bug hunt 2026-10-31.)
     void reset() override;
+    void resetPin();
 
     // ── Editor seam (TMS9918 Paint) ──────────────────────────────────────────
     // Direct VRAM / register writes from the host-side paint editor. Unlike a
@@ -334,6 +344,7 @@ public:
     //     own 10.738635 MHz crystal (+/-0.005 %), asynchronous to the Apple-1.
     // [F] The two crystals are independent, so the real phase between CPU and
     //     beam drifts by their tolerance; this fixes the NOMINAL ratio only.
+    //     Settled by: a capture of /INT against PHI0 on a real card.
     static constexpr int kVdpClocksPerLine = 342;
     static constexpr int kCyclesPerFrame = (kVdpClocksPerLine * 262 * 4) / 21;
     static_assert(kCyclesPerFrame == 17067, "342 x 262 VDP clocks at 4/21 CPU cycle each");
@@ -581,8 +592,10 @@ private:
     // RETIRED active-display floor (kept only for reference). POM1 used to add
     // a 9c Graphics I/II minimum on top of the slot table, arguing the TI
     // datasheet ~8 µs rule (ceil(8.18)=9) better matched real DRAM settling
-    // than openMSX's shorter D28. Decision (June 2026): openMSX is the source
-    // of truth — the floor is removed and nextSlotDelayCycles() uses pure
+    // than openMSX's shorter D28. Decision (June 2026): the [D] openMSX slot
+    // table is followed — [B] the manual (§ 2.1.5, p. 2-4) gives only a range,
+    // "can vary from 2 to 8 microseconds", which bounds the delay without
+    // scheduling it — so the floor is removed and nextSlotDelayCycles() uses pure
     // slot-table + D28 timing. The constant is no longer applied anywhere.
     static constexpr int kMinActiveDrainCycles = 9;   // unused — see note above
 
