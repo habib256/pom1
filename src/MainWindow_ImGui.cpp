@@ -166,6 +166,7 @@ void MainWindow_ImGui::destroyPom1()
     drop(appIconTexture);
     appIconWidth = appIconHeight = 0;
     appIconLoadTried = false;
+    imageToApple1.releaseTextures();
     // Table-driven photo windows: one loop covers all eight. The previous
     // hand-written list silently omitted three of them (Copson, Happy Woz,
     // P-LAB TMS9918), leaking those textures on every renderer teardown.

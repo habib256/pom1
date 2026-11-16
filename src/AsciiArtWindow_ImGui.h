@@ -6,9 +6,12 @@
 
 // DevBench ▸ Image to Apple-1 Text — the front end of src/AsciiArt.h.
 //
-// Load a picture (or drop one on POM1), frame it — drag the preview to pan,
-// wheel to zoom, or the sliders — pick SHAPE or DENSITY, and the preview shows
-// the 40 × 24 screen exactly as the 2513 will draw it. Then: show it on the
+// Load a picture (or drop one on POM1) and frame it on the ORIGINAL, shown in
+// colour with the 40 × 24 frame over it: drag inside the frame to move it, a
+// corner to resize it, click outside to recentre it there, wheel to zoom about
+// the cursor. Beside it the Apple-1 preview shows the screen exactly as the
+// 2513 will draw it (dragging and the wheel work there too). Pick SHAPE or
+// DENSITY. Then: show it on the
 // emulated Apple-1 (a 6502 program written to $0280 and started), save that
 // program as a Woz Monitor hex dump for a real machine, save or type an
 // Integer BASIC listing, or copy the text.
@@ -28,6 +31,8 @@
 struct GLFWwindow;
 
 namespace pom1 {
+
+struct Texture;
 
 class AsciiArtWindow_ImGui {
 public:
@@ -51,10 +56,15 @@ public:
     /// Extensions openImage() takes, lower case, no dot — the drop router asks.
     static bool isImagePath(const std::string& path);
 
+    /// Hand the original's texture back to the renderer (renderer teardown).
+    void releaseTextures();
+
 private:
     void ensureGlyphs();
     void reconvert();
+    void drawOriginal(float width, float height);
     void drawPreview(float width);
+    void uploadOriginal();
     void saveText(const Actions& a, const std::string& what, const std::string& text,
                   const std::string& suffix, const std::string& filterName);
 
@@ -63,6 +73,16 @@ private:
     std::string glyphError_;
 
     asciiart::Grey picture_;
+    asciiart::Rgba display_;              ///< the colour copy the Original panel shows
+    pom1::Texture* texture_ = nullptr;    ///< display_ on the GPU, made on first draw
+    bool textureStale_ = false;
+    /// What a drag on the Original started on, and the view frozen for it —
+    /// refitting the panel while the frame moves would slide it under the mouse.
+    asciiart::FrameHit drag_ = asciiart::FrameHit::Outside;
+    bool dragging_ = false;
+    asciiart::View dragView_;
+    asciiart::Framing dragStart_;         ///< the framing the drag started from
+    float dragMouseX_ = 0.0f, dragMouseY_ = 0.0f;
     std::string path_;
     char pathField_[1024] = "";
     std::string loadError_;

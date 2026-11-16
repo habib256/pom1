@@ -97,6 +97,72 @@ struct Framing {
 struct FrameRect { double x = 0, y = 0, w = 0, h = 0; };
 FrameRect frameRect(int w, int h, const Framing& f);
 
+inline constexpr float kMinZoom = 0.25f;
+inline constexpr float kMaxZoom = 16.0f;
+
+// ---- Framing by hand ------------------------------------------------------
+//
+// The window shows the original picture with the frame drawn on it; these
+// turn what the mouse does there into a Framing. Every one goes through
+// framingFor(), so they all clamp exactly as frameRect() does — a frame asked
+// to slide or grow past a limit stops at it.
+
+/// The inverse of frameRect(): the Framing (of `f`'s shape) whose frame is
+/// centred on picture point (cx, cy) and `frameW` picture pixels wide.
+Framing framingFor(int w, int h, const Framing& f, double cx, double cy, double frameW);
+
+/// Slide the frame by (dx, dy) picture pixels.
+Framing panFrame(int w, int h, const Framing& f, double dx, double dy);
+
+/// Zoom by `factor` (> 1 = closer) keeping picture point (px, py) where it is
+/// in the frame — the wheel under the cursor.
+Framing zoomFrameAbout(int w, int h, const Framing& f, double factor, double px, double py);
+
+/// Centre the frame on picture point (px, py), same size.
+Framing centreFrameOn(int w, int h, const Framing& f, double px, double py);
+
+/// The frame's corners, clockwise from the top left.
+enum class Corner : uint8_t { TopLeft, TopRight, BottomRight, BottomLeft };
+
+/// Drag `corner` to picture point (px, py), the opposite corner held. The
+/// frame keeps its shape: the larger of the two pulls wins.
+Framing resizeFrameFromCorner(int w, int h, const Framing& f, Corner corner, double px, double py);
+
+/// The zoom at which the whole picture fits inside the frame (black bars on
+/// the sides the frame's shape does not match), centred.
+Framing fitWholePicture(int w, int h, const Framing& f);
+
+/// How a panel shows the picture: panel = origin + picture × scale.
+struct View {
+    double originX = 0, originY = 0, scale = 1;
+    double toPanelX(double x) const { return originX + x * scale; }
+    double toPanelY(double y) const { return originY + y * scale; }
+    double toPictureX(double x) const { return (x - originX) / scale; }
+    double toPictureY(double y) const { return (y - originY) / scale; }
+};
+
+/// Fit the picture and the frame `fr` together (the frame overhangs the
+/// picture when zoomed out) into a viewW × viewH panel, centred, with
+/// `marginPx` free on every side.
+View fitView(int w, int h, const FrameRect& fr, double viewW, double viewH, double marginPx);
+
+/// What the panel point (mx, my) is over: a corner handle (a square of
+/// `handlePx` panel pixels each side of the corner), inside the frame, or
+/// outside it.
+enum class FrameHit : uint8_t { Outside, Inside, TopLeft, TopRight, BottomRight, BottomLeft };
+FrameHit hitFrame(const FrameRect& fr, const View& v, double mx, double my, double handlePx);
+
+/// An 8-bit RGBA picture.
+struct Rgba {
+    int w = 0;
+    int h = 0;
+    std::vector<uint8_t> px;
+};
+
+/// A copy no side longer than `maxSide`, box-filtered (a phone photo is past
+/// some GPUs' texture limit); the picture itself when it already fits.
+Rgba shrinkToFit(const uint8_t* rgba, int w, int h, int maxSide);
+
 struct Params {
     Framing framing;
     Mode mode = Mode::Shape;
