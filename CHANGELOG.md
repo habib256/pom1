@@ -22,9 +22,39 @@ phase), avec des profils d'export ordinateur / smartphone. Nouvel outil
 **DevBench ▸ Image to Apple-1 Text**. Côté logiciel 6502, `dev/lib` reprend le
 meilleur de pom2games (noyaux GEN2 et TMS9918 bien plus rapides). Plus une
 série de correctifs : exécutions headless bornées en cycles indépendantes de
-l'hôte, `--rtc-freeze`, Juke-Box, `--step`, journal de démarrage plus court.
+l'hôte, `--rtc-freeze`, Juke-Box, `--step`, journal de démarrage plus court ;
+et, remontés de POM2, le `resetPin()` du TMS9918 et un comportement indéfini
+corrigé dans son clonage de sprites.
 
 158/158 tests (130 emulator + 28 devtools).
+
+### Fixed — TMS9918 : ce que POM2 avait corrigé dans le même fichier, remonté
+
+`TMS9918.cpp` est partagé avec POM2 (la carte E-Z Color), qui avait pris de
+l'avance ; trois points reviennent dans POM1.
+
+- **Deux resets, comme le matériel.** `reset()` reste la mise sous tension
+  (VRAM au motif de démarrage, image blanche) et se réduit désormais à
+  « remplir la VRAM + `resetPin()` ». `resetPin()` est la seule ligne /RESET de
+  la puce : registres, statut, latch à deux octets, pointeur VRAM, lecture
+  anticipée, accès en attente et curseurs du balayage — mais pas la DRAM, qui
+  est à côté du VDP et garde ses octets ([D] MAME `tms9928a.cpp`
+  `device_reset`). Aucun appelant ne change : savoir si le /RESET de la carte
+  P-LAB suit celui de l'Apple-1 reste une question de matériel.
+- **Comportement indéfini sur `~R3`.** Le clonage des sprites en Graphics II
+  calculait `(~regs[3] << 1)` : `~` sur un `uint8_t` donne un `int` négatif, et
+  le décaler à gauche est indéfini en C++17. Calculé sur 8 bits
+  (`regs[3] ^ 0xFF`). UBSan le signalait (« left shift of negative value -1 »)
+  dès que le chemin s'exécutait — aucun test ne l'exécutait.
+- **Citations gradées** ([A]/[B]/[D]/[F], page du *Data Manual* TI) sur les
+  commentaires du statut, du drapeau F, des bordures du mode texte et du
+  plancher d'accès retiré. L'historique propre à POM1 que POM2 avait supprimé
+  reste ici.
+
+`tms9918_advanced_silicium` gagne deux tests : `resetPin()` garde la VRAM et
+remet la puce à zéro, `reset()` revient au motif de démarrage ; et le
+clonage en Graphics II s'exécute pour les deux valeurs du bit 5 de R3, pour
+que le job sanitizers voie le chemin.
 
 ### Added — DevBench ▸ Image to Apple-1 Text
 

@@ -19,6 +19,9 @@
 //      Real-silicon ground truth still unconfirmed (Test E).
 //   6. Bug N°6 — bits 0..4 of statusReg = SAT index of last sprite
 //      walked when bit 6 (5S) is NOT latched.
+//   7-8. 5S first-occurrence latch; status read clears bits 5/6/7.
+//   9. resetPin() keeps VRAM and clears the chip; reset() is power-on.
+//  10. Graphics II cloning reads ~R3 in 8 bits (no UB shift in C++17).
 
 #include "TMS9918.h"
 #include <cstdint>
@@ -272,6 +275,57 @@ int main()
         const uint8_t s2 = vdp.readControl();
         must((s1 & 0x20) != 0, "T8: 1st read shows collision bit 5"); ++n;
         must((s2 & 0x20) == 0, "T8: 2nd read has bit 5 cleared (sticky-on-read)"); ++n;
+    }
+
+    // --------------------------------------------------------------------
+    // Test 9 — two resets. resetPin() is the /RESET line: registers, status,
+    // latch, pointer, read-ahead cleared; the DRAM beside the chip keeps its
+    // bytes ([D] MAME tms9928a.cpp device_reset). reset() is power-on: VRAM
+    // refilled with the bistable pattern, picture white. (Ported from POM2.)
+    // --------------------------------------------------------------------
+    {
+        TMS9918 vdp;
+        vdp.reset();
+        vdp.writeControl(0x00); vdp.writeControl(0x40 | 0x10);     // write address $1000
+        for (int i = 0; i < 4; ++i) vdp.writeData(static_cast<uint8_t>(0xA0 + i));
+        vdp.writeControl(0xC0); vdp.writeControl(0x81);            // R1 = $C0, display on
+        vdp.writeControl(0x04); vdp.writeControl(0x87);            // R7 = $04
+        vdp.writeControl(0x12);                                    // first byte only: latch half-way
+        vdp.resetPin();
+        const uint8_t* vr = vdp.vramData();
+        must(vr[0x1000] == 0xA0 && vr[0x1003] == 0xA3, "resetPin: VRAM survives"); ++n;
+        must(vdp.regsData()[1] == 0x00, "resetPin: R1 cleared (display blanked)"); ++n;
+        must(vdp.regsData()[7] == 0x0F, "resetPin: R7 = white backdrop"); ++n;
+        // The latch is back on its first byte: a full address pair lands as one.
+        vdp.writeControl(0x00); vdp.writeControl(0x10);            // read address $1000
+        must(vdp.readData() == 0xA0, "resetPin: latch and pointer reset, read-ahead refetched"); ++n;
+        must((vdp.readControl() & 0xE0) == 0, "resetPin: status cleared"); ++n;
+
+        vdp.reset();
+        must(vr[0x1000] == 0xFF && vr[0x1001] == 0x00, "reset: VRAM back to the power-on pattern"); ++n;
+        TMS9918::Snapshot snap;
+        vdp.copySnapshot(snap);
+        must(snap.framebuffer[0] == snap.framebuffer[TMS9918::kFullWidth * TMS9918::kFullHeight / 2 + 7],
+             "reset: uniform picture"); ++n;
+    }
+
+    // --------------------------------------------------------------------
+    // Test 10 — sprite cloning on a 9918A in Graphics II with R4 bit 0 = 0
+    // reads ~R3 bit 5. Computed in 8 bits: `~uint8_t` is a negative int,
+    // and shifting it left is UB in C++17 (UBSan's shift-base check).
+    // Exercised here for both values of the bit so the sanitizer job sees it.
+    // --------------------------------------------------------------------
+    {
+        for (uint8_t r3 : {uint8_t{0x00}, uint8_t{0xFF}, uint8_t{0x20}, uint8_t{0xDF}}) {
+            TMS9918 vdp;
+            vdp.reset();
+            vdp.writeControl(0x02); vdp.writeControl(0x80);        // R0: M3 (Graphics II)
+            vdp.writeControl(0xC0); vdp.writeControl(0x81);        // R1: display on
+            vdp.writeControl(r3);   vdp.writeControl(0x83);        // R3
+            vdp.writeControl(0x00); vdp.writeControl(0x84);        // R4 bit 0 = 0: cloning
+            vdp.advanceCycles(TMS9918::kCyclesPerFrame);           // render one frame
+        }
+        ++n;
     }
 
     std::printf("tms9918_advanced_silicium: all %d assertions passed\n", n);
