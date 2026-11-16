@@ -40,6 +40,25 @@ constexpr uint64_t kSanitizerSlack = 10;
 #else
 constexpr uint64_t kSanitizerSlack = 1;
 #endif
+// The render and audio threads are PACED, as their production counterparts
+// are (a display refresh, an audio buffer period), not spinning. Spinning made
+// four busy threads on a 3-vCPU macOS / 4-vCPU Linux CI runner, so the lock
+// holder was descheduled under its own test and the wall-clock HOLD below
+// measured the scheduler: 104 ms (Linux) and 110 ms (macOS) in November 2026
+// against the 100 ms line, with no change in POM1. Measured interleaved on an
+// idle 8-core Mac, six pairs: spinning, max hold 21-42 ms and 75-427 topology
+// swaps; paced, 1.5-6.4 ms and 25 600-29 700 swaps — the spinning readers were
+// also starving the very swaps this test exists to race against them.
+// Control: with the A1-SID built under the lock again, the paced test still
+// fails 4/4 (wall hold 191-224 ms).
+//
+// The HOLD stays on the wall clock on purpose. Gating the holder's CPU time
+// instead was tried and REJECTED by its control experiment: with the A1-SID
+// built under the lock again (the regression this gate caught), the holder
+// sits BLOCKED, not computing — CPU hold 3.7-7.6 ms, wall hold 173-218 ms.
+constexpr auto kRenderPeriod = std::chrono::milliseconds(2);
+constexpr auto kAudioPeriod  = std::chrono::milliseconds(1);
+
 constexpr uint64_t kMaxStateWaitNs      = 5000000000ULL * kSanitizerSlack;
 constexpr uint64_t kMaxStateHoldNs      =  100000000ULL * kSanitizerSlack;
 constexpr uint64_t kMaxAudioCallbackNs  =   50000000ULL * kSanitizerSlack;
@@ -90,6 +109,7 @@ int main()
             hash ^= static_cast<uint64_t>(snapshot.gen2VideoEvents.size());
             renderChecksum.fetch_xor(hash, std::memory_order_relaxed);
             renderPasses.fetch_add(1, std::memory_order_relaxed);
+            std::this_thread::sleep_for(kRenderPeriod);
         }
     });
 
@@ -103,6 +123,7 @@ int main()
                     finiteAudioSamples.fetch_add(1, std::memory_order_relaxed);
             }
             audioCallbacks.fetch_add(1, std::memory_order_relaxed);
+            std::this_thread::sleep_for(kAudioPeriod);
         }
     });
 
