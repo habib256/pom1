@@ -29,6 +29,27 @@ indéfini corrigé dans son clonage de sprites.
 
 158/158 tests (130 emulator + 28 devtools).
 
+### Fixed — `concurrent_frontends_smoke` mesurait son propre ordonnanceur
+
+Deux échecs sur trois CI complètes, sous Linux (103,9 ms) et macOS (110,6 ms),
+contre une limite de 100 ms sur la plus longue détention de `stateMutex` — sans
+aucun changement dans POM1. Le test faisait tourner **quatre fils à vide** (rendu
+et audio en boucle serrée, en plus de l'émulation et des échanges de topologie)
+sur des machines à 3 ou 4 vCPU : le détenteur du verrou était désordonnancé par
+le test lui-même, et l'horloge murale comptait ce temps.
+
+Les fils de rendu et d'audio sont maintenant **cadencés** comme en production
+(2 ms et 1 ms). Mesuré en alternance sur un Mac au repos, six paires : en
+boucle serrée, détention max 21–42 ms et 75–427 échanges ; cadencé, 1,5–6,4 ms
+et 25 600–29 700 échanges — les lecteurs affamaient aussi les échanges que le
+test doit leur opposer. La limite reste à 100 ms, sur l'horloge murale.
+
+Écarté en chemin : mesurer le temps CPU du détenteur plutôt que l'horloge. Son
+expérience témoin l'a refusé — avec l'A1-SID reconstruit sous le verrou (la
+régression que cette limite a attrapée), le détenteur est **bloqué**, pas en
+calcul : 3,7–7,6 ms de CPU pour 173–218 ms au mur. La version cadencée, elle,
+échoue 4 fois sur 4 sur ce même témoin (191–224 ms).
+
 ### Fixed — Ctrl+lettre suit la disposition du clavier (AZERTY, QWERTZ)
 
 GLFW nomme chaque touche d'après sa **place sur un clavier américain** ; POM1
