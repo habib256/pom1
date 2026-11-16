@@ -23,10 +23,35 @@ phase), avec des profils d'export ordinateur / smartphone. Nouvel outil
 meilleur de pom2games (noyaux GEN2 et TMS9918 bien plus rapides). Plus une
 série de correctifs : exécutions headless bornées en cycles indépendantes de
 l'hôte, `--rtc-freeze`, Juke-Box, `--step`, journal de démarrage plus court ;
-et, remontés de POM2, le `resetPin()` du TMS9918 et un comportement indéfini
-corrigé dans son clonage de sprites.
+Ctrl+lettre qui suit enfin la disposition du clavier (AZERTY : Ctrl+A envoyait
+Ctrl-Q) ; et, remontés de POM2, le `resetPin()` du TMS9918 et un comportement
+indéfini corrigé dans son clonage de sprites.
 
 158/158 tests (130 emulator + 28 devtools).
+
+### Fixed — Ctrl+lettre suit la disposition du clavier (AZERTY, QWERTZ)
+
+GLFW nomme chaque touche d'après sa **place sur un clavier américain** ; POM1
+en déduisait le code de contrôle. Sur un Mac en ABC-AZERTY, Ctrl+A envoyait
+donc `$11` (Ctrl-Q), Ctrl+Q `$01`, Ctrl+Z `$17`, Ctrl+W `$1A`, Ctrl+M rien du
+tout, et Ctrl+, un retour chariot. Ctrl-C et Ctrl-T, à la même place sur les
+deux claviers, passaient — c'est pour ça que personne ne l'avait vu.
+
+La lettre est maintenant celle que **la disposition imprime sur la touche**
+(`glfwGetKeyName`), mesurée sur ce Mac : `KEY_A` → « q », `KEY_Q` → « a »,
+`KEY_W` → « z », `KEY_Z` → « w », `KEY_SEMICOLON` → « m », `KEY_M` → « , ».
+Sans réponse utilisable, c'est la position, comme avant : sous WASM, où le
+`glfwGetKeyName` d'Emscripten fait `abort()` et n'est donc jamais appelé, et
+avec une disposition non latine — Ctrl+C reste où il est sur un clavier
+cyrillique. La décision
+est dans le module pur `Apple1KeyMap` (`mainwindow_logic_smoke` : AZERTY,
+QWERTZ, repli) ; la fenêtre ne fait que passer le nom. `mainwindow_lines`
+inchangé.
+
+Vérifié au passage : la table de raccourcis ne tient que des touches F (garde
+`static_assert` + `shortcuts_sync`, Ctrl+Maj+lettre compris), les raccourcis
+Ctrl des éditeurs n'agissent que dans leur propre fenêtre, et ni la file du
+clavier ni `Memory::setKeyPressed` ne filtrent les codes de contrôle.
 
 ### Fixed — TMS9918 : ce que POM2 avait corrigé dans le même fichier, remonté
 

@@ -68,6 +68,35 @@ void testKeyMap()
     check(!isControlChord(kModShift),                "Shift alone is not a CTRL chord");
     check(isControlChord(kModControl | kModShift),   "Ctrl+Shift is a CTRL chord");
 
+    // The letter is the LAYOUT's, not the US position. [A] glfwGetKeyName on
+    // macOS ABC-AZERTY (GLFW 3.4): KEY_A "q", KEY_Q "a", KEY_W "z", KEY_Z "w",
+    // KEY_SEMICOLON "m", KEY_M ",". Before: Ctrl+A sent $11, Ctrl+Z $17,
+    // Ctrl+M nothing, and Ctrl+, a carriage return.
+    {
+        constexpr int kKeySemicolon = 59, kKeyCommaUs = 44;   // GLFW_KEY_SEMICOLON / _COMMA
+        check(mapKey('Q', kModControl, "a") == 0x01, "AZERTY: Ctrl+A (US Q key) is $01");
+        check(mapKey('A', kModControl, "q") == 0x11, "AZERTY: Ctrl+Q (US A key) is $11");
+        check(mapKey('W', kModControl, "z") == 0x1A, "AZERTY: Ctrl+Z (US W key) is $1A");
+        check(mapKey('Z', kModControl, "w") == 0x17, "AZERTY: Ctrl+W (US Z key) is $17");
+        check(mapKey(kKeySemicolon, kModControl, "m") == 0x0D, "AZERTY: Ctrl+M (US ; key) is $0D");
+        check(mapKey('M', kModControl, ",") == kNoKey, "AZERTY: Ctrl+, (US M key) sends nothing");
+        check(mapKey(kKeyCommaUs, kModControl, ";") == kNoKey, "AZERTY: Ctrl+; sends nothing");
+        check(mapKey('C', kModControl, "c") == 0x03, "AZERTY: Ctrl+C unchanged");
+        check(mapKey('T', kModControl, "t") == 0x14, "AZERTY: Ctrl+T unchanged");
+        check(mapKey('C', kModControl | kModShift, "C") == 0x03, "an upper-case name is the same letter");
+        // QWERTZ swaps Y and Z.
+        check(mapKey('Y', kModControl, "z") == 0x1A, "QWERTZ: Ctrl+Z (US Y key) is $1A");
+        // No usable name: the US position, as before.
+        check(mapKey('C', kModControl, nullptr) == 0x03, "no layout name: position");
+        check(mapKey('C', kModControl, "") == 0x03, "empty layout name: position");
+        check(mapKey('C', kModControl, "\xD1\x81") == 0x03, "Cyrillic layout: Ctrl+C by position");
+        check(mapKey('C', kModControl, "cc") == 0x03, "a multi-character name: position");
+        // The name never turns a non-CTRL key into a control code.
+        check(mapKey('Q', 0, "a") == kNoKey, "the layout name alone is not a chord");
+        check(mapKey('Q', kModControl | kModSuper, "a") == kNoKey, "Ctrl+Cmd stays the OS's");
+        check(mapKey(kKeyEnter, kModControl, nullptr) == '\r', "Ctrl+Enter is still CR");
+    }
+
     // Printable keys arrive through the character callback; this path must stay
     // out of their way or every letter would double up.
     check(mapKey('A', 0) == kNoKey, "unmodified letters come from the char event");
