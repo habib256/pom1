@@ -10,6 +10,22 @@ is `git log`; the user-facing feature tour is `README.md`; open work lives in
 
 ## [Unreleased]
 
+## [1.9.8] — 2026-11-16 — « Ghost Cycles »
+
+Le 6502 émule désormais **ses cycles de bus fantômes** (lectures factices des
+stores indexés, double écriture des RMW, vues par les périphériques), et la
+carte TMS9918 décode son kilo-octet entier. Les **movies** arrivent : frappes
+enregistrées au cycle près, rejeu vérifié, re-recording par le rewind,
+`--movie-play` en headless. Les **vrais enregistrements de cassette** se
+chargent (niveau faible, décalage continu, ronflement, stéréo en opposition de
+phase), avec des profils d'export ordinateur / smartphone. Nouvel outil
+**DevBench ▸ Image to Apple-1 Text**. Côté logiciel 6502, `dev/lib` reprend le
+meilleur de pom2games (noyaux GEN2 et TMS9918 bien plus rapides). Plus une
+série de correctifs : exécutions headless bornées en cycles indépendantes de
+l'hôte, `--rtc-freeze`, Juke-Box, `--step`, journal de démarrage plus court.
+
+158/158 tests (130 emulator + 28 devtools).
+
 ### Added — DevBench ▸ Image to Apple-1 Text
 
 Une image (PNG, JPEG, BMP, GIF, TGA… — ou déposée sur la fenêtre) devient
