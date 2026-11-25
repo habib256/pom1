@@ -81,6 +81,7 @@ isolément.
 - [ ] **Ajouter les variables chaîne au BASIC natif** `[L · nice]` — descripteurs ptr+len, heap, runtime chaîne, expressions typées et tests de pression mémoire.
 - [ ] **Ajouter un périphérique SpeakJet/TTS optionnel** `[M · nice]` — router l’UART vers un backend TTS injecté sans dupliquer 6522/6551 ni rendre le service obligatoire.
 - [ ] **Étendre le débogage source au C et au WASM** `[M · solid]` — transporter les `.dbg` via cl65/cc65 web et prendre en charge plusieurs points d’arrêt.
+- [ ] **Cœur libretro** `[L · solid]` — aucun cœur Apple-1 dédié chez libretro. Carte de la frontière, deux écrans composés en une image, chantiers et règles : [`doc/LIBRETRO_FR.md`](doc/LIBRETRO_FR.md). Premier pas : sortir le terminal de `Screen_ImGui`. Licence des ROM Apple à trancher avec libretro avant la soumission.
 
 > **La paire est livrée.** `--cmd-port` pilote POM1 de l'extérieur, `--preset-file`
 > le configure de l'extérieur : une machine définie par l'utilisateur, validée
