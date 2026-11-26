@@ -42,9 +42,10 @@ jobs:
         run: tools/verify_wasm_cc65.sh
 
       - name: Install dependencies
+        # GLFW's native X11 header includes Xrandr.h, supplied by libxrandr-dev.
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ libglfw3-dev libgl1-mesa-dev cc65 \
+          sudo apt-get install -y cmake g++ libglfw3-dev libxrandr-dev libgl1-mesa-dev cc65 \
                                   libgles2-mesa-dev libegl1-mesa-dev
 
       - name: Fetch Dear ImGui (pin from IMGUI_VERSION)
@@ -373,7 +374,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ libglfw3-dev libgl1-mesa-dev cc65
+          sudo apt-get install -y cmake g++ libglfw3-dev libxrandr-dev libgl1-mesa-dev cc65
 
       - name: Fetch Dear ImGui (pin from IMGUI_VERSION)
         run: tools/ensure_imgui.sh imgui
@@ -435,7 +436,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake clang libclang-rt-dev \
-                                  libglfw3-dev libgl1-mesa-dev
+                                  libglfw3-dev libxrandr-dev libgl1-mesa-dev
 
       - name: Fetch Dear ImGui (pin from IMGUI_VERSION)
         run: tools/ensure_imgui.sh imgui
@@ -553,7 +554,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang llvm libglfw3-dev libgl1-mesa-dev cc65
+          sudo apt-get install -y cmake clang llvm libglfw3-dev libxrandr-dev libgl1-mesa-dev cc65
 
       - name: Fetch Dear ImGui (pin from IMGUI_VERSION)
         run: tools/ensure_imgui.sh imgui
